@@ -210,6 +210,7 @@ find_tqueue(Objid player, int create_if_not_found)
     deactivate_tqueue(tq);
 
     tq->player = player;
+    tq->handler = 0;
     tq->connected = 0;
 
     tq->first_input = tq->first_bg = 0;
@@ -1936,11 +1937,17 @@ register_tasks(void)
 char rcsid_tasks[] = "$Id$";
 
 /* $Log$
-/* Revision 1.2  1997/03/03 04:19:31  nop
-/* GNU Indent normalization
+/* Revision 1.3  1997/03/08 06:25:43  nop
+/* 1.8.0p6 merge by hand.
 /*
+ * Revision 1.2  1997/03/03 04:19:31  nop
+ * GNU Indent normalization
+ *
  * Revision 1.1.1.1  1997/03/03 03:45:01  nop
  * LambdaMOO 1.8.0p5
+ *
+ * Revision 2.9  1997/03/04 04:39:48  eostrom
+ * Fixed uninitialized handler slot in find_tqueue.
  *
  * Revision 2.8  1996/04/08  01:03:04  pavel
  * Fixed panic when input was processed for an invalid positive object.
