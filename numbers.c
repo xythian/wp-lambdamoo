@@ -115,10 +115,8 @@ become_integer(Var in, int *ret, int called_from_tonum)
 	    return E_FLOAT;
 	*ret = (int) *in.v.fnum;
 	break;
-    case TYPE_LIST:
-	return E_TYPE;
     default:
-	errlog("BECOME_INTEGER: Impossible var type: %d\n", (int) in.type);
+	return E_TYPE;
     }
     return E_NONE;
 }
@@ -143,10 +141,8 @@ become_float(Var in, double *ret)
     case TYPE_FLOAT:
 	*ret = *in.v.fnum;
 	break;
-    case TYPE_LIST:
-	return E_TYPE;
     default:
-	errlog("BECOME_FLOAT: Impossible var type: %d\n", (int) in.type);
+	return E_TYPE;
     }
     return E_NONE;
 }
@@ -711,6 +707,9 @@ char rcsid_numbers[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.4.2.1  2002/08/29 06:03:40  bjj
+ * Quiet GCC in run(), toint/tofloat(waif) raises E_TYPE and waif.wizard=0
+ *
  * Revision 1.4  1998/12/14 13:18:37  nop
  * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
  *

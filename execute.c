@@ -1601,6 +1601,7 @@ do {    						    	\
 
 		if (verb.type != TYPE_STR || args.type != TYPE_LIST) {
 			err = E_TYPE;
+			class = NOTHING; /* shut up gcc */
 		} else if (obj.type == TYPE_WAIF) {
 			char *str = mymalloc(strlen(verb.v.str) + 2,M_STRING);
 
@@ -1613,8 +1614,10 @@ do {    						    	\
 			class = obj.v.obj;
 			if (verb.v.str[0] == WAIF_VERB_PREFIX)
 				err = E_VERBNF;
-		} else
+		} else {
 			err = E_TYPE;
+			class = NOTHING; /* shut up gcc */
+		}
 
 		if (err == E_NONE && !valid(class))
 			err = E_INVIND;
@@ -2958,6 +2961,9 @@ char rcsid_execute[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.13.2.2  2002/08/29 06:03:40  bjj
+ * Quiet GCC in run(), toint/tofloat(waif) raises E_TYPE and waif.wizard=0
+ *
  * Revision 1.13.2.1  2002/08/29 05:44:23  bjj
  * Add WAIF type as distributed in version 0.95 (one small merge).
  *

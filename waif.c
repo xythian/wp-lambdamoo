@@ -616,6 +616,9 @@ waif_get_prop(Waif *w, const char *name, Var *prop, Objid progr)
 		prop->type = TYPE_OBJ;
 		prop->v.obj = w->class;
 		return E_NONE;
+	} else if (!mystrcasecmp(name, "wizard")) {
+		*prop = zero;
+		return E_NONE;
 	} else if (!valid(w->class))
 		return E_INVIND;
 
@@ -682,6 +685,8 @@ waif_put_prop(Waif *w, const char *name, Var val, Objid progr)
 		 * explicit call at the chparent rather than really being
 		 * lazy in this case).
 		 */
+		return E_PERM;
+	else if (!mystrcasecmp(name, "wizard"))
 		return E_PERM;
 	else if (!valid(w->class))
 		return E_INVIND;
