@@ -54,7 +54,8 @@ static registry bi_function_registries[] =
     register_property,
     register_server,
     register_tasks,
-    register_verbs
+    register_verbs,
+    register_waif
 };
 
 void
@@ -201,8 +202,13 @@ call_bi_func(unsigned n, Var arglist, Byte func_pc,
 	 */
 	/* if (caller() != SYSTEM_OBJECT && server_flag_option(f->protect_str)) { */
 	if (caller() != SYSTEM_OBJECT && f->protected) {
+	    Var THIS;
+	    enum error e;
+
 	    /* Try calling #0:bf_FUNCNAME(@ARGS) instead */
-	    enum error e = call_verb2(SYSTEM_OBJECT, f->verb_str, arglist, 0);
+	    THIS.type = TYPE_OBJ;
+	    THIS.v.obj = SYSTEM_OBJECT;
+	    e = call_verb2(SYSTEM_OBJECT, f->verb_str, THIS, arglist, 0);
 
 	    if (e == E_NONE)
 		return tail_call_pack();
@@ -468,6 +474,9 @@ char rcsid_functions[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.7.2.1  2002/08/29 05:44:24  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.7  2001/03/12 05:10:54  bjj
  * Split out call_verb and call_verb2.  The latter must only be called with
  * strings that are already MOO strings (str_ref-able).

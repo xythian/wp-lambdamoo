@@ -32,6 +32,7 @@
 #include "storage.h"
 #include "streams.h"
 #include "structures.h"
+#include "waif.h"
 #include "utils.h"
 
 /*
@@ -158,6 +159,10 @@ complex_free_var(Var v)
 	if (delref(v.v.fnum) == 0)
 	    myfree(v.v.fnum, M_FLOAT);
 	break;
+    case TYPE_WAIF:
+	if (delref(v.v.waif) == 0)
+	    free_waif(v.v.waif);
+	break;
     }
 }
 
@@ -173,6 +178,9 @@ complex_var_ref(Var v)
 	break;
     case TYPE_FLOAT:
 	addref(v.v.fnum);
+	break;
+    case TYPE_WAIF:
+	addref(v.v.waif);
 	break;
     }
     return v;
@@ -198,6 +206,8 @@ complex_var_dup(Var v)
     case TYPE_FLOAT:
 	v = new_float(*v.v.fnum);
 	break;
+    case TYPE_WAIF:
+	v.v.waif = dup_waif(v.v.waif);
     }
     return v;
 }
@@ -266,6 +276,9 @@ equality(Var lhs, Var rhs, int case_matters)
 		}
 		return 1;
 	    }
+	case TYPE_WAIF:
+	    /* compare them or assert same-waif? */
+	    return lhs.v.waif == rhs.v.waif;
 	default:
 	    panic("EQUALITY: Unknown value type");
 	}
@@ -375,6 +388,9 @@ value_bytes(Var v)
 	for (i = 1; i <= len; i++)
 	    size += value_bytes(v.v.list[i]);
 	break;
+    case TYPE_WAIF:
+	size += waif_bytes(v.v.waif);
+	break;
     default:
 	break;
     }
@@ -443,6 +459,9 @@ char rcsid_utils[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.7.2.1  2002/08/29 05:44:25  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.7  2002/08/18 09:47:26  bjj
  * Finally made free_activation() take a pointer after noticing how !$%^&
  * much time it was taking in a particular profiling run.

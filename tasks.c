@@ -324,6 +324,7 @@ free_task(task * t, int strong)
 			t->t.forked.program->num_var_names);
 	    free_str(t->t.forked.a.verb);
 	    free_str(t->t.forked.a.verbname);
+	    free_var(t->t.forked.a.THIS);
 	}
 	free_program(t->t.forked.program);
 	break;
@@ -846,6 +847,7 @@ enqueue_forked_task2(activation a, int f_index, unsigned after_seconds, int vid)
     id = new_task_id();
     a.verb = str_ref(a.verb);
     a.verbname = str_ref(a.verbname);
+    a.THIS = var_ref(a.THIS);
     a.prog = program_ref(a.prog);
     if (vid >= 0) {
 	free_var(a.rt_env[vid]);
@@ -2013,6 +2015,9 @@ char rcsid_tasks[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.9.2.1  2002/08/29 05:44:24  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.9  2001/07/31 06:33:22  bjj
  * Fixed some bugs in the reporting of forked task sizes.
  *

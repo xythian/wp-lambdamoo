@@ -35,6 +35,8 @@ typedef enum Memory_Type {
     M_REF_ENTRY, M_REF_TABLE, M_VC_ENTRY, M_VC_TABLE, M_STRING_PTRS,
     M_INTERN_POINTER, M_INTERN_ENTRY, M_INTERN_HUNK,
 
+    M_WAIF, M_WAIF_XTRA,
+
     Sizeof_Memory_Type
 
 } Memory_Type;
@@ -58,6 +60,9 @@ free_str(const char *s)
 
 /* 
  * $Log$
+ * Revision 1.5.2.1  2002/08/29 05:44:24  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.5  1998/12/14 13:19:00  nop
  * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
  *

@@ -19,6 +19,9 @@
  * Private interface for internal communication in the DB implementation
  *****************************************************************************/
 
+#ifndef DB_PRIVATE_h
+#define DB_PRIVATE_h
+
 #include "config.h"
 #include "exceptions.h"
 #include "program.h"
@@ -73,6 +76,8 @@ typedef struct Object {
     Verbdef *verbdefs;
     Proplist propdefs;
     Pval *propval;
+
+    void *waif_propdefs;
 } Object;
 
 /*********** Verb cache support ***********/
@@ -160,8 +165,13 @@ extern Exception dbpriv_dbio_failed;
 extern void dbpriv_set_dbio_input(FILE *);
 extern void dbpriv_set_dbio_output(FILE *);
 
+#endif DB_PRIVATE_h
+
 /* 
  * $Log$
+ * Revision 1.4.2.1  2002/08/29 05:44:23  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.4  1998/12/14 13:17:37  nop
  * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
  *

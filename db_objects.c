@@ -92,6 +92,7 @@ dbpriv_new_object(void)
     ensure_new_object();
     o = objects[num_objects] = mymalloc(sizeof(Object), M_OBJECT);
     o->id = num_objects;
+    o->waif_propdefs = NULL;
     num_objects++;
 
     return o;
@@ -554,6 +555,9 @@ char rcsid_db_objects[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.4.2.1  2002/08/29 05:44:23  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.4  1998/12/14 13:17:36  nop
  * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
  *

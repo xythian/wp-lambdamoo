@@ -35,7 +35,7 @@ CSRCS = ast.c code_gen.c db_file.c db_io.c db_objects.c db_properties.c \
 	log.c malloc.c match.c md5.c name_lookup.c network.c net_mplex.c \
 	net_proto.c numbers.c objects.c parse_cmd.c pattern.c program.c \
 	property.c quota.c ref_count.c regexpr.c server.c storage.c streams.c str_intern.c \
-	sym_table.c tasks.c timers.c unparse.c utils.c verbs.c version.c
+	sym_table.c tasks.c timers.c unparse.c utils.c verbs.c version.c waif.c
 
 OPT_NET_SRCS = net_single.c net_multi.c \
 	net_mp_selct.c net_mp_poll.c net_mp_fake.c \
@@ -154,6 +154,9 @@ depend: ${ALL_CSRCS}
 
 ###############################################################################
 # $Log$
+# Revision 1.8.2.1  2002/08/29 05:44:22  bjj
+# Add WAIF type as distributed in version 0.95 (one small merge).
+#
 # Revision 1.8  2000/05/11 06:32:27  xythian
 # fixed bloody "suspicious line 293" emacs warning when saving Makefile.in
 # by tweaking quotes

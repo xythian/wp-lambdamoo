@@ -45,6 +45,10 @@ typedef struct {
     void *bi_func_data;
     Var temp;			/* VM's temp register */
 
+    /* waifs mean there can be other values for THIS, and we need a secure
+     * way to store it so the verb can't spoof
+     */
+    Var THIS;
     /* verb information */
     Objid this;
     Objid player;
@@ -84,7 +88,7 @@ extern enum error call_verb(Objid obj, const char *vname, Var args,
 /* if your vname is already a moo str (via str_dup) then you can
    use this interface instead */
 extern enum error call_verb2(Objid obj, const char *vname, Var args,
-			    int do_pass);
+			    Var THIS, int do_pass);
 
 extern int setup_activ_for_eval(Program * prog);
 
@@ -135,6 +139,9 @@ extern int read_activ(activation * a, int which_vector);
 
 /* 
  * $Log$
+ * Revision 1.6.2.1  2002/08/29 05:44:24  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.6  2002/08/18 09:47:26  bjj
  * Finally made free_activation() take a pointer after noticing how !$%^&
  * much time it was taking in a particular profiling run.
