@@ -552,10 +552,14 @@ dbpriv_set_all_users(Var v)
 
 char rcsid_db_objects[] = "$Id$";
 
-/* $Log$
-/* Revision 1.3  1997/07/07 03:24:53  nop
-/* Merge UNSAFE_OPTS (r5) after extensive testing.
-/*
+/* 
+ * $Log$
+ * Revision 1.4  1998/12/14 13:17:36  nop
+ * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
+ *
+ * Revision 1.3  1997/07/07 03:24:53  nop
+ * Merge UNSAFE_OPTS (r5) after extensive testing.
+ *
  * Revision 1.2.2.2  1997/07/07 01:40:20  nop
  * Because we use first-parent-with-verbs as a verb cache key, we can skip
  * a generation bump if the target of a chparent has no kids and no verbs.

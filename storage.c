@@ -223,10 +223,14 @@ memory_usage(void)
 
 char rcsid_storage[] = "$Id$";
 
-/* $Log$
-/* Revision 1.4  1997/07/07 03:24:55  nop
-/* Merge UNSAFE_OPTS (r5) after extensive testing.
-/*
+/* 
+ * $Log$
+ * Revision 1.5  1998/12/14 13:18:59  nop
+ * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
+ *
+ * Revision 1.4  1997/07/07 03:24:55  nop
+ * Merge UNSAFE_OPTS (r5) after extensive testing.
+ *
  * Revision 1.3.2.3  1997/05/29 20:47:32  nop
  * Stupid hack to allow non-gcc compilers to use -Dinline= to make the server
  * compile.

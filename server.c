@@ -1735,11 +1735,15 @@ register_server(void)
 
 char rcsid_server[] = "$Id$";
 
-/* $Log$
-/* Revision 1.3  1997/03/03 05:03:52  nop
-/* steak2: move protectedness into builtin struct, load_server_options()
-/* now required for $server_options updates.
-/*
+/* 
+ * $Log$
+ * Revision 1.4  1998/12/14 13:18:57  nop
+ * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
+ *
+ * Revision 1.3  1997/03/03 05:03:52  nop
+ * steak2: move protectedness into builtin struct, load_server_options()
+ * now required for $server_options updates.
+ *
  * Revision 1.2  1997/03/03 04:19:24  nop
  * GNU Indent normalization
  *

@@ -435,10 +435,14 @@ binary_to_raw_bytes(const char *binary, int *buflen)
 
 char rcsid_utils[] = "$Id$";
 
-/* $Log$
-/* Revision 1.3  1997/07/07 03:24:55  nop
-/* Merge UNSAFE_OPTS (r5) after extensive testing.
-/*
+/* 
+ * $Log$
+ * Revision 1.4  1998/12/14 13:19:14  nop
+ * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
+ *
+ * Revision 1.3  1997/07/07 03:24:55  nop
+ * Merge UNSAFE_OPTS (r5) after extensive testing.
+ * 
  * Revision 1.2.2.3  1997/03/21 15:11:22  bjj
  * add var_refcount interface
  *

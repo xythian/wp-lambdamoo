@@ -331,10 +331,14 @@ register_property(void)
 
 char rcsid_property[] = "$Id$";
 
-/* $Log$
-/* Revision 1.2  1997/03/03 04:19:18  nop
-/* GNU Indent normalization
-/*
+/* 
+ * $Log$
+ * Revision 1.3  1998/12/14 13:18:50  nop
+ * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
+ *
+ * Revision 1.2  1997/03/03 04:19:18  nop
+ * GNU Indent normalization
+ *
  * Revision 1.1.1.1  1997/03/03 03:45:01  nop
  * LambdaMOO 1.8.0p5
  *

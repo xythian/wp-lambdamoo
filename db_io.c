@@ -418,10 +418,14 @@ dbio_write_forked_program(Program * program, int f_index)
 
 char rcsid_db_io[] = "$Id$";
 
-/* $Log$
-/* Revision 1.4  1998/02/19 07:36:16  nop
-/* Initial string interning during db load.
-/*
+/* 
+ * $Log$
+ * Revision 1.5  1998/12/14 13:17:34  nop
+ * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
+ *
+ * Revision 1.4  1998/02/19 07:36:16  nop
+ * Initial string interning during db load.
+ *
  * Revision 1.3  1997/07/07 03:24:53  nop
  * Merge UNSAFE_OPTS (r5) after extensive testing.
  *

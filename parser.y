@@ -1224,10 +1224,14 @@ parse_list_as_program(Var code, Var *errors)
 
 char rcsid_parser[] = "$Id$";
 
-/* $Log$
-/* Revision 1.1  1997/03/03 03:45:02  nop
-/* Initial revision
-/*
+/* 
+ * $Log$
+ * Revision 1.2  1998/12/14 13:18:45  nop
+ * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
+ *
+ * Revision 1.1.1.1  1997/03/03 03:45:02  nop
+ * LambdaMOO 1.8.0p5
+ *
  * Revision 2.11  1996/05/12  21:28:37  pavel
  * Removed non-backward-compatible parse error for negating a non-numeric
  * literal.  Made certain aspects of floating-point literal parsing be
