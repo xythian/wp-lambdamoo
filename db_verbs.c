@@ -345,7 +345,7 @@ struct vc_entry {
 static vc_entry **vc_table = NULL;
 static int vc_size = 0;
 
-#define DEFAULT_VC_SIZE 721
+#define DEFAULT_VC_SIZE 7507
 
 void
 db_priv_affected_callable_verb_lookup(void)
@@ -759,9 +759,13 @@ db_verb_allows(db_verb_handle h, Objid progr, db_verb_flag flag)
 char rcsid_db_verbs[] = "$Id$";
 
 /* $Log$
-/* Revision 1.3  1997/07/07 03:24:53  nop
-/* Merge UNSAFE_OPTS (r5) after extensive testing.
+/* Revision 1.4  1997/09/07 23:58:37  nop
+/* Bump up cache size to 7507, since lambdamoo has been running with that
+/* for months.
 /*
+ * Revision 1.3  1997/07/07 03:24:53  nop
+ * Merge UNSAFE_OPTS (r5) after extensive testing.
+ *
  * Revision 1.2.2.5  1997/07/07 01:41:20  nop
  * set_verb_code() doesn't really need a verb generation bump.
  *
