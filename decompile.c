@@ -161,7 +161,7 @@ decompile(Bytecodes bc, Byte * start, Byte * end, Stmt ** stmt_sink,
 	    e->e.id = PUSH_CLEAR_n_INDEX(op);
 	    push_expr(HOT_OP(e));
 	    continue;
-#endif /* BYTECODE_REDUCE_REF */
+#endif				/* BYTECODE_REDUCE_REF */
 	} else if (IS_PUT_n(op)) {
 	    e = alloc_expr(EXPR_ID);
 	    e->e.id = PUT_n_INDEX(op);
@@ -994,6 +994,9 @@ char rcsid_decompile[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.6  2002/09/15 23:21:01  xplat
+ * GNU indent normalization.
+ *
  * Revision 1.5  1999/08/11 08:23:40  bjj
  * Lineno computation could be wrong for forked vectors.
  *

@@ -1423,7 +1423,7 @@ bf_task_id(Var arglist, Byte next, void *vdata, Objid progr)
 }
 
 static int
-activation_bytes(activation *ap)
+activation_bytes(activation * ap)
 {
     int total = sizeof(activation);
     Var *v;
@@ -2013,6 +2013,9 @@ char rcsid_tasks[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.10  2002/09/15 23:21:01  xplat
+ * GNU indent normalization.
+ *
  * Revision 1.9  2001/07/31 06:33:22  bjj
  * Fixed some bugs in the reporting of forked task sizes.
  *
