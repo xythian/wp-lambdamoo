@@ -684,9 +684,6 @@ generate_expr(Expr * expr, State * state)
 	    case EXPR_PROP:
 		op = OP_GET_PROP;
 		break;
-	    case EXPR_INDEX:
-		op = OP_REF;
-		break;
 	    default:
 		panic("Not a binary operator in GENERATE_EXPR()");
 	    }
@@ -1357,6 +1354,9 @@ char rcsid_code_gen[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.10  2002/08/23 13:00:18  bjj
+ * Removed a spurious EXPR_INDEX case left over from before x[$]
+ *
  * Revision 1.9  1999/08/14 19:44:15  bjj
  * Code generator will no longer PUSH_CLEAR things like dobj/dobjstr/prepstr
  * around CALL_VERB operations, since those variables are passed directly
