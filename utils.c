@@ -127,13 +127,10 @@ verbcasecmp(const char *verb, const char *word)
 unsigned
 str_hash(const char *s)
 {
-    unsigned ans = 0;
-    int i, len = strlen(s), offset = 0;
+    register unsigned ans = 0;
 
-    for (i = 0; i < len; i++) {
-	ans = ans ^ (cmap[(unsigned char) s[i]] << offset++);
-	if (offset == 25)
-	    offset = 0;
+    while (*s) {
+	ans = (ans << 3) + (ans >> 28) + cmap[(unsigned char) *s++];
     }
     return ans;
 }
@@ -446,6 +443,9 @@ char rcsid_utils[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.6  2002/08/18 08:51:50  bjj
+ * Faster and better (?) hash function.  Yes it really was slow.
+ *
  * Revision 1.5  1999/08/09 02:36:33  nop
  * Shortcut various equality tests if we have pointer equality.
  *
