@@ -1365,8 +1365,10 @@ bf_open_network_connection(Var arglist, Byte next, void *vdata, Objid progr)
     Var r;
     enum error e;
 
-    if (!is_wizard(progr))
-	return make_error_pack(E_PERM);
+    if (!is_wizard(progr)) {
+        free_var(arglist);
+        return make_error_pack(E_PERM);
+    }
 
     e = network_open_connection(arglist);
     free_var(arglist);
@@ -1737,6 +1739,9 @@ char rcsid_server[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.5  1998/12/29 06:56:32  nop
+ * Fixed leak in onc().
+ *
  * Revision 1.4  1998/12/14 13:18:57  nop
  * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
  *
