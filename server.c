@@ -964,8 +964,16 @@ server_new_connection(server_listener sl, network_handle nh, int outbound)
     h->binary = 0;
     h->print_messages = (!outbound && l->print_messages);
 
-    if (!outbound)
+    if (!outbound) {
 	new_input_task(h->tasks, "");
+	/*
+	 * Suspend input at the network level until the above input task
+	 * is processed.  At the point when it is dequeued, tasks.c will
+	 * notice that the queued input size is below the low water mark
+	 * and resume input.
+	 */
+	task_suspend_input(h->tasks);
+    }
 
     oklog("%s: #%d on %s\n",
 	  outbound ? "CONNECT" : "ACCEPT",
@@ -1739,6 +1747,9 @@ char rcsid_server[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.6  2003/06/12 18:16:56  bjj
+ * Suspend input on connection until :do_login_command() can run.
+ *
  * Revision 1.5  1998/12/29 06:56:32  nop
  * Fixed leak in onc().
  *
