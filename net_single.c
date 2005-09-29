@@ -116,23 +116,9 @@ network_set_connection_binary(network_handle nh, int do_binary)
     binary = do_binary;
 }
 
-Var
-network_connection_options(network_handle nh, Var list)
-{
-    return list;
-}
+#define NETWORK_CO_TABLE(DEFINE, nh, value, _)
+    /* No network-specific connection options */
 
-int
-network_connection_option(network_handle nh, const char *option, Var * value)
-{
-    return 0;
-}
-
-int
-network_set_connection_option(network_handle nh, const char *option, Var value)
-{
-    return 0;
-}
 
 void
 network_close(network_handle nh)
@@ -237,10 +223,23 @@ network_process_io(int timeout)
 
 char rcsid_net_single[] = "$Id$";
 
-/* $Log$
-/* Revision 1.2  1997/03/03 04:19:07  nop
-/* GNU Indent normalization
 /*
+ * $Log$
+ * Revision 1.2.4.1  2005/09/29 06:56:18  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
+ *
+ * Revision 1.3  2004/05/22 01:25:44  wrog
+ * merging in WROGUE changes (W_SRCIP, W_STARTUP, W_OOB)
+ *
+ * Revision 1.2.12.2  2003/06/07 13:03:55  wrog
+ * deslashed log entries
+ *
+ * Revision 1.2.12.1  2003/06/07 12:59:04  wrog
+ * introduced connection_option macros
+ *
+ * Revision 1.2  1997/03/03 04:19:07  nop
+ * GNU Indent normalization
+ *
  * Revision 1.1.1.1  1997/03/03 03:45:02  nop
  * LambdaMOO 1.8.0p5
  *

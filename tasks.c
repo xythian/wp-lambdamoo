@@ -43,6 +43,17 @@
 #include "verbs.h"
 #include "version.h"
 
+typedef enum {
+    /* Input Tasks */
+    TASK_INBAND,	/* vanilla in-band */
+    TASK_OOB,		/* out-of-band unless disable_oob */
+    TASK_QUOTED,	/* in-band; needs unquote unless disable-oob */
+    TASK_BINARY,	/* in-band; binary mode string */
+    /* Background Tasks */
+    TASK_FORKED,
+    TASK_SUSPENDED,
+} task_kind;
+
 typedef struct forked_task {
     int id;
     Program *program;
@@ -61,6 +72,7 @@ typedef struct suspended_task {
 typedef struct {
     char *string;
     int length;
+    struct task *next_itail;	/* see tqueue.first_itail */ 
 } input_task;
 
 typedef struct task {
@@ -72,6 +84,17 @@ typedef struct task {
 	suspended_task suspended;
     } t;
 } task;
+
+enum icmd_flag {
+    /* fix icmd_index() if you change any of the following numbers: */
+    ICMD_SUFFIX       = 1,
+    ICMD_OUTPUTSUFFIX = 2,
+    ICMD_OUTPUTPREFIX = 3,
+    ICMD_PREFIX       = 4,
+    ICMD_PROGRAM      = 5,  /* .program */
+    /* mask */
+    ICMD_ALL_CMDS = ((1<<(ICMD_PROGRAM+1))-2)
+};
 
 typedef struct tqueue {
     /*
@@ -88,7 +111,8 @@ typedef struct tqueue {
      * negative `player' slots) are treated specially: they are passed to a
      * particular verb on the system object.  If that verb returns a valid
      * player object number, then that is used as the new player number for the
-     * connection.
+     * connection.  (Note that none of this applies to tasks that are being
+     * read() or that are being handled as out-of-band commands.)
      *
      * The `connected' field is true iff this queue has an associated open
      * network connection.  Queues without such connections may nonetheless
@@ -102,20 +126,36 @@ typedef struct tqueue {
     Objid handler;
     int connected;
     task *first_input, **last_input;
+    task *first_itail, **last_itail;
+    /* The input queue alternates between contiguous sequences of TASK_OOBs
+     * and sequences of non-TASK_OOBs; the "itail queue" is the queue of all
+     * sequence-ending tasks threaded along the next_itail pointers.
+     * first_itail is null iff first_input is null
+     * When the queue is nonempty,
+     *   last_itail points to the penultimate .next_itail pointer slot
+     *   unlike last_input which always points to the final (null)
+     *   .next pointer slot
+     * For tasks not at the end of a sequence,
+     *   the next_itail field is ignored and may be garbage.
+     */
     int total_input_length;
     int last_input_task_id;
     int input_suspended;
+
     task *first_bg, **last_bg;
     int usage;			/* a kind of inverted priority */
     int num_bg_tasks;		/* in either here or waiting_tasks */
-    int hold_input;		/* make input tasks wait for read() */
     char *output_prefix, *output_suffix;
     const char *flush_cmd;
     Stream *program_stream;
     Objid program_object;
     const char *program_verb;
 
-    char reading;		/* boolean */
+    /* booleans */
+    char hold_input;		/* input tasks must wait for read() */
+    char disable_oob;		/* treat all input lines as inband */
+    char reading;		/* some task is blocked on read() */
+    char icmds;			/* which of .program/PREFIX/... are enabled */
     vm reading_vm;
 } tqueue;
 
@@ -138,6 +178,92 @@ static ext_queue *external_queues = 0;
     (ttt->kind == TASK_FORKED \
      ? ttt->t.forked.start_time \
      : ttt->t.suspended.start_time)
+
+
+/* 
+ *  ICMD_FOR_EACH(DEFINE,verb)
+ *   expands to a table of intrinsic commands,
+ *   each entry of the form
+ *
+ *  DEFINE(ICMD_NAME,<name>,<matcher>)  where
+ *      ICMD_NAME == enumeration constant name to use
+ *      <name>    == full verbname
+ *      <matcher>(verb) -> true iff verb matches <name>
+ */
+#define __IDLM(DEFINE,DELIMITER,verb)			\
+      DEFINE(ICMD_##DELIMITER,  DELIMITER,		\
+	     (strcmp(verb, #DELIMITER) == 0))		\
+
+#define ICMD_FOR_EACH(DEFINE,verb)			\
+      DEFINE(ICMD_PROGRAM, .program,			\
+	     (verbcasecmp(".pr*ogram", (verb))))	\
+      __IDLM(DEFINE,PREFIX,      (verb))		\
+      __IDLM(DEFINE,SUFFIX,      (verb))		\
+      __IDLM(DEFINE,OUTPUTPREFIX,(verb))		\
+      __IDLM(DEFINE,OUTPUTSUFFIX,(verb))		\
+
+static int
+icmd_index(const char * verb) {
+    /* evil, poor-man's minimal perfect hash */
+    int len = strlen(verb);
+    char c2 = len > 2 ? verb[2] : 0;
+    char c8 = len > 8 ? verb[8] : 0;
+    switch (((c2&7)^6)+!(c8&2)) {
+    default:
+	break;
+#define _ICMD_IX(ICMD_PREFIX,_,MATCH)		\
+	case ICMD_PREFIX:			\
+	    if (MATCH) return ICMD_PREFIX;	\
+	    break;				\
+
+	ICMD_FOR_EACH(_ICMD_IX,verb);
+    }
+    return 0;
+}
+#undef _ICMD_IX
+
+static Var
+icmd_list(int icmd_flags)
+{
+    Var s;
+    Var list = new_list(0);
+    s.type = TYPE_STR;
+#define _ICMD_MKSTR(ICMD_PREFIX,PREFIX,_)	\
+	if (icmd_flags & (1<<ICMD_PREFIX)) {	\
+	    s.v.str = str_dup(#PREFIX);		\
+	    list = listappend(list, s);		\
+	}					\
+
+    ICMD_FOR_EACH(_ICMD_MKSTR,@);
+    return list;
+}
+#undef _ICMD_MKSTR
+
+static int
+icmd_set_flags(tqueue * tq, Var list)
+{
+    int i;
+    int newflags;
+    if (list.type == TYPE_INT) {
+	newflags = is_true(list) ? ICMD_ALL_CMDS : 0;
+    }
+    else if(list.type != TYPE_LIST)
+	return 0;
+    else {
+	newflags = 0;
+	for (i = 1; i <= list.v.list[0].v.num; ++i) {
+	    int icmd;
+	    if (list.v.list[i].type != TYPE_STR)
+		return 0;
+	    icmd = icmd_index(list.v.list[i].v.str);
+	    if (!icmd)
+		return 0;
+	    newflags |= (1<<icmd);
+	}
+    }
+    tq->icmds = newflags;
+    return 1;
+}
 
 
 static void
@@ -213,8 +339,9 @@ find_tqueue(Objid player, int create_if_not_found)
     tq->handler = 0;
     tq->connected = 0;
 
-    tq->first_input = tq->first_bg = 0;
+    tq->first_input = tq->first_itail = tq->first_bg = 0;
     tq->last_input = &(tq->first_input);
+    tq->last_itail = &(tq->first_itail);
     tq->last_bg = &(tq->first_bg);
     tq->total_input_length = tq->input_suspended = 0;
 
@@ -224,6 +351,8 @@ find_tqueue(Objid player, int create_if_not_found)
 
     tq->reading = 0;
     tq->hold_input = 0;
+    tq->disable_oob = 0;
+    tq->icmds = ICMD_ALL_CMDS;
     tq->num_bg_tasks = 0;
     tq->last_input_task_id = 0;
 
@@ -277,17 +406,52 @@ dequeue_bg_task(tqueue * tq)
     return t;
 }
 
+static char oob_quote_prefix[] = OUT_OF_BAND_QUOTE_PREFIX;
+#define oob_quote_prefix_length (sizeof(oob_quote_prefix) - 1)
+
+enum dequeue_how { DQ_FIRST = -1, DQ_OOB = 0, DQ_INBAND = 1 };
+
 static task *
-dequeue_input_task(tqueue * tq)
+dequeue_input_task(tqueue * tq, enum dequeue_how how)
 {
-    task *t = tq->first_input;
+    task *t;
+    task **pt, **pitail;
+
+    if (tq->disable_oob) {
+	if (how == DQ_OOB)
+	    return 0;
+	how = DQ_FIRST;
+    }
+
+    if (!tq->first_input)
+	return 0;
+    else if (how == (tq->first_input->kind == TASK_OOB)) {
+	pt     = &(tq->first_itail->next);
+	pitail = &(tq->first_itail->t.input.next_itail);
+    }
+    else {
+	pt     = &(tq->first_input);
+	pitail = &(tq->first_itail);
+    }
+    t = *pt;
 
     if (t) {
-	tq->first_input = t->next;
+	*pt = t->next;
 	if (t->next == 0)
-	    tq->last_input = &(tq->first_input);
+	    tq->last_input = pt;
 	else
 	    t->next = 0;
+
+	if (t == *pitail) {
+	    *pitail = 0;
+	    if (t->t.input.next_itail) {
+		tq->first_itail = t->t.input.next_itail;
+		t->t.input.next_itail = 0;
+	    }
+	    if (*(tq->last_itail) == 0)
+		tq->last_itail = &(tq->first_itail);
+	}
+
 	tq->total_input_length -= t->t.input.length;
 	if (tq->input_suspended
 	    && tq->connected
@@ -295,19 +459,20 @@ dequeue_input_task(tqueue * tq)
 	    server_resume_input(tq->player);
 	    tq->input_suspended = 0;
 	}
+
+	if (t->kind == TASK_OOB) {
+	    if (tq->disable_oob)
+		t->kind = TASK_INBAND;
+	}
+	else if (t->kind == TASK_QUOTED) {
+	    if (!tq->disable_oob) 
+		memmove(t->t.input.string,
+			t->t.input.string + oob_quote_prefix_length, 
+			1 + strlen(t->t.input.string + oob_quote_prefix_length));
+	    t->kind = TASK_INBAND;
+	}
     }
     return t;
-}
-
-static task *
-dequeue_any_task(tqueue * tq)
-{
-    task *t = dequeue_input_task(tq);
-
-    if (t)
-	return t;
-    else
-	return dequeue_bg_task(tq);
 }
 
 static void
@@ -315,7 +480,13 @@ free_task(task * t, int strong)
 {				/* for FORKED tasks, strong == 1 means free the rt_env also.
 				   for SUSPENDED tasks, strong == 1 means free the vm also. */
     switch (t->kind) {
-    case TASK_INPUT:
+    default:
+	panic("Unknown task kind in free_task()");
+	break;
+    case TASK_BINARY:
+    case TASK_INBAND:
+    case TASK_QUOTED:
+    case TASK_OOB:
 	free_str(t->t.input.string);
 	break;
     case TASK_FORKED:
@@ -468,6 +639,37 @@ find_verb_on(Objid oid, Parsed_Command * pc, db_verb_handle * vh)
 
 
 static int
+do_intrinsic_command(tqueue * tq, Parsed_Command * pc)
+{
+    int icmd = icmd_index(pc->verb);
+    if (!(icmd && (tq->icmds & (1<<icmd))))
+	return 0;
+    switch (icmd) {
+    default: 
+	panic("Bad return value from icmd_index()");
+	break;
+    case ICMD_PROGRAM:
+	if (!is_programmer(tq->player))
+	    return 0;
+	if (pc->args.v.list[0].v.num != 1)
+	    notify(tq->player, "Usage:  .program object:verb");
+	else	
+	    start_programming(tq, (char *) pc->args.v.list[1].v.str);
+	break;
+    case ICMD_PREFIX:	
+    case ICMD_OUTPUTPREFIX:
+	set_delimiter(&(tq->output_prefix), pc->argstr);
+	break;
+    case ICMD_SUFFIX:
+    case ICMD_OUTPUTSUFFIX:
+	set_delimiter(&(tq->output_suffix), pc->argstr);
+	break;
+    }
+    return 1;
+}
+
+
+static int
 do_command_task(tqueue * tq, char *command)
 {
     if (tq->program_stream) {	/* We're programming */
@@ -481,18 +683,7 @@ do_command_task(tqueue * tq, char *command)
 	if (!pc)
 	    return 0;
 
-	if (is_programmer(tq->player) && verbcasecmp(".pr*ogram", pc->verb)) {
-	    if (pc->args.v.list[0].v.num != 1)
-		notify(tq->player, "Usage:  .program object:verb");
-	    else
-		start_programming(tq, (char *) pc->args.v.list[1].v.str);
-	} else if (strcmp(pc->verb, "PREFIX") == 0
-		   || strcmp(pc->verb, "OUTPUTPREFIX") == 0)
-	    set_delimiter(&(tq->output_prefix), pc->argstr);
-	else if (strcmp(pc->verb, "SUFFIX") == 0
-		 || strcmp(pc->verb, "OUTPUTSUFFIX") == 0)
-	    set_delimiter(&(tq->output_suffix), pc->argstr);
-	else {
+	if (!do_intrinsic_command(tq, pc)) {
 	    Objid location = (valid(tq->player)
 			      ? db_object_location(tq->player)
 			      : NOTHING);
@@ -571,11 +762,11 @@ do_login_task(tqueue * tq, char *command)
 	}
 	if (dead_tq) {		/* Copy over tasks from old queue for player */
 	    tq->num_bg_tasks = dead_tq->num_bg_tasks;
-	    while ((t = dequeue_any_task(dead_tq)) != 0) {
-		if (t->kind == TASK_INPUT)
-		    free_task(t, 0);
-		else		/* FORKED or SUSPENDED */
-		    enqueue_bg_task(tq, t);
+	    while ((t = dequeue_input_task(dead_tq, DQ_FIRST)) != 0) {
+		free_task(t, 0);
+	    }
+	    while ((t = dequeue_bg_task(dead_tq)) != 0) {
+		enqueue_bg_task(tq, t);
 	    }
 	    dead_tq->player = NOTHING;	/* it'll be freed by run_ready_tasks */
 	    dead_tq->num_bg_tasks = 0;
@@ -630,97 +821,127 @@ free_task_queue(task_queue q)
 	ensure_usage(tq);
 }
 
+#define TASK_CO_TABLE(DEFINE, tq, value, _)				\
+    DEFINE(flush-command, _, TYPE_STR, str,				\
+	   tq->flush_cmd ? str_ref(tq->flush_cmd) : str_dup(""),	\
+	   {								\
+	       if (tq->flush_cmd)					\
+		   free_str(tq->flush_cmd);				\
+	       if (value.type == TYPE_STR && value.v.str[0] != '\0')	\
+		   tq->flush_cmd = str_ref(value.v.str);		\
+	       else							\
+		   tq->flush_cmd = 0;					\
+	   })								\
+									\
+    DEFINE(hold-input, _, TYPE_INT, num,				\
+	   tq->hold_input,						\
+	   {								\
+	       tq->hold_input = is_true(value);				\
+	       /* Anything to be done? */				\
+	       if (!tq->hold_input && tq->first_input)			\
+		   ensure_usage(tq);					\
+	   })								\
+									\
+    DEFINE(disable-oob, _, TYPE_INT, num,				\
+	   tq->disable_oob,						\
+	   {								\
+	       tq->disable_oob = is_true(value);			\
+	       /* Anything to be done? */				\
+	       if (!tq->disable_oob && tq->first_input			\
+		   && (tq->first_itail->next				\
+		       || tq->first_input->kind == TASK_OOB))		\
+		   ensure_usage(tq);					\
+	   })								\
+									\
+    DEFINE(intrinsic-commands, _, TYPE_LIST, list,			\
+           icmd_list(tq->icmds).v.list,					\
+	   {								\
+	       if (!icmd_set_flags(tq, value))				\
+		   return 0;						\
+	   })								\
+
 int
 tasks_set_connection_option(task_queue q, const char *option, Var value)
 {
-    tqueue *tq = q.ptr;
-
-    if (!mystrcasecmp(option, "flush-command")) {
-	if (tq->flush_cmd)
-	    free_str(tq->flush_cmd);
-	if (value.type == TYPE_STR && value.v.str[0] != '\0')
-	    tq->flush_cmd = str_ref(value.v.str);
-	else
-	    tq->flush_cmd = 0;
-
-	return 1;
-    }
-    if (!mystrcasecmp(option, "hold-input")) {
-	tq->hold_input = is_true(value);
-	if (!tq->hold_input && tq->first_input)		/* Anything to be done? */
-	    ensure_usage(tq);
-	return 1;
-    }
-    return 0;
+    CONNECTION_OPTION_SET(TASK_CO_TABLE, (tqueue *)q.ptr, option, value);
 }
 
 int
 tasks_connection_option(task_queue q, const char *option, Var * value)
 {
-    tqueue *tq = q.ptr;
-
-    if (!mystrcasecmp(option, "flush-command")) {
-	value->type = TYPE_STR;
-	value->v.str = (tq->flush_cmd ? str_ref(tq->flush_cmd) : str_dup(""));
-	return 1;
-    }
-    if (!mystrcasecmp(option, "hold-input")) {
-	value->type = TYPE_INT;
-	value->v.num = tq->hold_input;
-	return 1;
-    }
-    return 0;
+    CONNECTION_OPTION_GET(TASK_CO_TABLE, (tqueue *)q.ptr, option, value);
 }
 
 Var
 tasks_connection_options(task_queue q, Var list)
 {
-    tqueue *tq = q.ptr;
-    Var pair;
-
-    pair = new_list(2);
-    pair.v.list[1].type = TYPE_STR;
-    pair.v.list[1].v.str = str_dup("flush-command");
-    pair.v.list[2].type = TYPE_STR;
-    pair.v.list[2].v.str = (tq->flush_cmd ? str_ref(tq->flush_cmd)
-			    : str_dup(""));
-    list = listappend(list, pair);
-
-    pair = new_list(2);
-    pair.v.list[1].type = TYPE_STR;
-    pair.v.list[1].v.str = str_dup("hold-input");
-    pair.v.list[2].type = TYPE_INT;
-    pair.v.list[2].v.num = tq->hold_input;
-    list = listappend(list, pair);
-
-    return list;
+    CONNECTION_OPTION_LIST(TASK_CO_TABLE, (tqueue *)q.ptr, list);
 }
 
+#undef TASK_CO_TABLE
+
 static void
-enqueue_input_task(tqueue * tq, const char *input, int at_front)
+enqueue_input_task(tqueue * tq, const char *input, int at_front, int binary)
 {
+    static char oob_prefix[] = OUT_OF_BAND_PREFIX;
     task *t;
 
     t = (task *) mymalloc(sizeof(task), M_TASK);
-    t->kind = TASK_INPUT;
+    if (binary)
+	t->kind = TASK_BINARY;
+    else if (oob_quote_prefix_length > 0
+	     && strncmp(oob_quote_prefix, input, oob_quote_prefix_length) == 0)
+	t->kind = TASK_QUOTED;
+    else if (sizeof(oob_prefix) > 1
+	     && strncmp(oob_prefix, input, sizeof(oob_prefix) - 1) == 0)
+	t->kind = TASK_OOB;
+    else
+	t->kind = TASK_INBAND;
+
     t->t.input.string = str_dup(input);
     tq->total_input_length += (t->t.input.length = strlen(input));
 
+    t->t.input.next_itail = 0;
     if (at_front && tq->first_input) {	/* if nothing there, front == back */
+	if ((tq->first_input->kind == TASK_OOB) != (t->kind == TASK_OOB)) {
+	    t->t.input.next_itail = tq->first_itail;
+	    tq->first_itail = t;
+	    if (tq->last_itail == &(tq->first_itail))
+		tq->last_itail = &(t->t.input.next_itail);
+	}
 	t->next = tq->first_input;
 	tq->first_input = t;
-    } else {
+    }
+    else {
+	if (tq->first_input && (((*(tq->last_itail))->kind == TASK_OOB)
+				!= (t->kind == TASK_OOB)))
+	    tq->last_itail = &((*(tq->last_itail))->t.input.next_itail);
+	*(tq->last_itail) = t;
+
 	*(tq->last_input) = t;
 	tq->last_input = &(t->next);
 	t->next = 0;
     }
 
-    if (!tq->hold_input || tq->reading)		/* Anything to do with this line? */
+    /* Anything to do with this line? */
+    if (!tq->hold_input || tq->reading
+	|| (!tq->disable_oob && t->kind == TASK_OOB))
 	ensure_usage(tq);
 
     if (!tq->input_suspended
 	&& tq->connected
 	&& tq->total_input_length > INPUT_HIWAT) {
+	server_suspend_input(tq->player);
+	tq->input_suspended = 1;
+    }
+}
+
+void
+task_suspend_input(task_queue q)
+{
+    tqueue *tq = q.ptr;
+
+    if (!tq->input_suspended && tq->connected) {
 	server_suspend_input(tq->player);
 	tq->input_suspended = 1;
     }
@@ -735,7 +956,8 @@ flush_input(tqueue * tq, int show_messages)
 
 	if (show_messages)
 	    notify(tq->player, ">> Flushing the following pending input:");
-	while ((t = dequeue_input_task(tq)) != 0) {
+	while ((t = dequeue_input_task(tq, DQ_FIRST)) != 0) {
+	    /* TODO*** flush only non-TASK_OOB tasks ??? */
 	    if (show_messages) {
 		stream_printf(s, ">>     %s", t->t.input.string);
 		notify(tq->player, reset_stream(s));
@@ -749,7 +971,7 @@ flush_input(tqueue * tq, int show_messages)
 }
 
 void
-new_input_task(task_queue q, const char *input)
+new_input_task(task_queue q, const char *input, int binary)
 {
     tqueue *tq = q.ptr;
 
@@ -757,7 +979,7 @@ new_input_task(task_queue q, const char *input)
 	flush_input(tq, 1);
 	return;
     }
-    enqueue_input_task(tq, input, 0);
+    enqueue_input_task(tq, input, 0/*at-rear*/, binary);
 }
 
 static void
@@ -912,7 +1134,7 @@ read_input_now(Objid connection)
     if (!tq || is_out_of_input(tq)) {
 	r.type = TYPE_ERR;
 	r.v.err = E_INVARG;
-    } else if (!(t = dequeue_input_task(tq))) {
+    } else if (!(t = dequeue_input_task(tq, DQ_INBAND))) {
 	r.type = TYPE_INT;
 	r.v.num = 0;
     } else {
@@ -989,7 +1211,6 @@ run_ready_tasks(void)
     {
 	int did_one = 0;
 	time_t start = time(0);
-	static char oob_prefix[] = OUT_OF_BAND_PREFIX;
 
 	while (active_tqueues && !did_one) {
 	    /* Loop over tqueues, looking for a task */
@@ -1002,33 +1223,36 @@ run_ready_tasks(void)
 		current_task_id = tq->reading_vm->task_id;
 		v.type = TYPE_ERR;
 		v.v.err = E_INVARG;
-		resume_from_previous_vm(tq->reading_vm, v, TASK_INPUT, 0);
+		resume_from_previous_vm(tq->reading_vm, v);
 		did_one = 1;
 	    }
 	    while (!did_one) {	/* Loop over tasks, looking for runnable one */
-		if (tq->hold_input && !tq->reading)
+		t = dequeue_input_task(tq, ((tq->hold_input && !tq->reading)
+					    ? DQ_OOB
+					    : DQ_FIRST));
+		if (!t)
 		    t = dequeue_bg_task(tq);
-		else
-		    t = dequeue_any_task(tq);
 		if (!t)
 		    break;
 
 		switch (t->kind) {
-		case TASK_INPUT:
-		    if (sizeof(oob_prefix) > 1
-			&& !strncmp(oob_prefix, t->t.input.string,
-				    sizeof(oob_prefix) - 1)) {
-			do_out_of_band_command(tq, t->t.input.string);
-			did_one = 1;
-		    } else if (tq->reading) {
+		default:
+		    panic("Unexpected task kind in run_ready_tasks()");
+		    break;
+		case TASK_OOB:
+		    do_out_of_band_command(tq, t->t.input.string);
+		    did_one = 1;
+		    break;
+		case TASK_BINARY:
+		case TASK_INBAND:
+		    if (tq->reading) {
 			Var v;
 
 			tq->reading = 0;
 			current_task_id = tq->reading_vm->task_id;
 			v.type = TYPE_STR;
 			v.v.str = t->t.input.string;
-			resume_from_previous_vm(tq->reading_vm, v, TASK_INPUT,
-						0);
+			resume_from_previous_vm(tq->reading_vm, v);
 			did_one = 1;
 		    } else {
 			/* Used to insist on tq->connected here, but Pavel
@@ -1048,15 +1272,14 @@ run_ready_tasks(void)
 			ft = t->t.forked;
 			current_task_id = ft.id;
 			do_forked_task(ft.program, ft.rt_env, ft.a,
-				       ft.f_index, 0);
+				       ft.f_index);
 			did_one = 1;
 		    }
 		    break;
 		case TASK_SUSPENDED:
 		    current_task_id = t->t.suspended.the_vm->task_id;
 		    resume_from_previous_vm(t->t.suspended.the_vm,
-					    t->t.suspended.value,
-					    TASK_SUSPENDED, 0);
+					    t->t.suspended.value);
 		    did_one = 1;
 		    break;
 		}
@@ -1108,7 +1331,7 @@ run_server_task_setting_id(Objid player, Objid what, const char *verb,
     h = db_find_callable_verb(what, verb);
     if (h.ptr)
 	return do_server_verb_task(what, verb, args, h, player, argstr,
-				   result, 1);
+				   result, 1/*traceback*/);
     else {
 	/* simulate an empty verb */
 	if (result) {
@@ -1128,7 +1351,8 @@ run_server_program_task(Objid this, const char *verb, Var args, Objid vloc,
 {
     current_task_id = new_task_id();
     return do_server_program_task(this, verb, args, vloc, verbname, program,
-				progr, debug, player, argstr, result, 1);
+				  progr, debug, player, argstr, result,
+				  1/*traceback*/);
 }
 
 void
@@ -1425,7 +1649,7 @@ bf_task_id(Var arglist, Byte next, void *vdata, Objid progr)
 }
 
 static int
-activation_bytes(activation *ap)
+activation_bytes(activation * ap)
 {
     int total = sizeof(activation);
     Var *v;
@@ -1973,7 +2197,7 @@ bf_force_input(Var arglist, Byte next, void *vdata, Objid progr)
 	return make_error_pack(E_PERM);
     }
     tq = find_tqueue(conn, 1);
-    enqueue_input_task(tq, line, at_front);
+    enqueue_input_task(tq, line, at_front, 0/*non-binary*/);
     free_var(arglist);
     return no_var_pack();
 }
@@ -2015,8 +2239,47 @@ char rcsid_tasks[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.9.2.2  2005/09/29 06:56:18  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
+ *
+ *
  * Revision 1.9.2.1  2002/08/29 05:44:24  bjj
  * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
+ * Revision 1.13  2004/05/28 07:53:32  wrog
+ * added "intrinsic-commands" connection option
+ *
+ * Revision 1.12  2004/05/22 01:25:44  wrog
+ * merging in WROGUE changes (W_SRCIP, W_STARTUP, W_OOB)
+ *
+ * Revision 1.10.2.5  2004/05/20 19:40:32  wrog
+ * fixed force_input(,,1) bug
+ *
+ * Revision 1.11  2003/06/12 18:16:56  bjj
+ * Suspend input on connection until :do_login_command() can run.
+ *
+ * Revision 1.10.2.4  2003/06/11 10:57:27  wrog
+ * fixed  non-blocking read() to only grab inband lines
+ * fixed "hold-input" to not hold up out-of-band lines
+ * fixed out-of-band line handling to not mess with binary input lines
+ * implemented quoting with OUT_OF_BAND_QUOTE_PREFIX
+ * TASK_INPUT differentiates into TASK_INBAND/OOB/QUOTED/BINARY
+ * input queue is now doubly threaded so that one can dequeue first available (non-)TASK_OOB even if it's not at the front
+ * new connection option "disable-oob"
+ *
+ * Revision 1.10.2.3  2003/06/07 14:34:14  wrog
+ * removed dequeue_any_task()
+ *
+ * Revision 1.10.2.2  2003/06/07 12:59:04  wrog
+ * introduced connection_option macros
+ *
+ * Revision 1.10.2.1  2003/06/04 21:28:59  wrog
+ * removed useless arguments from resume_from_previous_vm(), do_forked_task();
+ * replaced current_task_kind with is_fg argument for do_task();
+ * made enum task_kind internal to tasks.c
+ *
+ * Revision 1.10  2002/09/15 23:21:01  xplat
+ * GNU indent normalization.
  *
  * Revision 1.9  2001/07/31 06:33:22  bjj
  * Fixed some bugs in the reporting of forked task sizes.

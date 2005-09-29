@@ -23,8 +23,36 @@
 #  include "net_multi.c"
 #endif
 
+Var
+network_connection_options(network_handle nh, Var list)
+{
+    CONNECTION_OPTION_LIST(NETWORK_CO_TABLE, nh, list);
+}
+
+int
+network_connection_option(network_handle nh, const char *option, Var * value)
+{
+    CONNECTION_OPTION_GET(NETWORK_CO_TABLE, nh, option, value);
+}
+
+int
+network_set_connection_option(network_handle nh, const char *option, Var value)
+{
+    CONNECTION_OPTION_SET(NETWORK_CO_TABLE, nh, option, value);
+}
+
+
 /* 
  * $Log$
+ * Revision 1.2.2.1  2005/09/29 06:56:18  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
+ *
+ * Revision 1.3  2004/05/22 01:25:44  wrog
+ * merging in WROGUE changes (W_SRCIP, W_STARTUP, W_OOB)
+ *
+ * Revision 1.2.10.1  2003/06/07 12:59:04  wrog
+ * introduced connection_option macros
+ *
  * Revision 1.2  1998/12/14 13:18:35  nop
  * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
  *

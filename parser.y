@@ -321,16 +321,19 @@ excepts:
 		    tmp->next = $4;
 		    $$ = $1;
 		}
+	;
 
 except:
 	  opt_id '(' codes ')' statements
 		{ $$ = alloc_except($1 ? find_id($1) : -1, $3, $5); }
+	;
 
 opt_id:
 	  /* NOTHING */
 		{ $$ = 0; }
 	| tID
 		{ $$ = $1; }
+	;
 
 expr:
 	  tINTEGER
@@ -585,18 +588,21 @@ expr:
 dollars_up:
 	  /* NOTHING */
 		{ dollars_ok++; }
+	;
 
 codes:
 	  tANY
 		{ $$ = 0; }
 	| ne_arglist
 		{ $$ = $1; }
+	;
 
 default:
 	  /* NOTHING */
 		{ $$ = 0; }
 	| tARROW expr
 		{ $$ = $2; }
+	;
 
 arglist:
 	  /* NOTHING */
@@ -1226,6 +1232,16 @@ char rcsid_parser[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.2.2.1  2005/09/29 06:56:18  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
+ *
+ * Revision 1.4  2004/05/22 01:25:44  wrog
+ * merging in WROGUE changes (W_SRCIP, W_STARTUP, W_OOB)
+ *
+ * Revision 1.3  2004/04/09 19:52:52  bjj
+ * == Revision 1.2.8.1  2003/06/07 20:16:24 wrog
+ * fixed 6 rules that were missing final semicolons to make newer bison happy.
+ *
  * Revision 1.2  1998/12/14 13:18:45  nop
  * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
  *
