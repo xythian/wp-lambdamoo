@@ -17,7 +17,7 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-static char rcsid[] = "$Id$";
+char rcsid_waif[] = "$Id$";
 
 #include "structures.h"
 #include "bf_register.h"

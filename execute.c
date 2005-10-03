@@ -63,6 +63,16 @@ static Timer_ID task_alarm_id;
 static const char *handler_verb_name;	/* For in-DB traceback handling */
 static Var handler_verb_args;
 
+#ifdef WAIF_DICT
+/*
+ * Jay Carlson's WAIF DICT patch.  These static moo-strings are needed for
+ * the new call_verb2 interface which assumes verb is a moo-string rather
+ * than a (non reference-counted) C-string.
+ */
+static char *waif_index_verb;
+static char *waif_indexset_verb;
+#endif				/* WAIF_DICT */
+
 /* macros to ease indexing into activation stack */
 #define RUN_ACTIV     activ_stack[top_activ_stack]
 #define CALLER_ACTIV  activ_stack[top_activ_stack - 1]
@@ -401,12 +411,7 @@ make_stack_list(activation * stack, int start, int end, int include_end,
 
 	if (include_end || i != end) {
 	    v = r.v.list[j++] = new_list(line_numbers_too ? 6 : 5);
-#ifndef HMMM
-	    v.v.list[1].type = TYPE_OBJ;
-	    v.v.list[1].v.obj = stack[i].this;
-#else
 	    v.v.list[1] = var_ref(stack[i].THIS);
-#endif
 	    v.v.list[2].type = TYPE_STR;
 	    v.v.list[2].v.str = str_ref(stack[i].verb);
 	    v.v.list[3].type = TYPE_OBJ;
@@ -644,7 +649,7 @@ call_verb2(Objid this, const char *vname, Var THIS, Var args, int do_pass)
 	v.v.str = str_dup(vname + 1);
     else
 	v.v.str = str_ref(vname);
-    set_rt_env_var(env, SLOT_VERB, v);		/* no var_dup */
+    set_rt_env_var(env, SLOT_VERB, v);	/* no var_dup */
     set_rt_env_var(env, SLOT_ARGS, args);	/* no var_dup */
 
     return E_NONE;
@@ -963,8 +968,41 @@ do {    						    	\
 		index = POP();	/* index, should be integer */
 		list = POP();	/* lhs except last index, should be list or str */
 		/* whole thing should mean list[index] = value */
-		if ((list.type != TYPE_LIST && list.type != TYPE_STR)
-		    || index.type != TYPE_INT
+
+#ifdef WAIF_DICT
+		if (list.type == TYPE_WAIF) {
+		    Objid class;
+		    Var args;
+		    enum error err = E_NONE;
+
+		    args = new_list(2);
+		    args.v.list[1] = var_ref(index);
+		    args.v.list[2] = var_ref(value);
+
+		    class = list.v.waif->class;
+		    if (!valid(class)) {
+			err = E_INVIND;
+		    } else if (!is_wizard(db_object_owner(class))) {
+			err = E_TYPE;
+		    } else {
+			STORE_STATE_VARIABLES();
+			err = call_verb2(class, waif_indexset_verb, list, args, 0);
+			if (err == E_VERBNF) {
+			    err = E_TYPE;
+			}
+			LOAD_STATE_VARIABLES();
+		    }
+		    free_var(index);
+		    free_var(value);
+		    free_var(list);
+		    if (err != E_NONE) {
+			free_var(args);
+			PUSH_ERROR(err);
+		    }
+		} else
+#endif				/* WAIF_DICT */
+		    if ((list.type != TYPE_LIST && list.type != TYPE_STR)
+			|| index.type != TYPE_INT
 		  || (list.type == TYPE_STR && value.type != TYPE_STR)) {
 		    free_var(value);
 		    free_var(index);
@@ -1268,8 +1306,38 @@ do {    						    	\
 		index = POP();	/* should be integer */
 		list = POP();	/* should be list or string */
 
-		if (index.type != TYPE_INT ||
-		    (list.type != TYPE_LIST && list.type != TYPE_STR)) {
+#ifdef WAIF_DICT
+		if (list.type == TYPE_WAIF) {
+		    Objid class;
+		    Var args;
+		    enum error err = E_NONE;
+
+		    args = new_list(1);
+		    args.v.list[1] = var_ref(index);
+
+		    class = list.v.waif->class;
+		    if (!valid(class)) {
+			err = E_INVIND;
+		    } else if (!is_wizard(db_object_owner(class))) {
+			err = E_TYPE;
+		    } else {
+			STORE_STATE_VARIABLES();
+			err = call_verb2(class, waif_index_verb, list, args, 0);
+			if (err == E_VERBNF) {
+			    err = E_TYPE;
+			}
+			LOAD_STATE_VARIABLES();
+		    }
+		    free_var(index);
+		    free_var(list);
+		    if (err != E_NONE) {
+			free_var(args);
+			PUSH_ERROR(err);
+		    }
+		} else
+#endif				/* WAIF_DICT */
+		    if (index.type != TYPE_INT ||
+		     (list.type != TYPE_LIST && list.type != TYPE_STR)) {
 		    free_var(index);
 		    free_var(list);
 		    PUSH_ERROR(E_TYPE);
@@ -1471,7 +1539,7 @@ do {    						    	\
 		    if (err == E_NONE) {
 			PUSH(rhs);
 		    } else {
-		        free_var(rhs);
+			free_var(rhs);
 			PUSH_ERROR(err);
 		    }
 		} else if (obj.type != TYPE_OBJ || propname.type != TYPE_STR) {
@@ -1599,27 +1667,27 @@ do {    						    	\
 		obj = POP();	/* objid, should be obj */
 
 		if (verb.type != TYPE_STR || args.type != TYPE_LIST) {
-			err = E_TYPE;
-			class = NOTHING; /* shut up gcc */
+		    err = E_TYPE;
+		    class = NOTHING;	/* shut up gcc */
 		} else if (obj.type == TYPE_WAIF) {
-			char *str = mymalloc(strlen(verb.v.str) + 2,M_STRING);
+		    char *str = mymalloc(strlen(verb.v.str) + 2, M_STRING);
 
-			class = obj.v.waif->class;
-                        str[0] = WAIF_VERB_PREFIX;
-                        strcpy(str + 1, verb.v.str);
-                        free_str(verb.v.str);
-                        verb.v.str = str;
+		    class = obj.v.waif->class;
+		    str[0] = WAIF_VERB_PREFIX;
+		    strcpy(str + 1, verb.v.str);
+		    free_str(verb.v.str);
+		    verb.v.str = str;
 		} else if (obj.type == TYPE_OBJ) {
-			class = obj.v.obj;
-			if (verb.v.str[0] == WAIF_VERB_PREFIX)
-				err = E_VERBNF;
+		    class = obj.v.obj;
+		    if (verb.v.str[0] == WAIF_VERB_PREFIX)
+			err = E_VERBNF;
 		} else {
-			err = E_TYPE;
-			class = NOTHING; /* shut up gcc */
+		    err = E_TYPE;
+		    class = NOTHING;	/* shut up gcc */
 		}
 
 		if (err == E_NONE && !valid(class))
-			err = E_INVIND;
+		    err = E_INVIND;
 
 		if (err == E_NONE) {
 		    STORE_STATE_VARIABLES();
@@ -2196,7 +2264,7 @@ run_interpreter(char raise, enum error e,
 	    ret = do_server_verb_task(SYSTEM_OBJECT, handler_verb_name,
 				      var_ref(handler_verb_args), h,
 				      activ_stack[0].player, "", &handled,
-				      0/*no-traceback*/);
+				      0 /*no-traceback */ );
 	    if ((ret == OUTCOME_DONE && is_true(handled))
 		|| ret == OUTCOME_BLOCKED) {
 		/* Assume the in-DB code handled it */
@@ -2288,12 +2356,12 @@ resume_from_previous_vm(vm the_vm, Var v)
     free_vm(the_vm, 0);
 
     if (v.type == TYPE_ERR)
-	return run_interpreter(1, v.v.err, 0, 0/*bg*/, 1/*traceback*/);
+	return run_interpreter(1, v.v.err, 0, 0 /*bg */ , 1 /*traceback */ );
     else {
 	/* PUSH_REF(v) */
 	*(RUN_ACTIV.top_rt_stack++) = var_ref(v);
 
-	return run_interpreter(0, E_NONE, 0, 0/*bg*/, 1/*traceback*/);
+	return run_interpreter(0, E_NONE, 0, 0 /*bg */ , 1 /*traceback */ );
     }
 }
 
@@ -2346,7 +2414,7 @@ do_server_program_task(Objid this, const char *verb, Var args, Objid vloc,
     set_rt_env_str(env, SLOT_VERB, str_ref(RUN_ACTIV.verb));
     set_rt_env_var(env, SLOT_ARGS, args);
 
-    return do_task(program, MAIN_VECTOR, result, 1/*fg*/, do_db_tracebacks);
+    return do_task(program, MAIN_VECTOR, result, 1 /*fg */ , do_db_tracebacks);
 }
 
 enum outcome
@@ -2381,7 +2449,7 @@ do_input_task(Objid user, Parsed_Command * pc, Objid this, db_verb_handle vh)
     set_rt_env_str(env, SLOT_VERB, str_ref(pc->verb));
     set_rt_env_var(env, SLOT_ARGS, var_ref(pc->args));
 
-    return do_task(prog, MAIN_VECTOR, 0, 1/*fg*/, 1/*traceback*/);
+    return do_task(prog, MAIN_VECTOR, 0, 1 /*fg */ , 1 /*traceback */ );
 }
 
 enum outcome
@@ -2393,7 +2461,7 @@ do_forked_task(Program * prog, Var * rt_env, activation a, int f_id)
     RUN_ACTIV = a;
     RUN_ACTIV.rt_env = rt_env;
 
-    return do_task(prog, f_id, 0, 0/*bg*/, 1/*traceback*/);
+    return do_task(prog, f_id, 0, 0 /*bg */ , 1 /*traceback */ );
 }
 
 /* this is called from bf_eval to set up stack for an eval call */
@@ -2609,7 +2677,7 @@ static package
 bf_pass(Var arglist, Byte next, void *vdata, Objid progr)
 {
     enum error e = call_verb2(RUN_ACTIV.this, RUN_ACTIV.verb, RUN_ACTIV.THIS,
-			arglist, 1);
+			      arglist, 1);
 
     if (e == E_NONE)
 	return tail_call_pack();
@@ -2698,6 +2766,11 @@ register_execute(void)
     register_function("caller_perms", 0, 0, bf_caller_perms);
     register_function("callers", 0, 1, bf_callers, TYPE_ANY);
     register_function("task_stack", 1, 2, bf_task_stack, TYPE_INT, TYPE_ANY);
+
+#ifdef WAIF_DICT
+    waif_index_verb = strdup(WAIF_INDEX_VERB);
+    waif_indexset_verb = strdup(WAIF_INDEXSET_VERB);
+#endif				/* WAIF_DICT */
 }
 
 
@@ -2955,6 +3028,9 @@ char rcsid_execute[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.13.2.4  2005/10/03 05:50:29  bjj
+ * Add Jay Carlson's WAIF DICT as build option.
+ *
  * Revision 1.13.2.3  2005/09/29 06:56:18  bjj
  * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
  *

@@ -293,6 +293,13 @@
 
 /* #define USE_GNU_MALLOC */
 
+/******************************************************************************
+ * Turn on WAIF_DICT for Jay Carlson's patch that makes waif[x]=y and waif[x]
+ * work by calling verbs on the waif.
+ ******************************************************************************
+ */
+/* #define WAIF_DICT */
+
 /*****************************************************************************
  ********** You shouldn't need to change anything below this point. **********
  *****************************************************************************/
@@ -384,6 +391,9 @@
 
 /* 
  * $Log$
+ * Revision 1.8.2.2  2005/10/03 05:50:29  bjj
+ * Add Jay Carlson's WAIF DICT as build option.
+ *
  * Revision 1.8.2.1  2005/09/29 07:09:50  bjj
  * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
  *

@@ -25,6 +25,11 @@
 #define WAIF_PROP_PREFIX	':'
 #define WAIF_VERB_PREFIX	':'
 
+#ifdef WAIF_DICT
+#define WAIF_INDEX_VERB ":_index"
+#define WAIF_INDEXSET_VERB ":_set_index"
+#endif /* WAIF_DICT */
+
 #include "db_private.h"
 
 typedef struct WaifPropdefs {
