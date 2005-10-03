@@ -660,7 +660,7 @@ network_set_client_echo(network_handle nh, int is_on)
 #ifdef OUTBOUND_NETWORK
 
 enum error
-network_open_connection(Var arglist)
+network_open_connection(Var arglist, server_listener sl)
 {
     int rfd, wfd;
     const char *local_name, *remote_name;
@@ -668,7 +668,7 @@ network_open_connection(Var arglist)
 
     e = proto_open_connection(arglist, &rfd, &wfd, &local_name, &remote_name);
     if (e == E_NONE)
-	make_new_connection(null_server_listener, rfd, wfd,
+	make_new_connection(sl, rfd, wfd,
 			    local_name, remote_name, 1);
 
     return e;
@@ -700,8 +700,15 @@ char rcsid_net_multi[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.3.2.2  2005/10/03 05:54:36  bjj
+ * Re-merge HEAD into WAIF to get most recent change.
+ *
+ *
  * Revision 1.3.2.1  2005/09/29 06:56:18  bjj
  * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
+ *
+ * Revision 1.5  2005/09/29 18:46:17  bjj
+ * Add third argument to open_network_connection() that associates a specific listener object with the new connection.  This simplifies a lot of outbound connection management.
  *
  * Revision 1.4  2004/05/22 01:25:43  wrog
  * merging in WROGUE changes (W_SRCIP, W_STARTUP, W_OOB)
