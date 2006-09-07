@@ -364,7 +364,7 @@ value_bytes(Var v)
 
     switch (v.type) {
     case TYPE_STR:
-	size += strlen(v.v.str) + 1;
+	size += memo_strlen(v.v.str) + 1;
 	break;
     case TYPE_FLOAT:
 	size += sizeof(double);
@@ -443,6 +443,13 @@ char rcsid_utils[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.8  2006/09/07 00:55:02  bjj
+ * Add new MEMO_STRLEN option which uses the refcounting mechanism to
+ * store strlen with strings.  This is basically free, since most string
+ * allocations are rounded up by malloc anyway.  This saves lots of cycles
+ * computing strlen.  (The change is originally from jitmoo, where I wanted
+ * inline range checks for string ops).
+ *
  * Revision 1.7  2002/08/18 09:47:26  bjj
  * Finally made free_activation() take a pointer after noticing how !$%^&
  * much time it was taking in a particular profiling run.
