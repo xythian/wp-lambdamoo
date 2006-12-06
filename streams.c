@@ -59,6 +59,13 @@ stream_add_char(Stream * s, char c)
 }
 
 void
+stream_delete_char(Stream * s)
+{
+    if (s->current > 0)
+      s->current--;
+}
+
+void
 stream_add_string(Stream * s, const char *string)
 {
     int len = strlen(string);
@@ -231,6 +238,9 @@ char rcsid_streams[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.4  2006/12/06 23:57:51  wrog
+ * New INPUT_APPLY_BACKSPACE option to process backspace/delete characters on nonbinary connections (patch 1571939)
+ *
  * Revision 1.3  1998/12/14 13:19:01  nop
  * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
  *
