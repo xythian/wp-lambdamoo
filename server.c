@@ -734,7 +734,7 @@ emergency_mode()
 	    } else {
 		int i;
 
-		printf("** %d errors during parsing:\n",
+		printf("** %"PRIdN" errors during parsing:\n",
 		       errors.v.list[0].v.num);
 		for (i = 1; i <= errors.v.list[0].v.num; i++)
 		    printf("  %s\n", errors.v.list[i].v.str);
@@ -777,7 +777,7 @@ emergency_mode()
 		    } else {
 			int i;
 
-			printf("** %d errors during parsing:\n",
+			printf("** %"PRIdN" errors during parsing:\n",
 			       errors.v.list[0].v.num);
 			for (i = 1; i <= errors.v.list[0].v.num; i++)
 			    printf("  %s\n", errors.v.list[i].v.str);
@@ -1131,7 +1131,7 @@ write_active_connections(void)
     dbio_printf("%d active connections with listeners\n", count);
 
     for (h = all_shandles; h; h = h->next)
-	dbio_printf("%d %d\n", h->player, h->listener);
+	dbio_printf("%"PRIdN" %"PRIdN"\n", h->player, h->listener);
 }
 
 int
@@ -1163,7 +1163,7 @@ read_active_connections(void)
 	Var v;
 
 	if (have_listeners) {
-	    if (dbio_scanf("%d %d\n", &who, &listener) != 2) {
+	    if (dbio_scanf("%"PRIdN" %"PRIdN"\n", &who, &listener) != 2) {
 		errlog("READ_ACTIVE_CONNECTIONS: Bad conn/listener pair.\n");
 		return 0;
 	    }
