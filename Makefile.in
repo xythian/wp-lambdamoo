@@ -14,10 +14,11 @@
 #   Pavel@Xerox.Com
 
 CC = @CC@
-LIBRARIES = @LIBS@
+LIBS = ucd/libucd.a @LIBS@
 YACC = @YACC@
 
-CFLAGS = @CFLAGS@
+CFLAGS = -Iucd @CFLAGS@
+LDFLAGS = @LDFLAGS@
 
 YFLAGS = -d
 COMPILE.c = $(CC) $(CFLAGS) $(CPPFLAGS) -c
@@ -27,8 +28,9 @@ CSRCS = ast.c code_gen.c db_file.c db_io.c db_objects.c db_properties.c \
 	exceptions.c execute.c extensions.c functions.c keywords.c list.c \
 	log.c malloc.c match.c md5.c name_lookup.c network.c net_mplex.c \
 	net_proto.c numbers.c objects.c parse_cmd.c pattern.c program.c \
-	property.c quota.c ref_count.c regexpr.c server.c storage.c streams.c str_intern.c \
-	sym_table.c tasks.c timers.c unparse.c utils.c verbs.c version.c
+	property.c quota.c ref_count.c regexpr.c server.c storage.c \
+	streams.c str_intern.c sym_table.c tasks.c timers.c unparse.c \
+	utf.c utf-ctype.c utils.c verbs.c version.c
 
 OPT_NET_SRCS = net_single.c net_multi.c \
 	net_mp_selct.c net_mp_poll.c net_mp_fake.c \
@@ -73,8 +75,12 @@ YOBJS = $(YSRCS:.y=.o)
 
 OBJS = $(COBJS) $(YOBJS)
 
+all:
+	cd ucd && $(MAKE) all
+	$(MAKE) moo
+
 moo:	$(OBJS)
-	$(CC) $(CFLAGS) $(OBJS) $(LIBRARIES) -o $@
+	$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -o $@
 
 pure_moo: moo
 	purify $(CC) $(CFLAGS) $(OBJS) $(LIBRARIES) -o $@
@@ -131,6 +137,7 @@ tags:
 
 clean:
 	rm -f $(OBJS) $(OPT_NET_OBJS) core parser.c y.tab.c y.tab.h y.output makedep eddep
+	cd ucd && $(MAKE) clean
 
 distclean:	clean
 	rm -f config.h Makefile config.status

@@ -42,6 +42,7 @@
 #include "structures.h"
 #include "sym_table.h"
 #include "utils.h"
+#include "utf.h"
 #include "version.h"
 
 static Stmt    	       *prog_start;
@@ -69,6 +70,7 @@ static void	check_loop_name(const char *, enum loop_exit_kind);
 %union {
   Stmt	       *stmt;
   Expr	       *expr;
+  int		chr;		/* Used to carry non-ASCII characters */
   Num		integer;
   Objid		object;
   double        real;
@@ -88,6 +90,7 @@ static void	check_loop_name(const char *, enum loop_exit_kind);
 %type	<string> opt_id
 %type	<scatter> scatter scatter_item
 
+%token  <chr> tCHR
 %token	<integer> tINTEGER
 %token	<object> tOBJECT
 %token	<real> tFLOAT
@@ -737,7 +740,7 @@ warning(const char *s, const char *t)
 	error(s, t);
 }
 
-static int unget_buffer[5], unget_count;
+static int unget_buffer[5], unget_count, getc_state;
 
 static int
 lex_getc(void)
@@ -745,7 +748,7 @@ lex_getc(void)
     if (unget_count > 0)
 	return unget_buffer[--unget_count];
     else
-	return (*(client.getch))(client_data);
+	return get_utf_call(client.getch, client_data, &getc_state);
 }
 
 static void
@@ -779,7 +782,7 @@ start_over:
     do {
 	c = lex_getc();
 	if (c == '\n') lineno++;
-    } while (isspace(c));
+    } while (my_isspace(c));
 
     if (c == '/') {
 	c = lex_getc();
@@ -811,27 +814,28 @@ start_over:
 	    negative = 1;
 	    c = lex_getc();
 	}
-	if (!isdigit(c)) {
+	if (!my_isdigit(c)) {
 	    yyerror("Malformed object number");
 	    lex_ungetc(c);
 	    return 0;
 	}
 	do {
-	    oid = oid * 10 + (c - '0');
+	    oid = oid * 10 + my_digitval(c);
 	    c = lex_getc();
-	} while (isdigit(c));
+	} while (my_isdigit(c));
 	lex_ungetc(c);
 
 	yylval.object = negative ? -oid : oid;
 	return tOBJECT;
     }
 
-    if (isdigit(c) || (c == '.'  &&  language_version >= DBV_Float)) {
+    if (my_isdigit(c) ||
+	(c == '.'  &&  language_version >= DBV_Float)) {
 	Num	n = 0;
 	int	type = tINTEGER;
 
-	while (isdigit(c)) {
-	    n = n * 10 + (c - '0');
+	while (my_isdigit(c)) {
+	    n = n * 10 + my_digitval(c);
 	    stream_add_char(token_stream, c);
 	    c = lex_getc();
 	}
@@ -841,12 +845,12 @@ start_over:
 	    int cc;
 
 	    lex_ungetc(cc = lex_getc()); /* peek ahead */
-	    if (isdigit(cc)) {	/* definitely floating-point */
+	    if (my_isdigit(cc)) {	/* definitely floating-point */
 		type = tFLOAT;
 		do {
 		    stream_add_char(token_stream, c);
 		    c = lex_getc();
-		} while (isdigit(c));
+		} while (my_isdigit(c));
 	    } else if (stream_length(token_stream) == 0)
 		/* no digits before or after `.'; not a number at all */
 		goto normal_dot;
@@ -867,7 +871,7 @@ start_over:
 		stream_add_char(token_stream, c);
 		c = lex_getc();
 	    }
-	    if (!isdigit(c)) {
+	    if (!my_isdigit(c)) {
 		yyerror("Malformed floating-point literal");
 		lex_ungetc(c);
 		return 0;
@@ -875,7 +879,7 @@ start_over:
 	    do {
 		stream_add_char(token_stream, c);
 		c = lex_getc();
-	    } while (isdigit(c));
+	    } while (my_isdigit(c));
 	}
 	
 	lex_ungetc(c);
@@ -895,12 +899,12 @@ start_over:
 	return type;
     }
     
-    if (isalpha(c) || c == '_') {
+    if (my_is_xid_start(c)) {
 	char	       *buf;
 	Keyword	       *k;
 
 	stream_add_char(token_stream, c);
-	while (isalnum(c = lex_getc()) || c == '_')
+	while (my_is_xid_cont(c = lex_getc()))
 	    stream_add_char(token_stream, c);
 	lex_ungetc(c);
 	buf = reset_stream(token_stream);
@@ -942,17 +946,31 @@ start_over:
     }
 
     switch(c) {
-      case '>':         return follow('=', tGE, '>');
-      case '<':         return follow('=', tLE, '<');
-      case '=':         return ((c = follow('=', tEQ, 0))
-				? c
-				: follow('>', tARROW, '='));
-      case '!':         return follow('=', tNE, '!');
-      case '|':         return follow('|', tOR, '|');
-      case '&':         return follow('&', tAND, '&');
-      normal_dot:
-      case '.':		return follow('.', tTO, '.');
-      default:          return c;
+    case '>':
+	return follow('=', tGE, '>');
+    case '<':
+	return follow('=', tLE, '<');
+    case '=':
+	return ((c = follow('=', tEQ, 0))
+		? c
+		: follow('>', tARROW, '='));
+    case '!': 
+        return follow('=', tNE, '!');
+    case '|':
+        return follow('|', tOR, '|');
+    case '&':
+	return follow('&', tAND, '&');
+    normal_dot:
+    case '.':
+	return follow('.', tTO, '.');
+    default:
+	if (c < 127) {
+	    return c;
+	} else {
+	    /* Don't confuse yacc with large Unicode values */
+	    yylval.chr = c;
+	    return tCHR;
+	}
     }
 }
 
@@ -1106,6 +1124,7 @@ parse_program(DB_Version version, Parser_Client c, void *data)
     if (token_stream == 0)
 	token_stream = new_stream(1024);
     unget_count = 0;
+    getc_state = -1;
     nerrors = 0;
     must_rename_keywords = 0;
     lineno = 1;

@@ -389,7 +389,7 @@ raw_bytes_to_binary(const char *buffer, int buflen)
     for (i = 0; i < buflen; i++) {
 	unsigned char c = buffer[i];
 
-	if (c != '~' && (isgraph(c) || c == ' '))
+	if (c >= 32 && c < 126)
 	    stream_add_char(s, c);
 	else
 	    stream_printf(s, "~%02x", (int) c);
@@ -419,7 +419,7 @@ binary_to_raw_bytes(const char *binary, int *buflen)
 	    char cc = 0;
 
 	    for (i = 1; i <= 2; i++) {
-		c = toupper(*ptr++);
+		c = my_toupper(*ptr++);
 		if (('0' <= c && c <= '9') || ('A' <= c && c <= 'F'))
 		    cc = cc * 16 + (c <= '9' ? c - '0' : c - 'A' + 10);
 		else
