@@ -349,6 +349,30 @@ no_var_pack(void)
 }
 
 package
+make_int_pack(Num v)
+{
+    package p;
+
+    p.kind = BI_RETURN;
+    p.u.ret.type = TYPE_INT;
+    p.u.ret.v.num = v;
+
+    return p;
+}
+
+package
+make_float_pack(double v)
+{
+    package p;
+
+    p.kind = BI_RETURN;
+    p.u.ret.type = TYPE_FLOAT;
+    p.u.ret.v.fnum = v;
+
+    return p;
+}
+
+package
 make_call_pack(Byte pc, void *data)
 {
     package p;

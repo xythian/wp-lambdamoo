@@ -17,14 +17,7 @@ CC = @CC@
 LIBRARIES = @LIBS@
 YACC = @YACC@
 
-CFLAGS = -O
-# If you're using GCC, you may prefer:
-# CFLAGS = -O2 -finline-functions
-#
-# If you're not using GCC, and your compiler doesn't understand the
-# inline keyword, use the following.  (This will be fixed in autoconf2
-# upgrade).
-# CFLAGS = -O2 -Dinline=
+CFLAGS = @CFLAGS@
 
 YFLAGS = -d
 COMPILE.c = $(CC) $(CFLAGS) $(CPPFLAGS) -c
@@ -97,12 +90,10 @@ restart:
 	touch restart
 
 configure: configure.in
-	# autoconf
-	@echo "Not running autoconf; you must do this by hand."
-	touch configure
+	autoconf
 
 config.status: configure
-	env CC= YACC= ./configure --no-create
+	./config.status --recheck || ./configure --no-create
 
 Makefile: Makefile.in config.status
 	@echo "[ $@ : $? ]"
@@ -153,6 +144,14 @@ depend: ${ALL_CSRCS}
 	cp Makefile.in Makefile.in.bak
 	ed - Makefile.in < eddep
 	rm -f eddep makedep
+
+.SUFFIXES: .c .o .i .s
+.c.o:
+	${CC} ${CFLAGS} -c -o $@ $<
+.c.i:
+	${CC} ${CFLAGS} -E -o $@ $<
+.c.s:
+	${CC} ${CFLAGS} -S -o $@ $<
 
 ###############################################################################
 # $Log$

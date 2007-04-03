@@ -22,7 +22,12 @@
 
 #include "config.h"
 
-typedef int32 Objid;
+/* Note: it's a pretty hard assumption in MOO that integers and objects
+   are the same data type. */
+typedef int64_t Num;
+#define PRIdN	PRId64
+#define SCNdN	SCNd64
+typedef Num Objid;
 
 /*
  * Special Objid's
@@ -94,11 +99,11 @@ typedef struct Var Var;
 struct Var {
     union {
 	const char *str;	/* STR */
-	int32 num;		/* NUM, CATCH, FINALLY */
+	Num num;		/* NUM, CATCH, FINALLY */
 	Objid obj;		/* OBJ */
 	enum error err;		/* ERR */
 	Var *list;		/* LIST */
-	double *fnum;		/* FLOAT */
+	double fnum;		/* FLOAT */
     } v;
     var_type type;
 };

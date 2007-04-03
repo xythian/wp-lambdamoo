@@ -17,6 +17,7 @@
 
 #include "my-ctype.h"
 #include "my-string.h"
+#include "my-math.h"
 
 #include "bf_register.h"
 #include "config.h"
@@ -232,10 +233,10 @@ list2str(Var * args)
     for (i = 1; i <= args[0].v.num; i++) {
 	switch (args[i].type) {
 	case TYPE_INT:
-	    stream_printf(str, "%d", args[i].v.num);
+	    stream_printf(str, "%"PRIdN, args[i].v.num);
 	    break;
 	case TYPE_OBJ:
-	    stream_printf(str, "#%d", args[i].v.obj);
+	    stream_printf(str, "#%"PRIdN, args[i].v.obj);
 	    break;
 	case TYPE_STR:
 	    stream_add_string(str, args[i].v.str);
@@ -244,7 +245,7 @@ list2str(Var * args)
 	    stream_add_string(str, unparse_error(args[i].v.err));
 	    break;
 	case TYPE_FLOAT:
-	    stream_printf(str, "%g", *args[i].v.fnum);
+	    stream_printf(str, "%.*g", DBL_DIG, args[i].v.fnum);
 	    break;
 	case TYPE_LIST:
 	    stream_add_string(str, "{list}");
@@ -275,16 +276,16 @@ print_to_stream(Var v, Stream * s)
 {
     switch (v.type) {
     case TYPE_INT:
-	stream_printf(s, "%d", v.v.num);
+	stream_printf(s, "%"PRIdN, v.v.num);
 	break;
     case TYPE_OBJ:
-	stream_printf(s, "#%d", v.v.obj);
+	stream_printf(s, "#%"PRIdN, v.v.obj);
 	break;
     case TYPE_ERR:
 	stream_add_string(s, error_name(v.v.num));
 	break;
     case TYPE_FLOAT:
-	stream_printf(s, "%g", *v.v.fnum);
+        stream_printf(s, "%.*g", DBL_DIG, v.v.fnum);
 	break;
     case TYPE_STR:
 	{
@@ -926,14 +927,14 @@ static const char *
 hash_bytes(const char *input, int length)
 {
     md5ctx_t context;
-    uint8 result[16];
+    uint8_t result[16];
     int i;
     const char digits[] = "0123456789ABCDEF";
     char *hex = str_dup("12345678901234567890123456789012");
     const char *answer = hex;
 
     md5_Init(&context);
-    md5_Update(&context, (uint8 *) input, length);
+    md5_Update(&context, (uint8_t *) input, length);
     md5_Final(&context, result);
     for (i = 0; i < 16; i++) {
 	*hex++ = digits[result[i] >> 4];

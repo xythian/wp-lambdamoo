@@ -42,7 +42,7 @@
 #include "structures.h"
 #include "sym_table.h"
 #include "utils.h"
-#include "version.h" 
+#include "version.h"
 
 static Stmt    	       *prog_start;
 static int		dollars_ok;
@@ -69,9 +69,9 @@ static void	check_loop_name(const char *, enum loop_exit_kind);
 %union {
   Stmt	       *stmt;
   Expr	       *expr;
-  int		integer;
+  Num		integer;
   Objid		object;
-  double       *real;
+  double        real;
   char	       *string;
   enum error	error;
   Arg_List     *args;
@@ -546,7 +546,7 @@ expr:
 			    $2->e.var.v.num = -$2->e.var.v.num;
 			    break;
 			  case TYPE_FLOAT:
-			    *($2->e.var.v.fnum) = - (*($2->e.var.v.fnum));
+			    $2->e.var.v.fnum = -$2->e.var.v.fnum;
 			    break;
 			  default:
 			    break;
@@ -827,7 +827,7 @@ start_over:
     }
 
     if (isdigit(c) || (c == '.'  &&  language_version >= DBV_Float)) {
-	int	n = 0;
+	Num	n = 0;
 	int	type = tINTEGER;
 
 	while (isdigit(c)) {
@@ -890,7 +890,7 @@ start_over:
 		yyerror("Floating-point literal out of range");
 		d = 0.0;
 	    }
-	    yylval.real = alloc_float(d);
+	    yylval.real = d;
 	}
 	return type;
     }
