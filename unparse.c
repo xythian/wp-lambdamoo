@@ -467,8 +467,8 @@ ok_identifier(const char *name)
 {
     const char *p = name;
 
-    if (*p != '\0' && (isalpha(*p) || *p == '_')) {
-	while (*++p != '\0' && (isalnum(*p) || *p == '_'));
+    if (*p != '\0' && (my_is_xid_start(*p) || *p == '_')) {
+	while (*++p != '\0' && (my_is_xid_cont(*p) || *p == '_'));
 	if (*p == '\0' && !find_keyword(name))
 	    return 1;
     }
