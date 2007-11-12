@@ -20,6 +20,7 @@
  *****************************************************************************/
 
 #include "my-stat.h"
+#include "my-unistd.h"
 #include "my-stdio.h"
 #include "my-stdlib.h"
 
@@ -608,6 +609,8 @@ dump_database(Dump_Reason reason)
 		goto retryDumping;
 	    }
 	} else {
+	    fflush(f);
+	    fsync(fileno(f));
 	    fclose(f);
 	    oklog("%s on %s finished\n", reason_names[reason], temp_name);
 	    if (reason != DUMP_PANIC) {
@@ -735,6 +738,9 @@ char rcsid_db_file[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.6  2007/11/12 11:17:03  wrog
+ * sync so that checkpoint is physically written before prior checkpoint is unlinked
+ *
  * Revision 1.5  2004/05/22 01:25:43  wrog
  * merging in WROGUE changes (W_SRCIP, W_STARTUP, W_OOB)
  *
