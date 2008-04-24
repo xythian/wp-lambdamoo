@@ -20,6 +20,7 @@
  *****************************************************************************/
 
 #include "my-stat.h"
+#include "my-unistd.h"
 #include "my-stdio.h"
 #include "my-stdlib.h"
 
@@ -617,6 +618,8 @@ dump_database(Dump_Reason reason)
 		goto retryDumping;
 	    }
 	} else {
+	    fflush(f);
+	    fsync(fileno(f));
 	    fclose(f);
 	    oklog("%s on %s finished\n", reason_names[reason], temp_name);
 	    if (reason != DUMP_PANIC) {
@@ -744,12 +747,18 @@ char rcsid_db_file[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.4.2.3  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
  * Revision 1.4.2.2  2005/09/29 06:56:18  bjj
  * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
  *
  *
  * Revision 1.4.2.1  2002/08/29 05:44:23  bjj
  * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
+ * Revision 1.6  2007/11/12 11:17:03  wrog
+ * sync so that checkpoint is physically written before prior checkpoint is unlinked
  *
  * Revision 1.5  2004/05/22 01:25:43  wrog
  * merging in WROGUE changes (W_SRCIP, W_STARTUP, W_OOB)

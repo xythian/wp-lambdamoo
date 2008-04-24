@@ -290,18 +290,18 @@ db_object_bytes(Objid oid)
     Verbdef *v;
 
     count = sizeof(Object) + sizeof(Object *);
-    count += strlen(o->name) + 1;
+    count += memo_strlen(o->name) + 1;
 
     for (v = o->verbdefs; v; v = v->next) {
 	count += sizeof(Verbdef);
-	count += strlen(v->name) + 1;
+	count += memo_strlen(v->name) + 1;
 	if (v->program)
 	    count += program_bytes(v->program);
     }
 
     count += sizeof(Propdef) * o->propdefs.cur_length;
     for (i = 0; i < o->propdefs.cur_length; i++)
-	count += strlen(o->propdefs.l[i].name) + 1;
+	count += memo_strlen(o->propdefs.l[i].name) + 1;
 
     len = dbpriv_count_properties(oid);
     count += (sizeof(Pval) - sizeof(Var)) * len;
@@ -555,8 +555,18 @@ char rcsid_db_objects[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.4.2.2  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
  * Revision 1.4.2.1  2002/08/29 05:44:23  bjj
  * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
+ * Revision 1.5  2006/09/07 00:55:02  bjj
+ * Add new MEMO_STRLEN option which uses the refcounting mechanism to
+ * store strlen with strings.  This is basically free, since most string
+ * allocations are rounded up by malloc anyway.  This saves lots of cycles
+ * computing strlen.  (The change is originally from jitmoo, where I wanted
+ * inline range checks for string ops).
  *
  * Revision 1.4  1998/12/14 13:17:36  nop
  * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims

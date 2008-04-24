@@ -1047,6 +1047,12 @@ player_connected(Objid old_id, Objid new_id, int is_newly_created)
     new_h->connection_time = time(0);
 
     if (existing_h) {
+	/* we now have two shandles with the same player value while
+	 * find_shandle assumes there can only be one.  This needs to
+	 * be remedied before any call_notifier() call; luckily, the
+	 * latter only needs listener value.
+	 */
+	Objid existing_listener = existing_h->listener;
 	/* network_connection_name is allowed to reuse the same string
 	 * storage, so we have to copy one of them.
 	 */
@@ -1058,7 +1064,7 @@ player_connected(Objid old_id, Objid new_id, int is_newly_created)
 	      network_connection_name(new_h->nhandle));
 	free_str(name1);
 	if (existing_h->print_messages)
-	    send_message(existing_h->listener, existing_h->nhandle,
+	    send_message(existing_listener, existing_h->nhandle,
 			 "redirect_from_msg",
 			 "*** Redirecting connection to new port ***", 0);
 	if (new_h->print_messages)
@@ -1066,11 +1072,13 @@ player_connected(Objid old_id, Objid new_id, int is_newly_created)
 			 "*** Redirecting old connection to this port ***", 0);
 	network_close(existing_h->nhandle);
 	free_shandle(existing_h);
-	if (existing_h->listener == new_h->listener)
+	if (existing_listener == new_h->listener)
 	    call_notifier(new_id, new_h->listener, "user_reconnected");
 	else {
-	    call_notifier(new_id, existing_h->listener,
+	    new_h->disconnect_me = 1;
+	    call_notifier(new_id, existing_listener,
 			  "user_client_disconnected");
+	    new_h->disconnect_me = 0;
 	    call_notifier(new_id, new_h->listener, "user_connected");
 	}
     } else {
@@ -1740,7 +1748,7 @@ bf_buffered_output_length(Var arglist, Byte next, void *vdata, Objid progr)
     if (nargs == 0)
 	r.v.num = MAX_QUEUED_OUTPUT;
     else {
-	shandle *h = find_shandle(arglist.v.list[1].v.obj);
+	shandle *h = find_shandle(conn);
 
 	if (!h)
 	    return make_error_pack(E_INVARG);
@@ -1790,12 +1798,27 @@ char rcsid_server[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.5.2.3  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
+ *
  * Revision 1.5.2.2  2005/10/03 05:54:36  bjj
  * Re-merge HEAD into WAIF to get most recent change.
  *
- *
  * Revision 1.5.2.1  2005/09/29 06:56:18  bjj
  * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
+ *
+ * Revision 1.12  2007/06/02 21:34:36  wrog
+ * fix player_connect() so that the user_client_disconnected hook
+ * sees a disconnected player, same as with server_close()
+ *
+ * Revision 1.11  2007/05/29 12:21:47  wrog
+ * fixes server panic (or lost messages) caused by attempting to write to freed network handle during #0:user_reconnected; removes the one case where server and network handles were not being freed together
+ *
+ * Revision 1.10  2006/11/21 18:42:37  pschwan
+ * b=1500775
+ * fixes two use-after-free bugs that could lead very rarely to
+ * calling the wrong functions during player connection
  *
  * Revision 1.9  2005/09/29 18:46:18  bjj
  * Add third argument to open_network_connection() that associates a specific listener object with the new connection.  This simplifies a lot of outbound connection management.

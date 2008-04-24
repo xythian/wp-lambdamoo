@@ -204,6 +204,10 @@ network_process_io(int timeout)
 
 			if (isgraph(c) || c == ' ' || c == '\t')
 			    stream_add_char(s, c);
+#ifdef INPUT_APPLY_BACKSPACE
+			else if (c == 0x08 || c == 0x7F)
+			    stream_delete_char(s);
+#endif
 			else if (c == '\n')
 			    server_receive_line(sh, reset_stream(s));
 		    }
@@ -225,8 +229,15 @@ char rcsid_net_single[] = "$Id$";
 
 /*
  * $Log$
+ * Revision 1.2.4.2  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
+ *
  * Revision 1.2.4.1  2005/09/29 06:56:18  bjj
  * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
+ *
+ * Revision 1.4  2006/12/06 23:57:51  wrog
+ * New INPUT_APPLY_BACKSPACE option to process backspace/delete characters on nonbinary connections (patch 1571939)
  *
  * Revision 1.3  2004/05/22 01:25:44  wrog
  * merging in WROGUE changes (W_SRCIP, W_STARTUP, W_OOB)

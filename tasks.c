@@ -1668,8 +1668,8 @@ activation_bytes(activation * ap)
     }
     /* XXX ignore bi_func_data, it's an opaque type. */
     total += value_bytes(ap->temp) - sizeof(Var);
-    total += strlen(ap->verb) + 1;
-    total += strlen(ap->verbname) + 1;
+    total += memo_strlen(ap->verb) + 1;
+    total += memo_strlen(ap->verbname) + 1;
     return total;
 }
 
@@ -2239,12 +2239,22 @@ char rcsid_tasks[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.9.2.3  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
+ *
  * Revision 1.9.2.2  2005/09/29 06:56:18  bjj
  * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
  *
- *
  * Revision 1.9.2.1  2002/08/29 05:44:24  bjj
  * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
+ * Revision 1.14  2006/09/07 00:55:02  bjj
+ * Add new MEMO_STRLEN option which uses the refcounting mechanism to
+ * store strlen with strings.  This is basically free, since most string
+ * allocations are rounded up by malloc anyway.  This saves lots of cycles
+ * computing strlen.  (The change is originally from jitmoo, where I wanted
+ * inline range checks for string ops).
  *
  * Revision 1.13  2004/05/28 07:53:32  wrog
  * added "intrinsic-commands" connection option

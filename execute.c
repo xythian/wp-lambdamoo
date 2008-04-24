@@ -751,7 +751,7 @@ run(char raise, enum error resumption_error, Var * result)
 	     + ((unsigned) bv[-2] << 8)      	\
 	     + bv[-1]))))
 
-#define SKIP_BYTES(bv, nb)	(void)(bv += nb)
+#define SKIP_BYTES(bv, nb)	((void)(bv += nb))
 
 #define LOAD_STATE_VARIABLES() 					\
 do {  								\
@@ -829,8 +829,10 @@ do {    						    	\
 		Var cond;
 
 		cond = POP();
-		if (!is_true(cond))	/* jump if false */
-		    JUMP(READ_BYTES(bv, bc.numbytes_label));
+		if (!is_true(cond)) {	/* jump if false */
+		    unsigned lab = READ_BYTES(bv, bc.numbytes_label);
+		    JUMP(lab);
+		}
 		else {
 		    SKIP_BYTES(bv, bc.numbytes_label);
 		}
@@ -839,7 +841,10 @@ do {    						    	\
 	    break;
 
 	case OP_JUMP:
-	    JUMP(READ_BYTES(bv, bc.numbytes_label));
+	    {
+		unsigned lab = READ_BYTES(bv, bc.numbytes_label);
+		JUMP(lab);
+	    }
 	    break;
 
 	case OP_FOR_LIST:
@@ -1012,12 +1017,13 @@ do {    						    	\
 			   || (list.type == TYPE_LIST
 		       && index.v.num > list.v.list[0].v.num /* size */ )
 			   || (list.type == TYPE_STR
-			    && index.v.num > (int) strlen(list.v.str))) {
+			    && index.v.num > (int) memo_strlen(list.v.str))) {
 		    free_var(value);
 		    free_var(index);
 		    free_var(list);
 		    PUSH_ERROR(E_RANGE);
-		} else if (list.type == TYPE_STR && strlen(value.v.str) != 1) {
+		} else if (list.type == TYPE_STR
+			   && memo_strlen(value.v.str) != 1) {
 		    free_var(value);
 		    free_var(index);
 		    free_var(list);
@@ -1230,10 +1236,11 @@ do {    						    	\
 		    ans = do_add(lhs, rhs);
 		else if (lhs.type == TYPE_STR && rhs.type == TYPE_STR) {
 		    char *str;
+		    int llen = memo_strlen(lhs.v.str);
 
-		    str = mymalloc((strlen(rhs.v.str) + strlen(lhs.v.str) + 1)
-				   * sizeof(char), M_STRING);
-		    sprintf(str, "%s%s", lhs.v.str, rhs.v.str);
+		    str = mymalloc(llen + memo_strlen(rhs.v.str) + 1, M_STRING);
+		    strcpy(str, lhs.v.str);
+		    strcpy(str + llen, rhs.v.str);
 		    ans.type = TYPE_STR;
 		    ans.v.str = str;
 		} else {
@@ -1353,7 +1360,7 @@ do {    						    	\
 		    }
 		} else {	/* list.type == TYPE_STR */
 		    if (index.v.num <= 0
-			|| index.v.num > (int) strlen(list.v.str)) {
+			|| index.v.num > (int) memo_strlen(list.v.str)) {
 			free_var(index);
 			free_var(list);
 			PUSH_ERROR(E_RANGE);
@@ -1397,7 +1404,7 @@ do {    						    	\
 		    free_var(from);
 		    PUSH_ERROR(E_TYPE);
 		} else {
-		    int len = (base.type == TYPE_STR ? strlen(base.v.str)
+		    int len = (base.type == TYPE_STR ? memo_strlen(base.v.str)
 			       : base.v.list[0].v.num);
 		    if (from.v.num <= to.v.num
 			&& (from.v.num <= 0 || from.v.num > len
@@ -1817,7 +1824,7 @@ do {    						    	\
 			    free_var(value);
 			    PUSH_ERROR(E_TYPE);
 			} else if (rangeset_check(base.type == TYPE_STR
-						  ? strlen(base.v.str)
+						  ? memo_strlen(base.v.str)
 						  : base.v.list[0].v.num,
 						  from.v.num, to.v.num)) {
 			    free_var(base);
@@ -1840,7 +1847,7 @@ do {    						    	\
 			v.type = TYPE_INT;
 			item = RUN_ACTIV.base_rt_stack[i];
 			if (item.type == TYPE_STR) {
-			    v.v.num = strlen(item.v.str);
+			    v.v.num = memo_strlen(item.v.str);
 			    PUSH(v);
 			} else if (item.type == TYPE_LIST) {
 			    v.v.num = item.v.list[0].v.num;
@@ -1959,6 +1966,7 @@ do {    						    	\
 		    {
 			Var v, marker;
 			int i;
+			unsigned lab;
 
 			if (eop == EOP_END_CATCH)
 			    v = POP();
@@ -1974,7 +1982,8 @@ do {    						    	\
 			if (eop == EOP_END_CATCH)
 			    PUSH(v);
 
-			JUMP(READ_BYTES(bv, bc.numbytes_label));
+			lab = READ_BYTES(bv, bc.numbytes_label);
+			JUMP(lab);
 		    }
 		    break;
 
@@ -2026,7 +2035,7 @@ do {    						    	\
 		    goto do_test;
 
 		case EOP_EXIT_ID:
-		    READ_BYTES(bv, bc.numbytes_var_name);	/* ignore id */
+		    SKIP_BYTES(bv, bc.numbytes_var_name);	/* ignore id */
 		    /* fall thru */
 		case EOP_EXIT:
 		    {
@@ -2255,18 +2264,19 @@ run_interpreter(char raise, enum error e,
 
     if (ret == OUTCOME_ABORTED && handler_verb_name) {
 	db_verb_handle h;
+        enum outcome hret;
 	Var args, handled, traceback;
 	int i;
 
 	args = handler_verb_args;
 	h = db_find_callable_verb(SYSTEM_OBJECT, handler_verb_name);
 	if (do_db_tracebacks && h.ptr) {
-	    ret = do_server_verb_task(SYSTEM_OBJECT, handler_verb_name,
-				      var_ref(handler_verb_args), h,
-				      activ_stack[0].player, "", &handled,
-				      0 /*no-traceback */ );
-	    if ((ret == OUTCOME_DONE && is_true(handled))
-		|| ret == OUTCOME_BLOCKED) {
+	    hret = do_server_verb_task(SYSTEM_OBJECT, handler_verb_name,
+				       var_ref(handler_verb_args), h,
+				       activ_stack[0].player, "", &handled,
+				       0/*no-traceback*/);
+	    if ((hret == OUTCOME_DONE && is_true(handled))
+		|| hret == OUTCOME_BLOCKED) {
 		/* Assume the in-DB code handled it */
 		free_var(args);
 		return OUTCOME_ABORTED;		/* original ret value */
@@ -3028,6 +3038,10 @@ char rcsid_execute[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.13.2.6  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
+ *
  * Revision 1.13.2.5  2006/04/05 00:49:29  bjj
  * Critical fix for WAIF_DICT to correct a merge mistake.
  *
@@ -3037,12 +3051,34 @@ char rcsid_execute[] = "$Id$";
  * Revision 1.13.2.3  2005/09/29 06:56:18  bjj
  * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
  *
- *
  * Revision 1.13.2.2  2002/08/29 06:03:40  bjj
  * Quiet GCC in run(), toint/tofloat(waif) raises E_TYPE and waif.wizard=0
  *
  * Revision 1.13.2.1  2002/08/29 05:44:23  bjj
  * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
+ * Revision 1.19  2006/12/06 23:54:53  wrog
+ * Fix compiler warnings about undefined behavior (bv assigned twice in JUMP(READ_BYTES(...))) and unused values
+ *
+ * Revision 1.18  2006/09/26 02:03:59  pschwan
+ * b=1552816
+ * r=ben
+ *
+ * execute.c:run_interpreter() sometimes clobbers the real return code with that
+ * of the traceback handler.  If |result| is non-NULL, this can lead to it being
+ * used later on without ever having been initialized, causing "Unknown Var type"
+ * errors.
+ *
+ * In practice -- because |result| is almost always NULL or (in one case)
+ * initialized before calling run_interpreter() -- this situation wasn't
+ * encountered execept in Emergency Mode.
+ *
+ * Revision 1.17  2006/09/07 00:55:02  bjj
+ * Add new MEMO_STRLEN option which uses the refcounting mechanism to
+ * store strlen with strings.  This is basically free, since most string
+ * allocations are rounded up by malloc anyway.  This saves lots of cycles
+ * computing strlen.  (The change is originally from jitmoo, where I wanted
+ * inline range checks for string ops).
  *
  * Revision 1.16  2004/05/22 01:25:43  wrog
  * merging in WROGUE changes (W_SRCIP, W_STARTUP, W_OOB)

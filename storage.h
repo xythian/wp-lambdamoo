@@ -18,7 +18,8 @@
 #ifndef Storage_h
 #define Storage_h 1
 
-#include "config.h"
+#include "my-string.h"
+
 #include "structures.h"
 #include "ref_count.h"
 
@@ -49,19 +50,44 @@ extern void myfree(void *where, Memory_Type type);
 extern void *mymalloc(unsigned size, Memory_Type type);
 extern void *myrealloc(void *where, unsigned size, Memory_Type type);
 
-static inline void    /* XXX was extern, fix for non-gcc compilers */
+static inline void		/* XXX was extern, fix for non-gcc compilers */
 free_str(const char *s)
 {
     if (delref(s) == 0)
 	myfree((void *) s, M_STRING);
 }
 
+#ifdef MEMO_STRLEN
+/*
+ * Using the same mechanism as ref_count.h uses to hide Value ref counts,
+ * keep a memozied strlen in the storage with the string.
+ */
+#define memo_strlen(X)		((void)0, (((int *)(X))[-2]))
+#else
+#define memo_strlen(X)		strlen(X)
+
+#endif /* MEMO_STRLEN */
+
 #endif				/* Storage_h */
 
 /* 
  * $Log$
+ * Revision 1.5.2.2  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
+ *
  * Revision 1.5.2.1  2002/08/29 05:44:24  bjj
  * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
+ * Revision 1.7  2006/12/06 23:44:56  wrog
+ * Fix compiler warnings about redefining strlen/strcmp
+ *
+ * Revision 1.6  2006/09/07 00:55:02  bjj
+ * Add new MEMO_STRLEN option which uses the refcounting mechanism to
+ * store strlen with strings.  This is basically free, since most string
+ * allocations are rounded up by malloc anyway.  This saves lots of cycles
+ * computing strlen.  (The change is originally from jitmoo, where I wanted
+ * inline range checks for string ops).
  *
  * Revision 1.5  1998/12/14 13:19:00  nop
  * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims

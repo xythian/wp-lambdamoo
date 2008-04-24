@@ -165,10 +165,13 @@ extern Exception dbpriv_dbio_failed;
 extern void dbpriv_set_dbio_input(FILE *);
 extern void dbpriv_set_dbio_output(FILE *);
 
-#endif DB_PRIVATE_h
+#endif /* DB_PRIVATE_h */
 
 /* 
  * $Log$
+ * Revision 1.4.2.2  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
  * Revision 1.4.2.1  2002/08/29 05:44:23  bjj
  * Add WAIF type as distributed in version 0.95 (one small merge).
  *
