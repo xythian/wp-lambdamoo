@@ -500,9 +500,9 @@ sub make_properties_array()
 
 	if ( substr($prev,14) ne substr($mine,14) ) {
 	    print $fh $mine;
-	    $cnt++;
 	    $prev = $mine;
 	    printf $fhi "0x%05x $cnt\n", $c, $cnt;
+	    $cnt++;
 	}
 	$prop_array_position{$c} = $cnt;
     }

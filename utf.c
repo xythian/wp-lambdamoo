@@ -81,7 +81,7 @@ int get_utf(const char **pp)
 
 int get_utf_call(int (*c_getch) (void *), void *c_data, int *state)
 {
-    unsigned char c;
+    int c;
     int cc = *state;
     int v;
 

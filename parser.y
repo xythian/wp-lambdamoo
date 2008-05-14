@@ -782,7 +782,10 @@ start_over:
     do {
 	c = lex_getc();
 	if (c == '\n') lineno++;
-    } while (my_isspace(c));
+    } while (c != EOF && my_isspace(c));
+
+    if (c == EOF)
+        return c;
 
     if (c == '/') {
 	c = lex_getc();
@@ -899,12 +902,12 @@ start_over:
 	return type;
     }
     
-    if (my_is_xid_start(c)) {
+    if (my_is_xid_start(c) || c == '_') {
 	char	       *buf;
 	Keyword	       *k;
 
 	stream_add_char(token_stream, c);
-	while (my_is_xid_cont(c = lex_getc()))
+	while (my_is_xid_cont(c = lex_getc()) || c == '_')
 	    stream_add_char(token_stream, c);
 	lex_ungetc(c);
 	buf = reset_stream(token_stream);

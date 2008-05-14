@@ -179,12 +179,12 @@ write_object(Objid oid)
     int nverbdefs, nprops;
 
     if (!valid(oid)) {
-	dbio_printf("#%"PRIdN"d recycled\n", oid);
+	dbio_printf("#%"PRIdN" recycled\n", oid);
 	return;
     }
     o = dbpriv_find_object(oid);
 
-    dbio_printf("#%"PRIdN"d\n", oid);
+    dbio_printf("#%"PRIdN"\n", oid);
     dbio_write_string(o->name);
     dbio_write_string("");	/* placeholder for old handles string */
     dbio_write_num(o->flags);
@@ -387,7 +387,7 @@ fmt_verb_name(void *data)
     if (!s)
 	s = new_stream(40);
 
-    stream_printf(s, "#%"PRIdN"d:%s", db_verb_definer(*h), db_verb_names(*h));
+    stream_printf(s, "#%"PRIdN":%s", db_verb_definer(*h), db_verb_names(*h));
     return reset_stream(s);
 }
 
