@@ -147,12 +147,10 @@ int get_utf_call(int (*c_getch) (void *), void *c_data, int *state)
     goto done;
 }
 
-int put_utf(char **pp, int v)
+int put_utf(char **pp, int vv)
 {
     char *p = *pp;
-
-    if (v < 0 || v > 0x10ffff || (v >= 0xd800 && v <= 0xdfff))
-	return -1;		/* Invalid UCS */
+    unsigned int v = vv;
 
     if (v <= 0x7f) {
 	*p++ = v;
@@ -160,14 +158,18 @@ int put_utf(char **pp, int v)
 	*p++ = 0xc0 | (v >> 6);
 	*p++ = 0x80 | (v & 0x3f);
     } else if (v <= 0xffff) {
+	if ((v - 0xd800) <= (0xdfff-0xd800))
+	    return -1;		/* Invalid UCS (surrogate) */
 	*p++ = 0xe0 | (v >> 12);
 	*p++ = 0x80 | ((v >> 6) & 0x3f);
 	*p++ = 0x80 | (v & 0x3f);
-    } else {
+    } else if (v <= 0x10ffff) {
 	*p++ = 0xf0 | (v >> 18);
 	*p++ = 0x80 | ((v >> 12) & 0x3f);
 	*p++ = 0x80 | ((v >> 6) & 0x3f);
 	*p++ = 0x80 | (v & 0x3f);
+    } else {
+	return -1;		/* Invalid UCS (out of range) */
     }
 
     *pp = p;
