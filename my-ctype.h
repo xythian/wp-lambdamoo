@@ -30,6 +30,8 @@ extern int my_isspace(int);
 extern int my_is_xid_start(int);
 extern int my_is_xid_cont(int);
 
+extern int my_is_printable(int);
+
 #define my_isascii(x) ((unsigned int)(x) < 127)
 
 #endif				/* !My_Ctype_H */

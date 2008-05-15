@@ -98,6 +98,14 @@
 #define DEFAULT_BG_SECONDS	3
 
 /******************************************************************************
+ * Debug settings:
+ *
+ * DEBUG_LOG_TRACEBACKS prints all tracebacks to the server log.
+ */
+
+#define DEBUG_LOG_TRACEBACKS
+
+/******************************************************************************
  * NETWORK_PROTOCOL must be defined as one of the following:
  *
  * NP_SINGLE	The server will accept only one user at a time, communicating

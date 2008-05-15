@@ -34,6 +34,7 @@
 #include "storage.h"
 #include "structures.h"
 #include "unparse.h"
+#include "utf.h"
 #include "utils.h"
 
 Var
@@ -346,15 +347,18 @@ strrangeset(Var base, int from, int to, Var value)
     int index, offset = 0;
     int val_len = memo_strlen(value.v.str);
     int base_len = memo_strlen(base.v.str);
-    int lenleft = (from > 1) ? from - 1 : 0;
+    int charsleft = (from > 1) ? from - 1 : 0;
+    int lenleft = skip_utf(base.v.str, charsleft);
     int lenmiddle = val_len;
-    int lenright = (base_len > to) ? base_len - to : 0;
+    int indright = lenleft + skip_utf(base.v.str + lenleft, to - from + 1);
+    int lenright = base_len - indright;
     int newsize = lenleft + lenmiddle + lenright;
 
     Var ans;
     char *s;
 
     ans.type = TYPE_STR;
+    errlog("Will allocate %d bytes", sizeof(char) * (newsize + 1));
     s = mymalloc(sizeof(char) * (newsize + 1), M_STRING);
 
     for (index = 0; index < lenleft; index++)
@@ -362,7 +366,7 @@ strrangeset(Var base, int from, int to, Var value)
     for (index = 0; index < lenmiddle; index++)
 	s[offset++] = value.v.str[index];
     for (index = 0; index < lenright; index++)
-	s[offset++] = base.v.str[index + to];
+	s[offset++] = base.v.str[index + indright];
     s[offset] = '\0';
     ans.v.str = s;
     free_var(base);
@@ -380,9 +384,11 @@ substr(Var str, int lower, int upper)
 	r.v.str = str_dup("");
     else {
 	int loop, index = 0;
-	char *s = mymalloc(upper - lower + 2, M_STRING);
+        int lower_ind = skip_utf(str.v.str, lower - 1);
+        int upper_ind = lower_ind + skip_utf(str.v.str + lower_ind, upper + 1 - lower);
+	char *s = mymalloc(upper_ind - lower_ind + 1, M_STRING);
 
-	for (loop = lower - 1; loop < upper; loop++)
+	for (loop = lower_ind; loop < upper_ind; loop++)
 	    s[index++] = str.v.str[loop];
 	s[index] = '\0';
 	r.v.str = s;
@@ -399,7 +405,7 @@ strget(Var str, Var i)
 
     r.type = TYPE_STR;
     s = str_dup(" ");
-    s[0] = str.v.str[i.v.num - 1];
+    s[0] = str.v.str[skip_utf(str.v.str, i.v.num - 1)];
     r.v.str = s;
     return r;
 }
@@ -417,7 +423,7 @@ bf_length(Var arglist, Byte next, void *vdata, Objid progr)
 	break;
     case TYPE_STR:
 	r.type = TYPE_INT;
-	r.v.num = memo_strlen(arglist.v.list[1].v.str);
+	r.v.num = strlen_utf(arglist.v.list[1].v.str);
 	break;
     default:
 	free_var(arglist);
@@ -728,6 +734,7 @@ get_pattern(const char *string, int case_matters)
     return entry->pattern;
 }
 
+#define match_rebase(x) (x == 0 ? 0 : (subject_len - strlen_utf(subject + (x) - 1) + 1))
 Var
 do_match(Var arglist, int reverse)
 {
@@ -736,6 +743,7 @@ do_match(Var arglist, int reverse)
     Pattern pat;
     Var ans;
     Match_Indices regs[10];
+    int subject_len;
 
     subject = arglist.v.list[1].v.str;
     pattern = arglist.v.list[2].v.str;
@@ -748,20 +756,21 @@ do_match(Var arglist, int reverse)
     } else
 	switch (match_pattern(pat, subject, regs, reverse)) {
 	case MATCH_SUCCEEDED:
+            subject_len = strlen_utf(subject);
 	    ans = new_list(4);
 	    ans.v.list[1].type = TYPE_INT;
 	    ans.v.list[2].type = TYPE_INT;
 	    ans.v.list[4].type = TYPE_STR;
-	    ans.v.list[1].v.num = regs[0].start;
-	    ans.v.list[2].v.num = regs[0].end;
+	    ans.v.list[1].v.num = match_rebase(regs[0].start);
+	    ans.v.list[2].v.num = match_rebase(regs[0].end + 1) - 1;
 	    ans.v.list[3] = new_list(9);
 	    ans.v.list[4].v.str = str_ref(subject);
 	    for (i = 1; i <= 9; i++) {
 		ans.v.list[3].v.list[i] = new_list(2);
 		ans.v.list[3].v.list[i].v.list[1].type = TYPE_INT;
-		ans.v.list[3].v.list[i].v.list[1].v.num = regs[i].start;
+		ans.v.list[3].v.list[i].v.list[1].v.num = match_rebase(regs[i].start);
 		ans.v.list[3].v.list[i].v.list[2].type = TYPE_INT;
-		ans.v.list[3].v.list[i].v.list[2].v.num = regs[i].end;
+		ans.v.list[3].v.list[i].v.list[2].v.num = match_rebase(regs[i].end + 1) - 1;
 	    }
 	    break;
 	case MATCH_FAILED:
@@ -826,7 +835,7 @@ check_subs_list(Var subs)
 	|| subs.v.list[4].type != TYPE_STR)
 	return 1;
     subj = subs.v.list[4].v.str;
-    subj_length = memo_strlen(subj);
+    subj_length = strlen_utf(subj);
     if (invalid_pair(subs.v.list[1].v.num, subs.v.list[2].v.num,
 		     subj_length))
 	return 1;
@@ -888,8 +897,10 @@ bf_substitute(Var arglist, Byte next, void *vdata, Objid progr)
 		    } else
 			invarg = 1;
 		    if (!invarg) {
-			int where;
-			for (where = start; where <= end; where++)
+			int where = skip_utf(subject, start);
+
+                        end = skip_utf(subject + where, end - start + 1);
+			for (; where < end; where++)
 			    stream_add_char(s, subject[where]);
 		    }
 		}

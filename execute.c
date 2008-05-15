@@ -39,6 +39,7 @@
 #include "sym_table.h"
 #include "tasks.h"
 #include "timers.h"
+#include "utf.h"
 #include "utils.h"
 #include "version.h"
 
@@ -168,6 +169,9 @@ output_to_list(const char *line)
 static Var
 error_backtrace_list(const char *msg)
 {
+#ifdef DEBUG_LOG_TRACEBACKS
+    print_error_backtrace(msg, output_to_log);
+#endif
     backtrace_list = new_list(0);
     print_error_backtrace(msg, output_to_list);
     return backtrace_list;
@@ -965,13 +969,13 @@ do {    						    	\
 			   || (list.type == TYPE_LIST
 		       && index.v.num > list.v.list[0].v.num /* size */ )
 			   || (list.type == TYPE_STR
-			    && index.v.num > (int) memo_strlen(list.v.str))) {
+			    && index.v.num > (int) strlen_utf(list.v.str))) {
 		    free_var(value);
 		    free_var(index);
 		    free_var(list);
 		    PUSH_ERROR(E_RANGE);
 		} else if (list.type == TYPE_STR
-			   && memo_strlen(value.v.str) != 1) {
+			   && strlen_utf(value.v.str) != 1) {
 		    free_var(value);
 		    free_var(index);
 		    free_var(list);
@@ -986,6 +990,14 @@ do {    						    	\
 			free_var(list);
 		    }
 		    PUSH(listset(res, value, index.v.num));
+                } else if (1 || (memo_strlen(value.v.str) != 1)) {
+                    /* always have to do this because even if the target
+                     * character is not long the source might be and it'd
+                     * take half the work of strrangeset just to check it
+                     */
+                    PUSH(strrangeset(list, index.v.num, index.v.num, value));
+                    /* XXX is there a refcount problem here? */
+                    /* XXX if so, what about the other strrangeset? */
 		} else {	/* TYPE_STR */
 		    char *tmp_str = str_dup(list.v.str);
 		    free_str(list.v.str);
@@ -1278,7 +1290,7 @@ do {    						    	\
 		    }
 		} else {	/* list.type == TYPE_STR */
 		    if (index.v.num <= 0
-			|| index.v.num > (int) memo_strlen(list.v.str)) {
+			|| index.v.num > (int) strlen_utf(list.v.str)) {
 			free_var(index);
 			free_var(list);
 			PUSH_ERROR(E_RANGE);
@@ -1322,7 +1334,7 @@ do {    						    	\
 		    free_var(from);
 		    PUSH_ERROR(E_TYPE);
 		} else {
-		    int len = (base.type == TYPE_STR ? memo_strlen(base.v.str)
+		    int len = (base.type == TYPE_STR ? strlen_utf(base.v.str)
 			       : base.v.list[0].v.num);
 		    if (from.v.num <= to.v.num
 			&& (from.v.num <= 0 || from.v.num > len
@@ -1711,7 +1723,7 @@ do {    						    	\
 			v.type = TYPE_INT;
 			item = RUN_ACTIV.base_rt_stack[i];
 			if (item.type == TYPE_STR) {
-			    v.v.num = memo_strlen(item.v.str);
+			    v.v.num = strlen_utf(item.v.str);
 			    PUSH(v);
 			} else if (item.type == TYPE_LIST) {
 			    v.v.num = item.v.list[0].v.num;

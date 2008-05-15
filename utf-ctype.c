@@ -118,3 +118,23 @@ int my_is_xid_cont(int x)
 
     return rv;
 }
+
+int my_is_print(int x)
+{
+    const struct unicode_character_data *ucd;
+    int rv;
+
+    if (x == 0x09)
+        return 1;
+    if ((x <= 0xff) && ((x & 0x60) == 0x00))
+        return 0;
+
+    ucd = unicode_character_data(x);
+    if (!ucd)
+        return 0;
+
+    rv = !(ucd->fl & UC_FL_NONCHARACTER_CODE_POINT);
+    unicode_character_put(ucd);
+
+    return rv;
+}

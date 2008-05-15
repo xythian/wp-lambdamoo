@@ -24,6 +24,7 @@
 #include "log.h"
 #include "storage.h"
 #include "streams.h"
+#include "utf.h"
 
 Stream *
 new_stream(int size)
@@ -59,10 +60,32 @@ stream_add_char(Stream * s, char c)
 }
 
 void
+stream_add_utf(Stream * s, int c)
+{
+    if (s->current + 5 >= s->buflen)
+	grow(s, s->buflen * 2);
+
+    char *b = s->buffer + s->current;
+    put_utf(&b, c);
+    s->current = b - s->buffer;
+}
+
+void
 stream_delete_char(Stream * s)
 {
     if (s->current > 0)
       s->current--;
+}
+
+void
+stream_delete_utf(Stream * s)
+{
+    if (s->current > 0) {
+        s->current--;
+        while ((s->buffer[s->current] & 0xc0) == 0x80) {
+            s->current--;
+        }
+    }
 }
 
 void

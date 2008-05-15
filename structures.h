@@ -72,7 +72,7 @@ typedef enum {
 #define TYPE_COMPLEX_FLAG	0x80
 
 #define TYPE_STR		(_TYPE_STR | TYPE_COMPLEX_FLAG)
-#define TYPE_FLOAT		(_TYPE_FLOAT | TYPE_COMPLEX_FLAG)
+#define TYPE_FLOAT		(_TYPE_FLOAT)
 #define TYPE_LIST		(_TYPE_LIST | TYPE_COMPLEX_FLAG)
 
 #define TYPE_ANY ((var_type) -1)	/* wildcard for use in declaring built-ins */

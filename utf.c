@@ -156,3 +156,40 @@ int put_utf(char **pp, int v)
 
     return 0;
 }
+
+/* XXX these should really be size_t, not int */
+
+int skip_utf(const char *s0, int i)
+{
+    const char *s = s0;
+
+    while (*s && i) {
+        get_utf(&s);
+        i--;
+    }
+    return s - s0;
+}
+
+int strlen_utf(const char *s)
+{
+    int i = 0;
+    while (get_utf(&s)) {
+        i++;
+    }
+    return i;
+}
+
+int clearance_utf(const unsigned char c)
+{
+    if (c <= 0x7f)
+        return 1;
+    if (c <= 0xbf)
+        return 1;
+    if (c <= 0xdf)
+        return 2;
+    if (c <= 0xef)
+        return 3;
+    if (c <= 0xf7)
+        return 4;
+    return 1;
+}
