@@ -119,7 +119,7 @@ int my_is_xid_cont(int x)
     return rv;
 }
 
-int my_is_print(int x)
+int my_is_printable(int x)
 {
     const struct unicode_character_data *ucd;
     int rv;

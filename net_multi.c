@@ -279,10 +279,10 @@ pull_input(nhandle * h)
 	    h->last_input_was_CR = 0;
             h->excess_utf_count = 0;
 	} else {
-	    for (ptr = buffer, end = buffer + count; ptr < end && ptr + clearance_utf(ptr) <= end;) {
+	    for (ptr = buffer, end = buffer + count; ptr < end && ptr + clearance_utf(*ptr) <= end;) {
 		int c = get_utf(&ptr);
 
-		if (my_is_print(c))
+		if (my_is_printable(c))
 		    stream_add_utf(s, c);
 #ifdef INPUT_APPLY_BACKSPACE
 		else if (c == 0x08 || c == 0x7F)
@@ -339,6 +339,7 @@ new_nhandle(int rfd, int wfd, const char *local_name, const char *remote_name,
     h->output_lines_flushed = 0;
     h->outbound = outbound;
     h->binary = 0;
+    h->excess_utf_count = 0;
 #if NETWORK_PROTOCOL == NP_TCP
     h->client_echo = 1;
 #endif

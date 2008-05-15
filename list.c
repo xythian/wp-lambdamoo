@@ -358,7 +358,6 @@ strrangeset(Var base, int from, int to, Var value)
     char *s;
 
     ans.type = TYPE_STR;
-    errlog("Will allocate %d bytes", sizeof(char) * (newsize + 1));
     s = mymalloc(sizeof(char) * (newsize + 1), M_STRING);
 
     for (index = 0; index < lenleft; index++)
@@ -402,10 +401,13 @@ strget(Var str, Var i)
 {
     Var r;
     char *s;
+    int ind = skip_utf(str.v.str, i.v.num - 1);
+    int n = clearance_utf(str.v.str[ind]);
 
     r.type = TYPE_STR;
-    s = str_dup(" ");
-    s[0] = str.v.str[skip_utf(str.v.str, i.v.num - 1)];
+    s = mymalloc(n + 1, M_STRING);
+    strncpy(s, str.v.str + ind, n);
+    s[n] = 0;
     r.v.str = s;
     return r;
 }
