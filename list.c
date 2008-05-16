@@ -34,6 +34,7 @@
 #include "storage.h"
 #include "structures.h"
 #include "unparse.h"
+#include "ucd/ucd.h"
 #include "utf.h"
 #include "utils.h"
 
@@ -1113,6 +1114,87 @@ bf_encode_binary(Var arglist, Byte next, void *vdata, Objid progr)
 	return make_error_pack(E_INVARG);
 }
 
+static package bf_tochar(Var arglist, Byte next, void *vdata, Objid progr)
+{
+    static Stream *s = 0;
+    int ucs = 0;
+    Var ans;
+    Var v = arglist.v.list[1];
+    const char *bytes;
+    const struct unicode_character_data *ucd = 0;
+
+    if (!s)
+	s = new_stream(5);
+    switch (v.type) {
+    case TYPE_INT:
+	if (v.v.num <= 0 || v.v.num > 0x10ffff)
+	    ucs = v.v.num;
+	break;
+    case TYPE_STR:
+        ucd = unicode_character_lookup(v.v.str);
+        if (ucd) {
+            ucs = ucd->ucs;
+            unicode_character_put(ucd);
+        }
+	break;
+    default:
+        free_var(arglist);
+        return make_error_pack(E_TYPE);
+    }
+    free_var(arglist);
+    if (!my_is_printable(ucs))
+        ucs = 0;
+    if (ucs) {
+        stream_add_utf(s, ucs);
+        ans.type = TYPE_STR;
+	ans.v.str = str_dup(reset_stream(s));
+    }
+    free_stream(s);
+    if (!ucs)
+	return make_error_pack(E_INVARG);
+    else
+	return make_var_pack(ans);
+}
+
+static package bf_charname(Var arglist, Byte next, void *vdata, Objid progr)
+{
+    Var r = arglist.v.list[1];
+    const struct unicode_character_data *ucd = 0;
+    const char *s = r.v.str;
+    int ucs = get_utf(&s);
+    Var ans;
+
+    if ((ucs == 0) || (*s != 0)) {
+        free_var(arglist);
+        return make_error_pack(E_INVARG);
+    }
+    free_var(arglist);
+    ucd = unicode_character_data(ucs);
+    if (!ucd)
+        return make_error_pack(E_INVARG);
+    ans.type = TYPE_STR;
+    ans.v.str = str_dup(ucd->name);
+    unicode_character_put(ucd);
+    return make_var_pack(ans);
+}
+
+static package bf_ord(Var arglist, Byte next, void *vdata, Objid progr)
+{
+    Var r = arglist.v.list[1];
+    const char *s = r.v.str;
+    int ucs = get_utf(&s);
+    Var ans;
+
+    if ((ucs == 0) || (*s != 0)) {
+        free_var(arglist);
+        return make_error_pack(E_INVARG);
+    }
+    free_var(arglist);
+    ans.type = TYPE_INT;
+    ans.v.num = ucs;
+    return make_var_pack(ans);
+}
+
 void
 register_list(void)
 {
@@ -1150,6 +1232,9 @@ register_list(void)
     register_function("strcmp", 2, 2, bf_strcmp, TYPE_STR, TYPE_STR);
     register_function("strsub", 3, 4, bf_strsub,
 		      TYPE_STR, TYPE_STR, TYPE_STR, TYPE_ANY);
+    register_function("tochar", 1, 1, bf_tochar, TYPE_ANY);
+    register_function("charname", 1, 1, bf_charname, TYPE_STR);
+    register_function("ord", 1, 1, bf_ord, TYPE_STR);
 }
 
 
