@@ -901,7 +901,7 @@ bf_substitute(Var arglist, Byte next, void *vdata, Objid progr)
 		    if (!invarg) {
 			int where = skip_utf(subject, start);
 
-                        end = skip_utf(subject + where, end - start + 1);
+                        end = where + skip_utf(subject + where, end - start + 1);
 			for (; where < end; where++)
 			    stream_add_char(s, subject[where]);
 		    }
