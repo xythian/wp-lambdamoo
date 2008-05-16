@@ -1127,7 +1127,7 @@ static package bf_tochar(Var arglist, Byte next, void *vdata, Objid progr)
 	s = new_stream(5);
     switch (v.type) {
     case TYPE_INT:
-	if (v.v.num <= 0 || v.v.num > 0x10ffff)
+	if (v.v.num > 0 && v.v.num <= 0x10ffff)
 	    ucs = v.v.num;
 	break;
     case TYPE_STR:
