@@ -1149,7 +1149,6 @@ static package bf_tochar(Var arglist, Byte next, void *vdata, Objid progr)
         ans.type = TYPE_STR;
 	ans.v.str = str_dup(reset_stream(s));
     }
-    free_stream(s);
     if (!ucs)
 	return make_error_pack(E_INVARG);
     else
