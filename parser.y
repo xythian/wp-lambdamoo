@@ -839,7 +839,7 @@ start_over:
 
 	while (my_isdigit(c)) {
 	    n = n * 10 + my_digitval(c);
-	    stream_add_char(token_stream, c);
+	    stream_add_utf(token_stream, c);
 	    c = lex_getc();
 	}
 
@@ -851,7 +851,7 @@ start_over:
 	    if (my_isdigit(cc)) {	/* definitely floating-point */
 		type = tFLOAT;
 		do {
-		    stream_add_char(token_stream, c);
+		    stream_add_utf(token_stream, c);
 		    c = lex_getc();
 		} while (my_isdigit(c));
 	    } else if (stream_length(token_stream) == 0)
@@ -860,7 +860,7 @@ start_over:
 	    else if (cc != '.') {
 		/* Some digits before dot, not `..' */
 		type = tFLOAT;
-		stream_add_char(token_stream, c);
+		stream_add_utf(token_stream, c);
 		c = lex_getc();
 	    }
 	}
@@ -868,10 +868,10 @@ start_over:
 	if (language_version >= DBV_Float && (c == 'e' || c == 'E')) {
 	    /* better be an exponent */
 	    type = tFLOAT;
-	    stream_add_char(token_stream, c);
+	    stream_add_utf(token_stream, c);
 	    c = lex_getc();
 	    if (c == '+' || c == '-') {
-		stream_add_char(token_stream, c);
+		stream_add_utf(token_stream, c);
 		c = lex_getc();
 	    }
 	    if (!my_isdigit(c)) {
@@ -880,7 +880,7 @@ start_over:
 		return 0;
 	    }
 	    do {
-		stream_add_char(token_stream, c);
+		stream_add_utf(token_stream, c);
 		c = lex_getc();
 	    } while (my_isdigit(c));
 	}
@@ -906,9 +906,9 @@ start_over:
 	char	       *buf;
 	Keyword	       *k;
 
-	stream_add_char(token_stream, c);
+	stream_add_utf(token_stream, c);
 	while (my_is_xid_cont(c = lex_getc()) || c == '_')
-	    stream_add_char(token_stream, c);
+	    stream_add_utf(token_stream, c);
 	lex_ungetc(c);
 	buf = reset_stream(token_stream);
 
@@ -942,7 +942,7 @@ start_over:
 		yyerror("Missing quote");
 		break;
 	    }
-	    stream_add_char(token_stream, c);
+	    stream_add_utf(token_stream, c);
 	}
 	yylval.string = alloc_string(reset_stream(token_stream));
 	return tSTRING;
@@ -1170,7 +1170,7 @@ parse_program(DB_Version version, Parser_Client c, void *data)
 		if (find_keyword(name)) { /* Got one... */
 		    stream_add_string(token_stream, name);
 		    do {
-			stream_add_char(token_stream, '_');
+			stream_add_utf(token_stream, '_');
 		    } while (find_name(local_names,
 				       stream_contents(token_stream)) >= 0);
 		    free_str(name);
@@ -1217,7 +1217,7 @@ my_getc(void *data)
 {
     struct parser_state	*state = (struct parser_state *) data;
     Var			code;
-    char		c;
+    unsigned char	c;
     
     code = state->code;
     if (task_timed_out  ||  state->cur_string > code.v.list[0].v.num)
