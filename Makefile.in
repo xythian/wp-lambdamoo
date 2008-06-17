@@ -13,11 +13,19 @@
 #   Palo Alto, CA 94304
 #   Pavel@Xerox.Com
 
-CC = @CC@
-LIBRARIES = @LIBS@
+# 
+# with autoconf2 I'll go edit it to support --with-expat=
+# Until then, set this to where you unpacked and compiled expat
+#
+EXPAT = ./expat
+
+EXPAT_OBJS = $(EXPAT)/xmltok/*.o $(EXPAT)/xmlparse/*.o 
+
+CC = @CC@ -I$(EXPAT)/xmlparse
+LIBRARIES = @LIBS@ $(EXPAT_OBJS)
 YACC = @YACC@
 
-CFLAGS = -O
+CFLAGS = -O -DEXPAT_XML
 # If you're using GCC, you may prefer:
 # CFLAGS = -O2 -finline-functions
 #
@@ -35,7 +43,7 @@ CSRCS = ast.c code_gen.c db_file.c db_io.c db_objects.c db_properties.c \
 	log.c malloc.c match.c md5.c name_lookup.c network.c net_mplex.c \
 	net_proto.c numbers.c objects.c parse_cmd.c pattern.c program.c \
 	property.c quota.c ref_count.c regexpr.c server.c storage.c streams.c str_intern.c \
-	sym_table.c tasks.c timers.c unparse.c utils.c verbs.c version.c
+	sym_table.c tasks.c timers.c unparse.c utils.c verbs.c version.c ext-xml.c
 
 OPT_NET_SRCS = net_single.c net_multi.c \
 	net_mp_selct.c net_mp_poll.c net_mp_fake.c \
