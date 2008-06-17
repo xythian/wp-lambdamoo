@@ -93,6 +93,7 @@ dbpriv_new_object(void)
     ensure_new_object();
     o = objects[num_objects] = mymalloc(sizeof(Object), M_OBJECT);
     o->id = num_objects;
+    o->waif_propdefs = NULL;
     num_objects++;
 
     return o;
@@ -555,6 +556,12 @@ char rcsid_db_objects[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.4.2.2  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
+ * Revision 1.4.2.1  2002/08/29 05:44:23  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.5  2006/09/07 00:55:02  bjj
  * Add new MEMO_STRLEN option which uses the refcounting mechanism to
  * store strlen with strings.  This is basically free, since most string

@@ -495,6 +495,7 @@ free_task(task * t, int strong)
 			t->t.forked.program->num_var_names);
 	    free_str(t->t.forked.a.verb);
 	    free_str(t->t.forked.a.verbname);
+	    free_var(t->t.forked.a.THIS);
 	}
 	free_program(t->t.forked.program);
 	break;
@@ -1068,6 +1069,7 @@ enqueue_forked_task2(activation a, int f_index, unsigned after_seconds, int vid)
     id = new_task_id();
     a.verb = str_ref(a.verb);
     a.verbname = str_ref(a.verbname);
+    a.THIS = var_ref(a.THIS);
     a.prog = program_ref(a.prog);
     if (vid >= 0) {
 	free_var(a.rt_env[vid]);
@@ -2237,6 +2239,16 @@ char rcsid_tasks[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.9.2.3  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
+ *
+ * Revision 1.9.2.2  2005/09/29 06:56:18  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
+ *
+ * Revision 1.9.2.1  2002/08/29 05:44:24  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.14  2006/09/07 00:55:02  bjj
  * Add new MEMO_STRLEN option which uses the refcounting mechanism to
  * store strlen with strings.  This is basically free, since most string

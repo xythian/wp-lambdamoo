@@ -40,6 +40,7 @@
 #include "str_intern.h"
 #include "unparse.h"
 #include "version.h"
+#include "waif.h"
 
 
 /*********** Input ***********/
@@ -184,6 +185,9 @@ dbio_read_var(void)
 	r = new_list(l);
 	for (i = 0; i < l; i++)
 	    r.v.list[i + 1] = dbio_read_var();
+	break;
+    case _TYPE_WAIF:
+	r = read_waif();
 	break;
     default:
 	errlog("DBIO_READ_VAR: Unknown type (%d) at DB file pos. %ld\n",
@@ -338,6 +342,9 @@ dbio_write_var(Var v)
 	for (i = 0; i < v.v.list[0].v.num; i++)
 	    dbio_write_var(v.v.list[i + 1]);
 	break;
+    case TYPE_WAIF:
+	write_waif(v);
+	break;
     }
 }
 
@@ -365,6 +372,9 @@ char rcsid_db_io[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.5.2.1  2002/08/29 05:44:23  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.5  1998/12/14 13:17:34  nop
  * Merge UNSAFE_OPTS (ref fixups); fix Log tag placement to fit CVS whims
  *

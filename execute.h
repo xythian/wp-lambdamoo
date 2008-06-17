@@ -45,6 +45,10 @@ typedef struct {
     void *bi_func_data;
     Var temp;			/* VM's temp register */
 
+    /* waifs mean there can be other values for THIS, and we need a secure
+     * way to store it so the verb can't spoof
+     */
+    Var THIS;
     /* verb information */
     Objid this;
     Objid player;
@@ -80,7 +84,7 @@ extern enum error call_verb(Objid obj, const char *vname, Var args,
 /* if your vname is already a moo str (via str_dup) then you can
    use this interface instead */
 extern enum error call_verb2(Objid obj, const char *vname, Var args,
-			     int do_pass);
+			    Var THIS, int do_pass);
 
 extern int setup_activ_for_eval(Program * prog);
 
@@ -130,6 +134,13 @@ extern int read_activ(activation * a, int which_vector);
 
 /* 
  * $Log$
+ * Revision 1.6.2.2  2005/09/29 06:56:18  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
+ *
+ *
+ * Revision 1.6.2.1  2002/08/29 05:44:24  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.8  2004/05/22 01:25:43  wrog
  * merging in WROGUE changes (W_SRCIP, W_STARTUP, W_OOB)
  *

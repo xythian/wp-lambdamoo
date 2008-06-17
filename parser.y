@@ -1254,6 +1254,9 @@ char rcsid_parser[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.2.2.1  2005/09/29 06:56:18  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
+ *
  * Revision 1.4  2004/05/22 01:25:44  wrog
  * merging in WROGUE changes (W_SRCIP, W_STARTUP, W_OOB)
  *

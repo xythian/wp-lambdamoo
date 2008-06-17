@@ -40,6 +40,7 @@
 #include "tasks.h"
 #include "timers.h"
 #include "version.h"
+#include "waif.h"
 
 static char *input_db_name, *dump_db_name;
 static int dump_generation = 0;
@@ -400,6 +401,8 @@ read_db_file(void)
     db_verb_handle h;
     Program *program;
 
+    waif_before_loading();
+
     if (dbio_scanf(header_format_string, &dbio_input_version) != 1)
 	dbio_input_version = DBV_Prehistory;
 
@@ -476,6 +479,8 @@ read_db_file(void)
 	errlog("DB_READ: Can't read active connections.\n");
 	return 0;
     }
+
+    waif_after_loading();
     return 1;
 }
 
@@ -492,6 +497,8 @@ write_db_file(const char *reason)
     int i;
     volatile int nprogs = 0;
     volatile int success = 1;
+
+    waif_before_saving();
 
     for (oid = 0; oid <= max_oid; oid++) {
 	if (valid(oid))
@@ -538,6 +545,8 @@ write_db_file(const char *reason)
     EXCEPT(dbpriv_dbio_failed)
 	success = 0;
     ENDTRY;
+
+    waif_after_saving();
 
     return success;
 }
@@ -738,6 +747,16 @@ char rcsid_db_file[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.4.2.3  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
+ * Revision 1.4.2.2  2005/09/29 06:56:18  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
+ *
+ *
+ * Revision 1.4.2.1  2002/08/29 05:44:23  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.6  2007/11/12 11:17:03  wrog
  * sync so that checkpoint is physically written before prior checkpoint is unlinked
  *
