@@ -33,6 +33,7 @@
 #include "streams.h"
 #include "structures.h"
 #include "utf.h"
+#include "waif.h"
 #include "utils.h"
 
 /*
@@ -157,6 +158,10 @@ complex_free_var(Var v)
 	break;
     default:
 	break;
+    case TYPE_WAIF:
+	if (delref(v.v.waif) == 0)
+	    free_waif(v.v.waif);
+	break;
     }
 }
 
@@ -171,6 +176,9 @@ complex_var_ref(Var v)
 	addref(v.v.list);
 	break;
     default:
+	break;
+    case TYPE_WAIF:
+	addref(v.v.waif);
 	break;
     }
     return v;
@@ -195,6 +203,8 @@ complex_var_dup(Var v)
 	break;
     default:
 	break;
+    case TYPE_WAIF:
+	v.v.waif = dup_waif(v.v.waif);
     }
     return v;
 }
@@ -262,6 +272,9 @@ equality(Var lhs, Var rhs, int case_matters)
 		}
 		return 1;
 	    }
+	case TYPE_WAIF:
+	    /* compare them or assert same-waif? */
+	    return lhs.v.waif == rhs.v.waif;
 	default:
 	    panic("EQUALITY: Unknown value type");
 	}
@@ -385,6 +398,9 @@ value_bytes(Var v)
 	for (i = 1; i <= len; i++)
 	    size += value_bytes(v.v.list[i]);
 	break;
+    case TYPE_WAIF:
+	size += waif_bytes(v.v.waif);
+	break;
     default:
 	break;
     }
@@ -457,6 +473,13 @@ char rcsid_utils[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.7.2.2  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
+ *
+ * Revision 1.7.2.1  2002/08/29 05:44:25  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.8  2006/09/07 00:55:02  bjj
  * Add new MEMO_STRLEN option which uses the refcounting mechanism to
  * store strlen with strings.  This is basically free, since most string

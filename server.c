@@ -1798,6 +1798,16 @@ char rcsid_server[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.5.2.3  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
+ *
+ * Revision 1.5.2.2  2005/10/03 05:54:36  bjj
+ * Re-merge HEAD into WAIF to get most recent change.
+ *
+ * Revision 1.5.2.1  2005/09/29 06:56:18  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
+ *
  * Revision 1.12  2007/06/02 21:34:36  wrog
  * fix player_connect() so that the user_client_disconnected hook
  * sees a disconnected player, same as with server_close()

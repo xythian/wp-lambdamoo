@@ -271,6 +271,9 @@ list2str(Var * args)
 	case TYPE_LIST:
 	    stream_add_string(str, "{list}");
 	    break;
+	case TYPE_WAIF:
+	    stream_add_string(str, "{waif}");
+	    break;
 	default:
 	    panic("LIST2STR: Impossible var type.\n");
 	}
@@ -344,6 +347,10 @@ print_to_stream(Var v, Stream * s)
 	    }
 	    stream_add_char(s, '}');
 	}
+	break;
+    case TYPE_WAIF:
+	stream_printf(s, "[[class = #%d, owner = #%d]]",
+		v.v.waif->class, v.v.waif->owner);
 	break;
     default:
 	errlog("PRINT_TO_STREAM: Unknown Var type = %d\n", v.type);
@@ -1264,6 +1271,13 @@ char rcsid_list[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.6.2.2  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
+ *
+ * Revision 1.6.2.1  2002/08/29 05:44:24  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.7  2006/09/07 00:55:02  bjj
  * Add new MEMO_STRLEN option which uses the refcounting mechanism to
  * store strlen with strings.  This is basically free, since most string
