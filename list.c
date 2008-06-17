@@ -349,7 +349,7 @@ print_to_stream(Var v, Stream * s)
 	}
 	break;
     case TYPE_WAIF:
-	stream_printf(s, "[[class = #%d, owner = #%d]]",
+	stream_printf(s, "[[class = #%"PRIdN", owner = #%"PRIdN"]]",
 		v.v.waif->class, v.v.waif->owner);
 	break;
     default:
