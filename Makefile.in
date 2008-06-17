@@ -154,6 +154,7 @@ tags:
 clean:
 	rm -f $(OBJS) $(OPT_NET_OBJS) core parser.c y.tab.c y.tab.h y.output makedep eddep
 	cd ucd && $(MAKE) clean
+	cd $(EXPAT) && $(MAKE) clean
 
 distclean:	clean
 	rm -f config.h Makefile config.status
