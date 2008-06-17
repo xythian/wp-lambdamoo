@@ -87,6 +87,7 @@ YOBJS = $(YSRCS:.y=.o)
 OBJS = $(COBJS) $(YOBJS)
 
 moo:	$(OBJS)
+	cd $(EXPAT) && $(MAKE)
 	$(CC) $(CFLAGS) $(OBJS) $(LIBRARIES) -o $@
 
 pure_moo: moo
