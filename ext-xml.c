@@ -195,7 +195,7 @@ parse_xml(const char *data, int bool_stream)
   int decoded_length;
   const char *decoded;
   package result; 
-  XML_Parser parser = XML_ParserCreate(NULL);
+  XML_Parser parser = XML_ParserCreate("utf-8");
   XMLdata *root = new_node(NULL, "");
   XMLdata *child = root;
   
