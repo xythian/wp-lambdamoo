@@ -119,37 +119,19 @@ xml_startElement(void *userData, const char *name, const char **atts)
   *data = node;
 }
 
-static
-char *xmlstr_to_utfstr(const XML_Char *xmlstr, unsigned int len)
-{
-  char *utfstr;
-
-  /* We assume UTF-8 encoding, which is the case when XML_UNICODE is *not*
-     defined in expat. */
-
-  utfstr = (char *) mymalloc(len + 1, M_STRING);
-  memcpy(utfstr, xmlstr, len);
-  utfstr[len] = 0;
-
-  return utfstr;
-}
-
 static void 
 xml_characterDataHandler(void *userData, const XML_Char *s, int len)
 {
   XMLdata **data = (XMLdata**)userData;
   XMLdata *node = *data;
   Stream *sp = node->body;
-  char *utfstr;
 
   if(sp == NULL) {
     node->body = new_stream(len);
     sp = node->body; 
   }
 
-  utfstr = xmlstr_to_utfstr(s, len);
-  stream_add_string(sp, utfstr);
-  free_str(utfstr);
+  stream_add_string(sp, raw_bytes_to_binary(s, len));
 }
 
 static void 
@@ -160,7 +142,7 @@ xml_streamCharacterDataHandler(void *userData, const XML_Char *s, int len)
   Var element = node->element;
   Var v;
   v.type = TYPE_STR;
-  v.v.str = xmlstr_to_utfstr(s, len);
+  v.v.str = str_dup(raw_bytes_to_binary(s, len));
   element.v.list[4] = listappend(element.v.list[4], v);
 }
 
