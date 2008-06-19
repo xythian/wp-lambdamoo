@@ -1217,6 +1217,74 @@ static package bf_ord(Var arglist, Byte next, void *vdata, Objid progr)
     return make_var_pack(ans);
 }
 
+static package
+bf_encode_chars(Var arglist, Byte next, void *vdata, Objid progr)
+{
+    const char *src = arglist.v.list[1].v.str;
+    const char *binary = 0;
+    Var ans;
+
+    if (arglist.v.list[0].v.num >= 2) {
+	const char *dst;
+	int length;
+
+	dst = recode_chars(src, memo_strlen(src),
+			     "UTF-8", arglist.v.list[2].v.str, &length);
+	if (dst)
+	    binary = raw_bytes_to_binary(dst, length);
+    }
+    else {
+	binary = raw_bytes_to_binary(src, memo_strlen(src));
+    }
+
+    free_var(arglist);
+
+    if (binary == 0)
+	return make_error_pack(E_INVARG);
+
+    ans.type = TYPE_STR;
+    ans.v.str = str_dup(binary);
+    return make_var_pack(ans);
+}
+
+static package
+bf_decode_chars(Var arglist, Byte next, void *vdata, Objid progr)
+{
+    const char *binary = arglist.v.list[1].v.str;
+    const char *src, *dst, *chars = 0;
+    int length;
+    Var ans;
+
+    src = binary_to_raw_bytes(binary, &length);
+    if (src) {
+	dst = recode_chars(src, length, arglist.v.list[0].v.num >= 2 ?
+			   arglist.v.list[2].v.str : "UTF-8", "UTF-8",
+			   &length);
+	if (dst) {
+	    Stream *s;
+	    int c;
+
+	    /* vet the decoded chars */
+
+	    s = new_stream(length);
+	    while ((c = get_utf(&dst)))
+		stream_add_utf(s, my_is_printable(c) ? c : INVALID_RUNE);
+
+	    chars = str_dup(stream_contents(s));
+	    free_stream(s);
+	}
+    }
+
+    free_var(arglist);
+
+    if (chars == 0)
+	return make_error_pack(E_INVARG);
+
+    ans.type = TYPE_STR;
+    ans.v.str = chars;
+    return make_var_pack(ans);
+}
+
 void
 register_list(void)
 {
@@ -1257,6 +1325,10 @@ register_list(void)
     register_function("tochar", 1, 1, bf_tochar, TYPE_ANY);
     register_function("charname", 1, 1, bf_charname, TYPE_STR);
     register_function("ord", 1, 1, bf_ord, TYPE_STR);
+    register_function("encode_chars", 1, 2, bf_encode_chars,
+		      TYPE_STR, TYPE_STR);
+    register_function("decode_chars", 1, 2, bf_decode_chars,
+		      TYPE_STR, TYPE_STR);
 }
 
 

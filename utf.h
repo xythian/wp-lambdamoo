@@ -15,5 +15,6 @@ int put_utf(char **, int);
 int skip_utf(const char *, int);
 int strlen_utf(const char *);
 int clearance_utf(const unsigned char);
+const char *recode_chars(const char *, int, const char *, const char *, int *);
 
 #endif /* UTF_H */
