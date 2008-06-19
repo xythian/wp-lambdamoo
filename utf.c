@@ -224,7 +224,7 @@ const char *recode_chars(const char *chars, int length,
     iconv_t cd;
     char *inbuf, *outbuf;
     size_t inbytesleft, outbytesleft;
-    char buffer[8];
+    char buffer[128];
     const char *ptr;
     static Stream *s = 0;
 
