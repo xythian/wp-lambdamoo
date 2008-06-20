@@ -1224,6 +1224,142 @@ static package bf_ord(Var arglist, Byte next, void *vdata, Objid progr)
     return make_var_pack(ans);
 }
 
+static int
+encode_chars(Stream *s, Var v)
+{
+    int i;
+
+    switch (v.type) {
+    case TYPE_INT:
+	if (stream_add_utf(s, v.v.num) == -1)
+	    return 0;
+	break;
+
+    case TYPE_STR:
+	stream_add_string(s, v.v.str);
+	break;
+
+    case TYPE_LIST:
+	for (i = 1; i <= v.v.list[0].v.num; ++i) {
+	    if (!encode_chars(s, v.v.list[i]))
+		return 0;
+	}
+	break;
+
+    default:
+	return 0;
+    }
+
+    return 1;
+}
+
+static package
+bf_encode_chars(Var arglist, Byte next, void *vdata, Objid progr)
+{
+    static Stream *s = 0;
+    int ok, length;
+    const char *bytes;
+
+    if (!s)
+	s = new_stream(100);
+
+    ok = encode_chars(s, arglist.v.list[1]);
+
+    length = stream_length(s);
+    bytes = reset_stream(s);
+
+    if (ok) {
+	bytes = recode_chars(bytes, &length, "UTF-8", arglist.v.list[2].v.str);
+	if (!bytes)
+	    ok = 0;
+    }
+
+    free_var(arglist);
+
+    if (ok) {
+	Var r;
+
+	r.type = TYPE_STR;
+	r.v.str = str_dup(raw_bytes_to_binary(bytes, length));
+	return make_var_pack(r);
+    } else
+	return make_error_pack(E_INVARG);
+}
+
+static package
+bf_decode_chars(Var arglist, Byte next, void *vdata, Objid progr)
+{
+    const char *binary = arglist.v.list[1].v.str;
+    int nargs = arglist.v.list[0].v.num;
+    int fully = (nargs >= 3 && is_true(arglist.v.list[3]));
+    const char *src, *dst;
+    int length, ok = 0;
+    Var r;
+
+    src = binary_to_raw_bytes(binary, &length);
+    if (src) {
+	dst = recode_chars(src, &length, arglist.v.list[2].v.str, "UTF-32");
+	if (dst) {
+	    uint32_t *chars = (uint32_t *) dst;
+
+	    length /= sizeof(uint32_t);
+
+	    if (length && *chars == 0xFEFF /* BOM */)
+		++chars, --length;
+
+	    if (fully) {
+		int i;
+
+		r = new_list(length);
+
+		for (i = 1; i <= length; ++i) {
+		    r.v.list[i].type = TYPE_INT;
+		    r.v.list[i].v.num = *chars++;
+		}
+	    }
+	    else {
+		Stream *s;
+		Var elt;
+
+		r = new_list(0);
+		s = new_stream(length + length / 2);
+
+		while (length--) {
+		    int c = *chars++;
+
+		    if (my_is_printable(c))
+			stream_add_utf(s, c);
+		    else {
+			if (stream_length(s)) {
+			    elt.type = TYPE_STR;
+			    elt.v.str = str_dup(reset_stream(s));
+			    r = listappend(r, elt);
+			}
+
+			elt.type = TYPE_INT;
+			elt.v.num = c;
+			r = listappend(r, elt);
+		    }
+		}
+
+		if (stream_length(s)) {
+		    elt.type = TYPE_STR;
+		    elt.v.str = str_dup(reset_stream(s));
+		    r = listappend(r, elt);
+		}
+
+		free_stream(s);
+	    }
+
+	    ok = 1;
+	}
+    }
+
+    free_var(arglist);
+
+    return ok ? make_var_pack(r) : make_error_pack(E_INVARG);
+}
+
 void
 register_list(void)
 {
@@ -1264,6 +1400,10 @@ register_list(void)
     register_function("tochar", 1, 1, bf_tochar, TYPE_ANY);
     register_function("charname", 1, 1, bf_charname, TYPE_STR);
     register_function("ord", 1, 1, bf_ord, TYPE_STR);
+    register_function("encode_chars", 2, 2, bf_encode_chars,
+		      TYPE_ANY, TYPE_STR);
+    register_function("decode_chars", 2, 3, bf_decode_chars,
+		      TYPE_STR, TYPE_STR, TYPE_ANY);
 }
 
 

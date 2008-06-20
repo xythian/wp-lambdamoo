@@ -126,7 +126,7 @@ int my_is_printable(int x)
 
     if (x == 0x09)
         return 1;
-    if ((x <= 0xff) && ((x & 0x60) == 0x00))
+    if ((x <= 0xff) && (((x & 0x60) == 0x00) || x == 0x7f))
         return 0;
 
     ucd = unicode_character_data(x);
