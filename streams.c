@@ -62,15 +62,19 @@ stream_add_char(Stream * s, char c)
     s->buffer[s->current++] = c;
 }
 
-void
+int
 stream_add_utf(Stream * s, int c)
 {
+    int result;
+
     if (s->current + 4 >= s->buflen)
 	grow(s, s->buflen * 2 + 4);
 
     char *b = s->buffer + s->current;
-    put_utf(&b, c);
+    result = put_utf(&b, c);
     s->current = b - s->buffer;
+
+    return result;
 }
 
 void

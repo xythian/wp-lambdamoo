@@ -1224,10 +1224,8 @@ encode_chars(Stream *s, Var v)
 
     switch (v.type) {
     case TYPE_INT:
-	if (v.v.num < 0 || v.v.num > 0x10FFFF ||
-	    (v.v.num >= 0xD800 && v.v.num <= 0xDFFF) /* surrogate */)
+	if (stream_add_utf(s, v.v.num) == -1)
 	    return 0;
-	stream_add_utf(s, v.v.num);
 	break;
 
     case TYPE_STR:
