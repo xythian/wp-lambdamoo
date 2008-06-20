@@ -105,6 +105,20 @@ stream_add_string(Stream * s, const char *string)
 }
 
 void
+stream_add_bytes(Stream * s, const char *bytes, int len)
+{
+    if (s->current + len >= s->buflen) {
+	int newlen = s->buflen * 2;
+
+	if (newlen <= s->current + len)
+	    newlen = s->current + len + 1;
+	grow(s, newlen);
+    }
+    memcpy(s->buffer + s->current, bytes, len);
+    s->current += len;
+}
+
+void
 stream_printf(Stream * s, const char *fmt,...)
 {
     va_list args, pargs;

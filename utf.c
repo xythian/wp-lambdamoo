@@ -225,7 +225,6 @@ const char *recode_chars(const char *chars, int length,
     char *inbuf, *outbuf;
     size_t inbytesleft, outbytesleft;
     char buffer[128];
-    const char *ptr;
     static Stream *s = 0;
 
     cd = iconv_open(tocode, fromcode);
@@ -246,8 +245,7 @@ const char *recode_chars(const char *chars, int length,
 	switch (errno) {
 	case E2BIG:
 	    /* output buffer has no more room */
-	    for (ptr = buffer; ptr < outbuf; ++ptr)
-		stream_add_char(s, *ptr);
+	    stream_add_bytes(s, buffer, outbuf - buffer);
 	    outbuf = buffer;
 	    outbytesleft = sizeof(buffer);
 	    break;
@@ -263,8 +261,7 @@ const char *recode_chars(const char *chars, int length,
 	}
     }
 
-    for (ptr = buffer; ptr < outbuf; ++ptr)
-	stream_add_char(s, *ptr);
+    stream_add_bytes(s, buffer, outbuf - buffer);
 
     iconv_close(cd);
 
