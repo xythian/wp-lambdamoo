@@ -217,14 +217,13 @@ int clearance_utf(const unsigned char c)
     return 1;
 }
 
-const char *recode_chars(const char *chars, int length,
-			 const char *fromcode, const char *tocode,
-			 int *newlength)
+const char *recode_chars(const char *chars, int *length,
+			 const char *fromcode, const char *tocode)
 {
     iconv_t cd;
     char *inbuf, *outbuf;
     size_t inbytesleft, outbytesleft;
-    char buffer[128];
+    char buffer[512];
     static Stream *s = 0;
 
     cd = iconv_open(tocode, fromcode);
@@ -232,7 +231,7 @@ const char *recode_chars(const char *chars, int length,
 	return 0;
 
     inbuf = (char *) chars;
-    inbytesleft = length;
+    inbytesleft = *length;
 
     outbuf = buffer;
     outbytesleft = sizeof(buffer);
@@ -265,6 +264,6 @@ const char *recode_chars(const char *chars, int length,
 
     iconv_close(cd);
 
-    *newlength = stream_length(s);
+    *length = stream_length(s);
     return reset_stream(s);
 }
