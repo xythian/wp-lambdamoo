@@ -31,6 +31,9 @@ new_stream(int size)
 {
     Stream *s = mymalloc(sizeof(Stream), M_STREAM);
 
+    if (size < 1)
+	size = 1;
+
     s->buffer = mymalloc(size, M_STREAM);
     s->buflen = size;
     s->current = 0;
