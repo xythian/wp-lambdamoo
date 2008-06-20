@@ -31,6 +31,9 @@ new_stream(int size)
 {
     Stream *s = mymalloc(sizeof(Stream), M_STREAM);
 
+    if (size < 1)
+	size = 1;
+
     s->buffer = mymalloc(size, M_STREAM);
     s->buflen = size;
     s->current = 0;
@@ -62,8 +65,8 @@ stream_add_char(Stream * s, char c)
 void
 stream_add_utf(Stream * s, int c)
 {
-    if (s->current + 5 >= s->buflen)
-	grow(s, s->buflen * 2);
+    if (s->current + 4 >= s->buflen)
+	grow(s, s->buflen * 2 + 4);
 
     char *b = s->buffer + s->current;
     put_utf(&b, c);
