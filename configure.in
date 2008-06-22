@@ -528,6 +528,8 @@ echo "|"
 echo "|   $NETWORK_CONFIGURATIONS"
 echo "----------------------------------------------------------------------"
 
+AC_CONFIG_SUBDIRS(pcre)
+
 AC_OUTPUT(Makefile)
 
 # $Log$
