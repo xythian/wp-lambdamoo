@@ -217,6 +217,10 @@ const char *translate(const char *moopat)
     /* add callout at end of pattern for rmatch */
     stream_add_string(s, "(?C)");
 
+    /* don't let a trailing % get away without a syntax error */
+    if (state == st_esc)
+	stream_add_char(s, '\\');
+
     return reset_stream(s);
 }
 
