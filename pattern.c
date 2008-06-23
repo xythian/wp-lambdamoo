@@ -75,7 +75,7 @@ const char *translate(const char *moopat)
 		break;
 
 	    case '[':
-		stream_add_utf(s, c);
+		stream_add_char(s, c);
 		state = st_cset_init;
 		break;
 
@@ -374,7 +374,7 @@ Match_Result match_pattern(Pattern p, const char *string,
 	}
     }
 
-    if (rc == 0)
+    if (rc == 0 || rc > 10)
 	rc = 10;  /* there were more subpatterns than output vectors */
 
     for (i = 0; i < rc; ++i) {
