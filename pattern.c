@@ -177,12 +177,12 @@ const char *translate(const char *moopat)
 # define P_NONWORD       "[\\W_]"
 
 # define P_ALT(a, b)     "(?:"a"|"b")"
-# define P_LBACK(p)      "(?<="p")"
+# define P_LBEHIND(p)    "(?<="p")"
 # define P_LAHEAD(p)     "(?="p")"
-# define P_LOOKBA(b, a)  P_LBACK(b) P_LAHEAD(a)
+# define P_LOOKBA(b, a)  P_LBEHIND(b) P_LAHEAD(a)
 
-# define P_WORD_BEGIN    P_ALT("^", P_LBACK(P_NONWORD)) P_LAHEAD(P_WORD)
-# define P_WORD_END      P_LBACK(P_WORD) P_ALT("$", P_LAHEAD(P_NONWORD))
+# define P_WORD_BEGIN    P_ALT("^", P_LBEHIND(P_NONWORD)) P_LAHEAD(P_WORD)
+# define P_WORD_END      P_LBEHIND(P_WORD) P_ALT("$", P_LAHEAD(P_NONWORD))
 
 	    case 'b':
 		stream_add_string(s, P_ALT(P_WORD_BEGIN, P_WORD_END));
