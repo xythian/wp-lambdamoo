@@ -239,10 +239,8 @@ Pattern new_pattern(const char *pattern, int case_matters)
     options |= PCRE_NO_UTF8_CHECK;
 # endif
 
-# if 0
     /* allow PCRE to optimize .* at beginning of pattern by implicit anchor */
     options |= PCRE_DOTALL;
-# endif
 
     if (!case_matters)
 	options |= PCRE_CASELESS;
