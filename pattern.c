@@ -8,22 +8,22 @@
  * "as is" without express or implied warranty.
  */
 
+# include <pcre.h>
 # include "my-stdio.h"
 # include "my-string.h"
 
 # include "config.h"
 # include "pattern.h"
-# include "pcre.h"
 # include "streams.h"
 # include "utf.h"
 # include "storage.h"
 # include "exceptions.h"
 
-# define DEBUG       1
-# define UTF8_CHECK  1
+# define DEBUG       0
+# define UTF8_CHECK  0
 
-# define MATCH_LIMIT            2000000
-# define MATCH_LIMIT_RECURSION     4000
+# define MATCH_LIMIT            100000
+# define MATCH_LIMIT_RECURSION    5000
 
 typedef struct {
     pcre *code;
@@ -247,8 +247,7 @@ Pattern new_pattern(const char *pattern, int case_matters)
 
     translated = translate(pattern);
 # if DEBUG
-    fprintf(stderr, __FILE__ ": \"%s\" => /%s/\n",
-	    pattern, translated);
+    fprintf(stderr, __FILE__ ": \"%s\" => /%s/\n", pattern, translated);
 # endif
 
     code = pcre_compile(translated, options, &error, &error_offset, 0);
@@ -313,10 +312,10 @@ int rmatch_callout(pcre_callout_block *block)
 	/* make a copy of the offsets vector so the last such vector found can
 	   be returned as the rightmost match */
 
-	memcpy(&rmatch->ovec[2], &block->offset_vector[2],
-	       sizeof(rmatch->ovec[2]) * 2 * (block->capture_top - 1));
 	rmatch->ovec[0] = block->start_match;
 	rmatch->ovec[1] = block->current_position;
+	memcpy(&rmatch->ovec[2], &block->offset_vector[2],
+	       sizeof(rmatch->ovec[2]) * 2 * (block->capture_top - 1));
 
 	rmatch->valid = block->capture_top;
     }

@@ -14,10 +14,11 @@
 #   Pavel@Xerox.Com
 
 CC = @CC@
-LIBS = ucd/libucd.a pcre/.libs/libpcre.a @LIBS@
+LIBS = ucd/libucd.a @LIBS@
 YACC = @YACC@
 
-CFLAGS = -I. -Iucd -Ipcre @CFLAGS@
+CFLAGS = @CFLAGS@
+CPPFLAGS = -I. -Iucd @CPPFLAGS@
 LDFLAGS = @LDFLAGS@
 
 YFLAGS = -d
@@ -73,11 +74,10 @@ COBJS = $(CSRCS:.c=.o)
 
 YOBJS = $(YSRCS:.y=.o)
 
-OBJS = $(COBJS) $(YOBJS)
+OBJS = $(COBJS) $(YOBJS) @OBJS@
 
 all:
 	cd ucd && $(MAKE) all
-	cd pcre && $(MAKE) libpcre.la
 	$(MAKE) moo
 
 moo:	$(OBJS)
@@ -91,6 +91,9 @@ client_bsd: client_bsd.o
 
 client_sysv: client_sysv.o
 	$(CC) $(CFLAGS) client_sysv.o $(LIBRARIES) -o $@
+
+pcre/.libs/libpcre.a:
+	$(MAKE) -C pcre libpcre.la
 
 # This rule gets around some "make"s' desire to `derive' it from `restart.sh'.
 restart:
@@ -139,14 +142,15 @@ tags:
 clean:
 	rm -f $(OBJS) $(OPT_NET_OBJS) core parser.c y.tab.c y.tab.h y.output makedep eddep
 	cd ucd && $(MAKE) clean
-	cd pcre && $(MAKE) clean
+	test ! -e pcre/Makefile || $(MAKE) -C pcre $@
 
 distclean:	clean
 	rm -f config.h Makefile config.status
+	test ! -e pcre/Makefile || $(MAKE) -C pcre $@
 
 depend: ${ALL_CSRCS}
 	rm -f eddep makedep
-	gcc -MM ${CFLAGS} ${ALL_CSRCS} | sed -e '/:$$/d' > makedep
+	gcc -MM ${CPPFLAGS} ${ALL_CSRCS} | sed -e '/:$$/d' > makedep
 	echo '/^# DO NOT DELETE THIS LINE/+1,$$d' >eddep
 	echo '$$r makedep' >>eddep
 	echo 'w' >>eddep
@@ -156,11 +160,11 @@ depend: ${ALL_CSRCS}
 
 .SUFFIXES: .c .o .i .s
 .c.o:
-	${CC} ${CFLAGS} -c -o $@ $<
+	${CC} ${CFLAGS} ${CPPFLAGS} -c -o $@ $<
 .c.i:
-	${CC} ${CFLAGS} -E -o $@ $<
+	${CC} ${CFLAGS} ${CPPFLAGS} -E -o $@ $<
 .c.s:
-	${CC} ${CFLAGS} -S -o $@ $<
+	${CC} ${CFLAGS} ${CPPFLAGS} -S -o $@ $<
 
 ###############################################################################
 # $Log$
@@ -433,9 +437,8 @@ parse_cmd.o: parse_cmd.c my-ctype.h config.h my-stdio.h my-stdlib.h \
   my-string.h my-time.h db.h program.h structures.h version.h list.h \
   match.h parse_cmd.h storage.h ref_count.h utils.h execute.h opcode.h \
   options.h
-pattern.o: pattern.c my-stdio.h config.h my-string.h pattern.h \
-  pcre/pcre.h streams.h utf.h storage.h structures.h ref_count.h \
-  exceptions.h
+pattern.o: pattern.c my-stdio.h config.h my-string.h pattern.h streams.h \
+  utf.h storage.h structures.h ref_count.h exceptions.h
 program.o: program.c ast.h config.h parser.h program.h structures.h \
   my-stdio.h version.h sym_table.h exceptions.h list.h storage.h \
   my-string.h ref_count.h utils.h execute.h db.h opcode.h options.h \
