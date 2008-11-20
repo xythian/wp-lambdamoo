@@ -95,7 +95,7 @@ dnl <malloc.h> exists.
 define(MOO_MALLOC_H, [
 echo checking whether stdlib.h declares malloc and friends
 MOO_FUNC_DECL_CHECK(stdlib.h, malloc, ,
-	AC_HEADER_CHECK(malloc.h, AC_DEFINE(NEED_MALLOC_H)))])
+	[AC_HEADER_CHECK(malloc.h, AC_DEFINE(NEED_MALLOC_H))])])
 
 dnl ***************************************************************************
 dnl	MOO_FUNC_DECL_CHECK(header, func,
@@ -110,7 +110,7 @@ changequote([,])dnl
 AC_PROGRAM_EGREP($pattern, [
 #include <$1>
 $5
-], $3, $4)])
+], [$3], [$4])])
 
 dnl ***************************************************************************
 dnl 	MOO_NDECL_FUNCS(header, func1 func2 ...[, extra-hdr])
