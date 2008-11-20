@@ -5591,7 +5591,7 @@ eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
 	 test ! -s conftest.err
        } && test -s conftest$ac_exeext &&
        $as_test_x conftest$ac_exeext; then
-  cat >>confdefs.h <<\_ACEOF
+  cat >>confdefs.h <<_ACEOF
 #define $var 1
 _ACEOF
 
@@ -5648,7 +5648,7 @@ eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
 	 test ! -s conftest.err
        } && test -s conftest$ac_exeext &&
        $as_test_x conftest$ac_exeext; then
-  cat >>confdefs.h <<\_ACEOF
+  cat >>confdefs.h <<_ACEOF
 #define $var 1
 _ACEOF
 
@@ -5720,7 +5720,7 @@ eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
 	 test ! -s conftest.err
        } && test -s conftest$ac_exeext &&
        $as_test_x conftest$ac_exeext; then
-  cat >>confdefs.h <<\_ACEOF
+  cat >>confdefs.h <<_ACEOF
 #define $var 1
 _ACEOF
 
@@ -5777,7 +5777,7 @@ eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
 	 test ! -s conftest.err
        } && test -s conftest$ac_exeext &&
        $as_test_x conftest$ac_exeext; then
-  cat >>confdefs.h <<\_ACEOF
+  cat >>confdefs.h <<_ACEOF
 #define $var 1
 _ACEOF
 
@@ -5849,7 +5849,7 @@ eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
 	 test ! -s conftest.err
        } && test -s conftest$ac_exeext &&
        $as_test_x conftest$ac_exeext; then
-  cat >>confdefs.h <<\_ACEOF
+  cat >>confdefs.h <<_ACEOF
 #define $var 1
 _ACEOF
 
@@ -5906,7 +5906,7 @@ eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
 	 test ! -s conftest.err
        } && test -s conftest$ac_exeext &&
        $as_test_x conftest$ac_exeext; then
-  cat >>confdefs.h <<\_ACEOF
+  cat >>confdefs.h <<_ACEOF
 #define $var 1
 _ACEOF
 
@@ -5978,7 +5978,7 @@ eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
 	 test ! -s conftest.err
        } && test -s conftest$ac_exeext &&
        $as_test_x conftest$ac_exeext; then
-  cat >>confdefs.h <<\_ACEOF
+  cat >>confdefs.h <<_ACEOF
 #define $var 1
 _ACEOF
 
@@ -6035,7 +6035,7 @@ eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
 	 test ! -s conftest.err
        } && test -s conftest$ac_exeext &&
        $as_test_x conftest$ac_exeext; then
-  cat >>confdefs.h <<\_ACEOF
+  cat >>confdefs.h <<_ACEOF
 #define $var 1
 _ACEOF
 
@@ -6107,7 +6107,7 @@ eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
 	 test ! -s conftest.err
        } && test -s conftest$ac_exeext &&
        $as_test_x conftest$ac_exeext; then
-  cat >>confdefs.h <<\_ACEOF
+  cat >>confdefs.h <<_ACEOF
 #define $var 1
 _ACEOF
 
@@ -6164,7 +6164,7 @@ eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
 	 test ! -s conftest.err
        } && test -s conftest$ac_exeext &&
        $as_test_x conftest$ac_exeext; then
-  cat >>confdefs.h <<\_ACEOF
+  cat >>confdefs.h <<_ACEOF
 #define $var 1
 _ACEOF
 

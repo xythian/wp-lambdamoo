@@ -185,12 +185,12 @@ do
   trfrom='[a-z]' trto='[A-Z]'
   var=HAVE_`echo $func | tr "$trfrom" "$trto"`
   changequote([,])dnl
-  AC_FUNC_CHECK($func, AC_DEFINE($var), [
+  AC_FUNC_CHECK($func, AC_DEFINE_UNQUOTED($var), [
     SAVELIBS="$LIBS"
     for lib in $2
     do
       LIBS="$LIBS $lib"
-      AC_FUNC_CHECK($func, [AC_DEFINE($var)
+      AC_FUNC_CHECK($func, [AC_DEFINE_UNQUOTED($var)
 			 break],
 		    LIBS="$SAVELIBS")
     done
