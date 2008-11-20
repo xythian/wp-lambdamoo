@@ -995,6 +995,12 @@ char rcsid_decompile[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.5.2.2  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
+ * Revision 1.5.2.1  2005/09/29 06:56:18  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
+ *
  * Revision 1.7  2006/12/06 23:51:31  wrog
  * Fix compiler warnings about unused values
  *

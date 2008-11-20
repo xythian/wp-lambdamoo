@@ -246,6 +246,9 @@ extern void network_shutdown(void);
 
 /* 
  * $Log$
+ * Revision 1.3.2.1  2005/10/03 05:54:36  bjj
+ * Re-merge HEAD into WAIF to get most recent change.
+ *
  * Revision 1.4  2005/09/29 18:46:18  bjj
  * Add third argument to open_network_connection() that associates a specific listener object with the new connection.  This simplifies a lot of outbound connection management.
  *

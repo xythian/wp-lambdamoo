@@ -67,6 +67,9 @@ extern int vfscanf(FILE *, const char *, va_list);
 
 /* 
  * $Log$
+ * Revision 1.3.2.1  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
  * Revision 1.4  2007/11/12 11:17:03  wrog
  * sync so that checkpoint is physically written before prior checkpoint is unlinked
  *

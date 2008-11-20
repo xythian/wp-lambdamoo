@@ -51,6 +51,9 @@ refcount_overhead(Memory_Type type)
     case M_LIST:
 	/* for systems with picky pointer alignment */
 	return MAX(sizeof(int), sizeof(Var *));
+    case M_WAIF:
+	/* for systems with picky pointer alignment */
+	return MAX(sizeof(int), sizeof(void *));
     default:
 	return 0;
     }
@@ -233,6 +236,12 @@ char rcsid_storage[] = "$Id$";
 
 /* 
  * $Log$
+ * Revision 1.5.2.2  2008/04/24 23:28:59  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.3
+ *
+ * Revision 1.5.2.1  2002/08/29 05:44:24  bjj
+ * Add WAIF type as distributed in version 0.95 (one small merge).
+ *
  * Revision 1.6  2006/09/07 00:55:02  bjj
  * Add new MEMO_STRLEN option which uses the refcounting mechanism to
  * store strlen with strings.  This is basically free, since most string

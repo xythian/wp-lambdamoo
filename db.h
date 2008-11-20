@@ -535,6 +535,9 @@ extern void db_delete_verb(db_verb_handle);
 
 /* 
  * $Log$
+ * Revision 1.4.2.1  2005/09/29 06:56:18  bjj
+ * Merge HEAD onto WAIF, bringing it approximately to 1.8.2
+ *
  * Revision 1.5  2004/05/22 01:25:43  wrog
  * merging in WROGUE changes (W_SRCIP, W_STARTUP, W_OOB)
  *
