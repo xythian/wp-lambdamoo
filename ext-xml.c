@@ -98,6 +98,12 @@ flush_nodes(XMLdata *bottom)
   }
 }
 
+static char *
+process_attribute_string(const char *value)
+{
+  return str_dup(raw_bytes_to_binary(value, strlen(value)));
+}
+
 static void
 xml_startElement(void *userData, const char *name, const char **atts)
 {
@@ -110,9 +116,9 @@ xml_startElement(void *userData, const char *name, const char **atts)
   while(*patts != NULL) {
     Var pair = new_list(2);
     pair.v.list[1].type = TYPE_STR;
-    pair.v.list[1].v.str = str_dup(patts[0]);
+    pair.v.list[1].v.str = process_attribute_string(patts[0]);
     pair.v.list[2].type = TYPE_STR;
-    pair.v.list[2].v.str = str_dup(patts[1]); 
+    pair.v.list[2].v.str = process_attribute_string(patts[1]);
     patts += 2;
     node->element.v.list[2] = listappend(node->element.v.list[2], pair);
   }
@@ -231,5 +237,5 @@ register_xml()
     register_function("xml_parse_document", 1, 1, bf_parse_xml_document, TYPE_STR);
 }
 
-char rcsid_xml[] = "$Id: ext-xml.c,v 1.1 2000/05/12 06:12:11 fox Exp $";
+char rcsid_xml[] = "$Id: ext-xml.c,v 1.2 2004/01/28 01:49:01 fox Exp $";
 
