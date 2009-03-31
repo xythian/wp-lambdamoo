@@ -174,7 +174,7 @@
  */
 
 /* disable by default, +O enables: */
-/* #define OUTBOUND_NETWORK 0 */
+#define OUTBOUND_NETWORK 0
 
 /* enable by default, -O disables: */
 /* #define OUTBOUND_NETWORK 1 */
@@ -314,7 +314,7 @@
  * work by calling verbs on the waif.
  ******************************************************************************
  */
-/* #define WAIF_DICT */
+#define WAIF_DICT
 
 /*****************************************************************************
  ********** You shouldn't need to change anything below this point. **********
