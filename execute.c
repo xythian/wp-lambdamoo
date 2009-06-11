@@ -881,11 +881,23 @@ do {    						    	\
 		} else {
 		    free_var(RUN_ACTIV.rt_env[id]);
 		    RUN_ACTIV.rt_env[id] = var_ref(from);
-		    if (to.type == TYPE_INT)
-			from.v.num++;
-		    else
-			from.v.obj++;
-		    NEXT_TOP_RT_VALUE = from;
+		    if (to.type == TYPE_INT) {
+			if (from.v.num < MAXINT) {
+			    from.v.num++;
+			    NEXT_TOP_RT_VALUE = from;
+			} else {
+			    to.v.num--;
+			    TOP_RT_VALUE = to;
+			}
+		    } else {
+			if (from.v.obj < MAXOBJ) {
+			    from.v.obj++;
+			    NEXT_TOP_RT_VALUE = from;
+			} else {
+			    to.v.obj--;
+			    TOP_RT_VALUE = to;
+			}
+		    }
 		}
 	    }
 	    break;
