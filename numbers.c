@@ -665,6 +665,7 @@ bf_ctime(Var arglist, Byte next, void *vdata, Objid progr)
     int has_time     = (arglist.v.list[0].v.num >= 1);
     int has_timezone = (arglist.v.list[0].v.num >= 2);
     char *current_timezone = NULL;
+    struct tm *t;
 
     c = has_time ? (time_t)arglist.v.list[1].v.num : time(0);
 
@@ -675,15 +676,16 @@ bf_ctime(Var arglist, Byte next, void *vdata, Objid progr)
 	setenv("TZ", arglist.v.list[2].v.str, 1);
 	tzset();
     }
-    
-    {				/* Format the time, including a timezone name */
+
+    t = localtime(&c);
+    if (t == 0)
+	*buffer = 0;
+    else {			/* Format the time, including a timezone name */
 #if HAVE_STRFTIME
-	if (strftime(buffer, sizeof(buffer), "%a %b %d %H:%M:%S %Y %Z",
-		     localtime(&c)) == 0)
+	if (strftime(buffer, sizeof(buffer), "%a %b %d %H:%M:%S %Y %Z", t) == 0)
 	    *buffer = 0;
 #else
 #  if HAVE_TM_ZONE
-	struct tm *t = localtime(&c);
 	char *tzname = t->tm_zone;
 #  else
 #    if !HAVE_TZNAME
