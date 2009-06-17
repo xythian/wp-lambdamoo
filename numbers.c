@@ -760,7 +760,7 @@ static package
 bf_floatstr(Var arglist, Byte next, void *vdata, Objid progr)
 {				/* (float, precision [, sci-notation]) */
     double d = arglist.v.list[1].v.fnum;
-    int prec = arglist.v.list[2].v.num;
+    Num prec = arglist.v.list[2].v.num;
     int use_sci = (arglist.v.list[0].v.num >= 3
 		   && is_true(arglist.v.list[3]));
     char fmt[10], output[500];	/* enough for IEEE double */
@@ -771,7 +771,7 @@ bf_floatstr(Var arglist, Byte next, void *vdata, Objid progr)
 	prec = DECIMAL_DIG;
     else if (prec < 0)
 	return make_error_pack(E_INVARG);
-    sprintf(fmt, "%%.%d%c", prec, use_sci ? 'e' : 'f');
+    sprintf(fmt, "%%.%"PRIdN"%c", prec, use_sci ? 'e' : 'f');
     sprintf(output, fmt, d);
 
     r.type = TYPE_STR;
