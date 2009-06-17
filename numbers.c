@@ -727,20 +727,31 @@ static package
 bf_random(Var arglist, Byte next, void *vdata, Objid progr)
 {
     int nargs = arglist.v.list[0].v.num;
-    int num = (nargs >= 1 ? arglist.v.list[1].v.num : 1);
+    Num num = (nargs >= 1 ? arglist.v.list[1].v.num : MAXINT);
 
     free_var(arglist);
 
     if (num <= 0)
 	return make_error_pack(E_INVARG);
     else {
+	int64_t rr;
 	Var r;
 
+#if RAND_MAX == 9223372036854775807
+	rr = RANDOM();
+#elif RAND_MAX == 2147483647
+	rr = ((int64_t) RANDOM() << 32) + ((int64_t) RANDOM() << 1) +
+	  ((int64_t) RANDOM() >> 30);
+#elif RAND_MAX == 32767
+	rr = ((int64_t) RANDOM() << 48) + ((int64_t) RANDOM() << 33) +
+	  ((int64_t) RANDOM() << 18) + ((int64_t) RANDOM() << 3) +
+	  ((int64_t) RANDOM() >> 12);
+#else
+#  error "unsupported RAND_MAX"
+#endif
+
 	r.type = TYPE_INT;
-	if (nargs == 0)
-	    r.v.num = RANDOM();
-	else
-	    r.v.num = RANDOM() % num + 1;
+	r.v.num = 1 + rr % num;
 	return make_var_pack(r);
     }
 }
