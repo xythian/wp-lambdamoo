@@ -661,6 +661,7 @@ bf_ctime(Var arglist, Byte next, void *vdata, Objid progr)
     int has_time     = (arglist.v.list[0].v.num >= 1);
     int has_timezone = (arglist.v.list[0].v.num >= 2);
     char *current_timezone = NULL;
+    struct tm *t;
 
     c = has_time ? (time_t)arglist.v.list[1].v.num : time(0);
 
@@ -671,15 +672,16 @@ bf_ctime(Var arglist, Byte next, void *vdata, Objid progr)
 	setenv("TZ", arglist.v.list[2].v.str, 1);
 	tzset();
     }
-    
-    {				/* Format the time, including a timezone name */
+
+    t = localtime(&c);
+    if (t == 0)
+	*buffer = 0;
+    else {			/* Format the time, including a timezone name */
 #if HAVE_STRFTIME
-	if (strftime(buffer, sizeof(buffer), "%a %b %d %H:%M:%S %Y %Z",
-		     localtime(&c)) == 0)
+	if (strftime(buffer, sizeof(buffer), "%a %b %d %H:%M:%S %Y %Z", t) == 0)
 	    *buffer = 0;
 #else
 #  if HAVE_TM_ZONE
-	struct tm *t = localtime(&c);
 	char *tzname = t->tm_zone;
 #  else
 #    if !HAVE_TZNAME
@@ -721,20 +723,31 @@ static package
 bf_random(Var arglist, Byte next, void *vdata, Objid progr)
 {
     int nargs = arglist.v.list[0].v.num;
-    int num = (nargs >= 1 ? arglist.v.list[1].v.num : 1);
+    Num num = (nargs >= 1 ? arglist.v.list[1].v.num : MAXINT);
 
     free_var(arglist);
 
     if (num <= 0)
 	return make_error_pack(E_INVARG);
     else {
+	int64_t rr;
 	Var r;
 
+#if RAND_MAX == 9223372036854775807
+	rr = RANDOM();
+#elif RAND_MAX == 2147483647
+	rr = ((int64_t) RANDOM() << 32) + ((int64_t) RANDOM() << 1) +
+	  ((int64_t) RANDOM() >> 30);
+#elif RAND_MAX == 32767
+	rr = ((int64_t) RANDOM() << 48) + ((int64_t) RANDOM() << 33) +
+	  ((int64_t) RANDOM() << 18) + ((int64_t) RANDOM() << 3) +
+	  ((int64_t) RANDOM() >> 12);
+#else
+#  error "unsupported RAND_MAX"
+#endif
+
 	r.type = TYPE_INT;
-	if (nargs == 0)
-	    r.v.num = RANDOM();
-	else
-	    r.v.num = RANDOM() % num + 1;
+	r.v.num = 1 + rr % num;
 	return make_var_pack(r);
     }
 }
@@ -743,7 +756,7 @@ static package
 bf_floatstr(Var arglist, Byte next, void *vdata, Objid progr)
 {				/* (float, precision [, sci-notation]) */
     double d = arglist.v.list[1].v.fnum;
-    int prec = arglist.v.list[2].v.num;
+    Num prec = arglist.v.list[2].v.num;
     int use_sci = (arglist.v.list[0].v.num >= 3
 		   && is_true(arglist.v.list[3]));
     char fmt[10], output[500];	/* enough for IEEE double */
@@ -754,7 +767,7 @@ bf_floatstr(Var arglist, Byte next, void *vdata, Objid progr)
 	prec = DECIMAL_DIG;
     else if (prec < 0)
 	return make_error_pack(E_INVARG);
-    sprintf(fmt, "%%.%d%c", prec, use_sci ? 'e' : 'f');
+    sprintf(fmt, "%%.%"PRIdN"%c", prec, use_sci ? 'e' : 'f');
     sprintf(output, fmt, d);
 
     r.type = TYPE_STR;
