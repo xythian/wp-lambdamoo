@@ -2466,6 +2466,8 @@ Version 1.8.4, in progress
 -- Fix memory leak in flush_input.
 -- Fix memory leak in run_interpreter/save_handler_info
    in the case where FINALLY returns/breaks/suspends.
+-- Fix random(m) to be uniformly distributed for m!=2^k
+   to allow for m > RAND_MAX
 
 **** Changes relevant to programmers / wizards:
 -- server_version() now takes an argument so that information
@@ -2488,3 +2490,5 @@ Version 1.8.4, in progress
    version_opt_gen.pl accordingly and rerun it to generate a new
    version_options.h, which then populates the group returned
    by server_version("options").
+-- some prep work for 64-bit MOO currently isolated in numbers.c
+   (will need autoconf update to work properly)
