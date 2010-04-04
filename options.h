@@ -225,14 +225,16 @@
 #define PATTERN_CACHE_SIZE	20
 
 /******************************************************************************
- * If you don't plan on using protecting built-in properties (like
- * .name and .location), define IGNORE_PROP_PROTECTED.  The extra
- * property lookups on every reference to a built-in property are
- * expensive.
+ * Prior to 1.8.4 property lookups were required on every reference to a
+ * built-in property due to the possibility of that property being protected.
+ * This used to be expensive.  IGNORE_PROP_PROTECTED thus existed to entirely
+ * disable the use of $server_options.protect_<property> for those who
+ * did not actually make use of protected builtin properties.  Since all
+ * protect_<property> options are now cached, this #define is now deprecated.
  ****************************************************************************** 
  */
 
-#define IGNORE_PROP_PROTECTED
+/* #define IGNORE_PROP_PROTECTED */
 
 /******************************************************************************
  * The code generator can now recognize situations where the code will not

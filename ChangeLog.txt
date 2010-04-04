@@ -2472,6 +2472,8 @@ Version 1.8.4, in progress
 **** Changes relevant to programmers / wizards:
 -- server_version() now takes an argument so that information
    about the server build can be available in-db.
+-- $server_options.protect_<prop> now prevents non-wizard *writes*
+   and must be followed by load_server_options() to take effect
 
 **** Changes significant to people compiling and running the server:
 -- Source/build information that is compiled into the server now 
@@ -2481,6 +2483,7 @@ Version 1.8.4, in progress
    to any script that will generate a version_src.h file from source
    control information as appropriate.  (You can also have a static
    version_src.h file that #defines the VERSION_* macros.)
+-- IGNORE_PROP_PROTECTED deprecated since no longer necessary
 
 **** Changes relevant to server hackers:
 -- Added HACKING as an index to the various server-hacking
@@ -2497,3 +2500,5 @@ Version 1.8.4, in progress
    load_server_protect_function_flags()
 -- make_abort_pack(ABORT_KILL) replaces make_kill_pack()
    builtin functions can now cause other kinds of aborts
+-- added caching regime for server options other than 
+   .protect_<function>
