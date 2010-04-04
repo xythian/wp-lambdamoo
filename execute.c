@@ -198,8 +198,14 @@ static int raise_error(package p, enum outcome *outcome);
 static int
 unwind_stack(Finally_Reason why, Var value, enum outcome *outcome)
 {
-    /* Returns true iff the entire stack was unwound and the interpreter
-     * should stop, in which case *outcome is the correct outcome to return. */
+    /* Returns true iff the interpreter should stop,
+     * in which case *outcome is set to the correct outcome to return.
+     * Interpreter stops either because it was blocked (OUTCOME_BLOCKED)
+     * or the entire stack was unwound (OUTCOME_DONE/OUTCOME_ABORTED)
+     *
+     * why==FIN_EXIT always returns false
+     * why==FIN_ABORT always returns true/OUTCOME_ABORTED
+     */
     Var code = (why == FIN_RAISE ? value.v.list[1] : zero);
 
     for (;;) {			/* loop over activations */
@@ -312,7 +318,10 @@ unwind_stack(Finally_Reason why, Var value, enum outcome *outcome)
 		    a->bi_func_data = p.u.call.data;
 		    return 0;
 		case BI_KILL:
-		    return unwind_stack(FIN_ABORT, zero, outcome);
+		    (void) unwind_stack(FIN_ABORT, zero, 0);
+		    if (outcome)
+			*outcome = OUTCOME_ABORTED;
+		    return 1;
 		}
 	    } else {
 		/* Built-in functions receive zero as a `returned value' on
@@ -494,7 +503,7 @@ abort_task(int is_ticks)
 				      root_activ_vector, 1);
     value.v.list[3] = error_backtrace_list(msg);
     save_handler_info("handle_task_timeout", value);
-    unwind_stack(FIN_ABORT, zero, 0);
+    (void) unwind_stack(FIN_ABORT, zero, 0);
 }
 
 /**** activation manipulation ****/
@@ -1666,7 +1675,7 @@ do {    						    	\
 			break;
 		    case BI_KILL:
 			STORE_STATE_VARIABLES();
-			unwind_stack(FIN_ABORT, zero, 0);
+			(void) unwind_stack(FIN_ABORT, zero, 0);
 			return OUTCOME_ABORTED;
 			/* NOTREACHED */
 		    }
@@ -1923,7 +1932,7 @@ do {    						    	\
 			v.v.list[2].type = TYPE_INT;
 			v.v.list[2].v.num = READ_BYTES(bv, bc.numbytes_label);
 			STORE_STATE_VARIABLES();
-			unwind_stack(FIN_EXIT, v, 0);
+			(void) unwind_stack(FIN_EXIT, v, 0);
 			LOAD_STATE_VARIABLES();
 		    }
 		    break;
