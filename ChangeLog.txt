@@ -2492,3 +2492,4 @@ Version 1.8.4, in progress
    by server_version("options").
 -- some prep work for 64-bit MOO currently isolated in numbers.c
    (will need autoconf update to work properly)
+-- server_flag_option() now takes an explicit default argument
