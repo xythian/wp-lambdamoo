@@ -319,7 +319,7 @@ unwind_stack(Finally_Reason why, Var value, enum outcome *outcome)
 		    a->bi_func_data = p.u.call.data;
 		    return 0;
 		case BI_KILL:
-		    abort_task(ABORT_KILL);
+		    abort_task(p.u.ret.v.num);
 		    if (outcome)
 			*outcome = OUTCOME_ABORTED;
 		    return 1;
@@ -1695,7 +1695,7 @@ do {    						    	\
 			break;
 		    case BI_KILL:
 			STORE_STATE_VARIABLES();
-			abort_task(ABORT_KILL);
+			abort_task(p.u.ret.v.num);
 			return OUTCOME_ABORTED;
 			/* NOTREACHED */
 		    }

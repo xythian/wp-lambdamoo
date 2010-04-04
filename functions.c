@@ -302,12 +302,13 @@ read_bi_func_data(Byte f_id, void **bi_func_state, Byte * bi_func_pc)
 
 
 package
-make_kill_pack()
+make_abort_pack(enum abort_reason reason)
 {
     package p;
 
     p.kind = BI_KILL;
-
+    p.u.ret.type = TYPE_INT;
+    p.u.ret.v.num = reason;
     return p;
 }
 

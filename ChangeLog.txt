@@ -2495,3 +2495,5 @@ Version 1.8.4, in progress
 -- server_flag_option() now takes an explicit default argument
 -- rename load_server_protect_flags() to
    load_server_protect_function_flags()
+-- make_abort_pack(ABORT_KILL) replaces make_kill_pack()
+   builtin functions can now cause other kinds of aborts

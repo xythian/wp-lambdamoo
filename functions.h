@@ -59,7 +59,7 @@ enum abort_reason {
     ABORT_TICKS   = 1		/* out of ticks */
 };
 
-package make_kill_pack();
+package make_abort_pack(enum abort_reason reason);
 package make_error_pack(enum error err);
 package make_raise_pack(enum error err, const char *msg, Var value);
 package make_var_pack(Var v);
