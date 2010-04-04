@@ -2493,3 +2493,5 @@ Version 1.8.4, in progress
 -- some prep work for 64-bit MOO currently isolated in numbers.c
    (will need autoconf update to work properly)
 -- server_flag_option() now takes an explicit default argument
+-- rename load_server_protect_flags() to
+   load_server_protect_function_flags()
