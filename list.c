@@ -270,8 +270,8 @@ value2str(Var value)
     return str;
 }
 
-static void
-print_to_stream(Var v, Stream * s)
+void
+unparse_value(Stream * s, Var v)
 {
     switch (v.type) {
     case TYPE_INT:
@@ -281,7 +281,7 @@ print_to_stream(Var v, Stream * s)
 	stream_printf(s, "#%d", v.v.obj);
 	break;
     case TYPE_ERR:
-	stream_add_string(s, error_name(v.v.num));
+	stream_add_string(s, error_name(v.v.err));
 	break;
     case TYPE_FLOAT:
 	stream_printf(s, "%g", *v.v.fnum);
@@ -314,28 +314,15 @@ print_to_stream(Var v, Stream * s)
 	    for (i = 1; i <= len; i++) {
 		stream_add_string(s, sep);
 		sep = ", ";
-		print_to_stream(v.v.list[i], s);
+		unparse_value(s, v.v.list[i]);
 	    }
 	    stream_add_char(s, '}');
 	}
 	break;
     default:
-	errlog("PRINT_TO_STREAM: Unknown Var type = %d\n", v.type);
+	errlog("UNPARSE_VALUE: Unknown Var type = %d\n", v.type);
 	stream_add_string(s, ">>Unknown value<<");
     }
-}
-
-const char *
-value_to_literal(Var v)
-{
-    static Stream *s = 0;
-
-    if (!s)
-	s = new_stream(100);
-
-    print_to_stream(v, s);
-
-    return reset_stream(s);
 }
 
 Var
@@ -651,10 +638,13 @@ bf_tostr(Var arglist, Byte next, void *vdata, Objid progr)
 static package
 bf_toliteral(Var arglist, Byte next, void *vdata, Objid progr)
 {
+    Stream *s = new_stream(100);
     Var r;
 
+    unparse_value(s, arglist.v.list[1]);
     r.type = TYPE_STR;
-    r.v.str = str_dup(value_to_literal(arglist.v.list[1]));
+    r.v.str = str_dup(stream_contents(s));
+    free_stream(s);
     free_var(arglist);
     return make_var_pack(r);
 }
@@ -977,10 +967,11 @@ static package
 bf_value_hash(Var arglist, Byte next, void *vdata, Objid progr)
 {
     Var r;
-    const char *lit = value_to_literal(arglist.v.list[1]);
-
+    Stream *s = new_stream(100);
+    unparse_value(s, arglist.v.list[1]);
     r.type = TYPE_STR;
-    r.v.str = hash_bytes(lit, memo_strlen(lit));
+    r.v.str = hash_bytes(stream_contents(s), stream_length(s));
+    free_stream(s);
     free_var(arglist);
     return make_var_pack(r);
 }
