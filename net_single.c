@@ -194,7 +194,7 @@ network_process_io(int timeout)
 		   && (count = read(0, buffer, sizeof(buffer))) > 0) {
 		got_some = 1;
 		if (binary) {
-		    stream_add_string(s, raw_bytes_to_binary(buffer, count));
+		    stream_add_raw_bytes_to_binary(s, buffer, count);
 		    server_receive_line(sh, reset_stream(s));
 		} else
 		    for (ptr = buffer, end = buffer + count;

@@ -265,7 +265,7 @@ pull_input(nhandle * h)
 
     if ((count = read(h->rfd, buffer, sizeof(buffer))) > 0) {
 	if (h->binary) {
-	    stream_add_string(s, raw_bytes_to_binary(buffer, count));
+	    stream_add_raw_bytes_to_binary(s, buffer, count);
 	    server_receive_line(h->shandle, reset_stream(s));
 	    h->last_input_was_CR = 0;
 	} else {
