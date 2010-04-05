@@ -2468,6 +2468,7 @@ Version 1.8.4, in progress
    in the case where FINALLY returns/breaks/suspends.
 -- Fix random(m) to be uniformly distributed for m!=2^k
    to allow for m > RAND_MAX
+-- Refactored bf_listinsert/bf_listappend to reduce refcounts
 
 **** Changes relevant to programmers / wizards:
 -- server_version() now takes an argument so that information
@@ -2502,3 +2503,8 @@ Version 1.8.4, in progress
    builtin functions can now cause other kinds of aborts
 -- added caching regime for server options other than 
    .protect_<function>
+-- list/string API changes (prep for raising stream exceptions)
+   raw_bytes_to_binary -> stream_add_raw_bytes_to_binary
+   strsub -> stream_add_strsub
+   value_to_literal -> unparse_value
+   list2str -> stream_add_tostr
