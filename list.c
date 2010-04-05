@@ -427,7 +427,10 @@ strget(Var str, Var i)
 static package
 make_space_pack()
 {
-    return make_abort_pack(ABORT_SECONDS);
+    if (server_flag_option_cached(SVO_MAX_CONCAT_CATCHABLE))
+	return make_error_pack(E_QUOTA);
+    else
+	return make_abort_pack(ABORT_SECONDS);
 }
 
 /**** built in functions ****/
