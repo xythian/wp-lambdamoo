@@ -40,11 +40,36 @@ new_stream(int size)
     return s;
 }
 
+Exception stream_too_big;
+size_t stream_alloc_maximum = 0;
+
+static int allow_stream_exceptions = 0;
+
+void
+enable_stream_exceptions()
+{
+    ++allow_stream_exceptions;
+}
+
+void
+disable_stream_exceptions()
+{
+    --allow_stream_exceptions;
+}
+
 static void
-grow(Stream * s, int newlen)
+grow(Stream * s, int newlen, int need)
 {
     char *newbuf;
 
+    if (allow_stream_exceptions > 0) {
+	if (newlen > stream_alloc_maximum) {
+	    if (s->current + need < stream_alloc_maximum)
+		newlen = stream_alloc_maximum;
+	    else
+		RAISE(stream_too_big, 0);
+	}
+    }
     newbuf = mymalloc(newlen, M_STREAM);
     memcpy(newbuf, s->buffer, s->current);
     myfree(s->buffer, M_STREAM);
@@ -56,7 +81,7 @@ void
 stream_add_char(Stream * s, char c)
 {
     if (s->current + 1 >= s->buflen)
-	grow(s, s->buflen * 2);
+	grow(s, s->buflen * 2, 1);
 
     s->buffer[s->current++] = c;
 }
@@ -78,7 +103,7 @@ stream_add_string(Stream * s, const char *string)
 
 	if (newlen <= s->current + len)
 	    newlen = s->current + len + 1;
-	grow(s, newlen);
+	grow(s, newlen, len);
     }
     strcpy(s->buffer + s->current, string);
     s->current += len;

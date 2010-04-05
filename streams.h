@@ -36,6 +36,21 @@ extern char *stream_contents(Stream *);
 extern char *reset_stream(Stream *);
 extern int stream_length(Stream *);
 
+#include "exceptions.h"
+
+extern void enable_stream_exceptions();
+extern void disable_stream_exceptions();
+extern size_t stream_alloc_maximum;
+extern Exception stream_too_big;
+/*
+ * Calls to enable_stream_exceptions() and disable_stream_exceptions()
+ * must be paired and nest properly.
+ *
+ * If enable_stream_exceptions() is in effect, then, upon any
+ * attempt to grow a stream beyond stream_alloc_maximum bytes,
+ * a stream_too_big exception will be raised.
+ */
+
 #endif
 
 /* 
