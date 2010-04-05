@@ -445,8 +445,7 @@ int _server_int_option_cache[SVO__CACHE_SIZE];
 void
 load_server_options(void)
 {
-    /* uncomment when SERVER_OPTIONS_CACHED_MISC is nonempty */
-    /* int value; */
+    int value;
 
     load_server_protect_function_flags();
 

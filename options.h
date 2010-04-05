@@ -311,6 +311,37 @@
 
 /* #define USE_GNU_MALLOC */
 
+/******************************************************************************
+ * DEFAULT_MAX_LIST_CONCAT,   if set to a postive value, is the length
+ *                            of the largest constructible list.
+ * DEFAULT_MAX_STRING_CONCAT, if set to a postive value, is the length
+ *                            of the largest constructible string.
+ * Limits on "constructible" values apply to values built by concatenation,
+ * splicing, subrange assignment and various builtin functions.
+ * If defined in the database, $server_options.max_list_concat and
+ * and $server_options.max_string_concat override these defaults.
+ * A zero value disables limit checking.
+ *
+ * When an overly-large value is spotted, the task is aborted
+ * as if it ran out of seconds (see DEFAULT_FG_SECONDS),
+ * which was the original behavior in this situation (i.e., if we
+ * were lucky enough to avoid a server memory allocation panic).
+ ******************************************************************************
+ */
+
+#define DEFAULT_MAX_LIST_CONCAT    4194302
+#define DEFAULT_MAX_STRING_CONCAT 33554423
+
+/* In order to avoid weirdness from these limits being set too small,
+ * we impose the following (arbitrary) respective minimum values.
+ * That is, a positive value for $server_options.max_list_concat that
+ * is less than MIN_LIST_CONCAT_LIMIT will be silently increased, and
+ * likewise for the string limit.
+ */
+#define MIN_LIST_CONCAT_LIMIT   1022
+#define MIN_STRING_CONCAT_LIMIT 1015
+
+
 /*****************************************************************************
  ********** You shouldn't need to change anything below this point. **********
  *****************************************************************************/
@@ -320,6 +351,13 @@
 #endif
 #ifndef OUT_OF_BAND_QUOTE_PREFIX
 #define OUT_OF_BAND_QUOTE_PREFIX ""
+#endif
+
+#if DEFAULT_MAX_LIST_CONCAT < MIN_LIST_CONCAT_LIMIT
+#error DEFAULT_MAX_LIST_CONCAT < MIN_LIST_CONCAT_LIMIT ??
+#endif
+#if DEFAULT_MAX_STRING_CONCAT < MIN_STRING_CONCAT_LIMIT
+#error DEFAULT_MAX_STRING_CONCAT < MIN_STRING_CONCAT_LIMIT ??
 #endif
 
 #if PATTERN_CACHE_SIZE < 1
