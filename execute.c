@@ -2458,7 +2458,7 @@ bf_raise(Var arglist, Byte next, void *vdata, Objid progr)
     Var code = var_ref(arglist.v.list[1]);
     const char *msg = (nargs >= 2
 		       ? str_ref(arglist.v.list[2].v.str)
-		       : str_dup(value2str(code)));
+		       : value2str(code));
     Var value;
 
     value = (nargs >= 3 ? var_ref(arglist.v.list[3]) : zero);
