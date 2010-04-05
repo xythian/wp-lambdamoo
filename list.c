@@ -1077,6 +1077,9 @@ bf_decode_binary(Var arglist, Byte next, void *vdata, Objid progr)
 	return make_error_pack(E_INVARG);
 
     if (fully) {
+	if (length > server_int_option_cached(SVO_MAX_LIST_CONCAT)) {
+	    return make_space_pack();
+	}
 	r = new_list(length);
 	for (i = 1; i <= length; i++) {
 	    r.v.list[i].type = TYPE_INT;
@@ -1099,6 +1102,10 @@ bf_decode_binary(Var arglist, Byte next, void *vdata, Objid progr)
 	    }
 	}
 
+	if (count > server_int_option_cached(SVO_MAX_LIST_CONCAT)) {
+	    free_stream(s);
+	    return make_space_pack();
+	}
 	r = new_list(count);
 	for (count = 1, in_string = 0, i = 0; i < length; i++) {
 	    unsigned char c = bytes[i];
