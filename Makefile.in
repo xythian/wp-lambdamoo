@@ -25,7 +25,7 @@ CC = @CC@ -I$(EXPAT)/xmlparse
 LIBRARIES = @LIBS@ $(EXPAT_OBJS)
 YACC = @YACC@
 
-CFLAGS = -O -DEXPAT_XML
+CFLAGS = @CFLAGS@ -DEXPAT_XML
 # If you're using GCC, you may prefer:
 # CFLAGS = -O2 -finline-functions
 #
