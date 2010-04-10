@@ -634,9 +634,11 @@ bf_random(Var arglist, Byte next, void *vdata, Objid progr)
 	Var r;
 
 	r.type = TYPE_INT;
-	if (nargs == 0)
-	    r.v.num = RANDOM();
-	else
+	if (nargs == 0) {
+	    do
+		r.v.num = RANDOM();
+	    while (r.v.num == 0);
+	} else
 	    r.v.num = RANDOM() % num + 1;
 	return make_var_pack(r);
     }
