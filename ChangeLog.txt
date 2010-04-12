@@ -2461,9 +2461,11 @@ Version 1.8.3, circa June 2008 (not released)
 
 
 Version 1.8.4, in progress
--- Fix FOR statement infinite loop when $maxint is the upper limit
--- Fix random($maxint) to return in correct range
--- Fix memory leak in flush_input
+-- Fix FOR statement infinite loop when $maxint is the upper limit.
+-- Fix random($maxint) to return in correct range.
+-- Fix memory leak in flush_input.
+-- Fix memory leak in run_interpreter/save_handler_info
+   in the case where FINALLY returns/breaks/suspends.
 
 **** Changes relevant to programmers / wizards:
 -- server_version() now takes an argument so that information
