@@ -2459,6 +2459,29 @@ Version 1.8.3, circa June 2008 (not released)
 -- New call_verb2() accepts verb name that is a MOO string (ie, str_ref-able)
 -- str_hash() replaced with a faster (and better?) string hash function
 
+
 Version 1.8.4, in progress
 -- Fix FOR statement infinite loop when $maxint is the upper limit
 -- Fix random($maxint) to return in correct range
+
+**** Changes relevant to programmers / wizards:
+-- server_version() now takes an argument so that information
+   about the server build can be available in-db.
+
+**** Changes significant to people compiling and running the server:
+-- Source/build information that is compiled into the server now 
+   comes from version_src.h.  Purpose and format of this file is
+   now described in version_src.txt.
+-- New GNUmakefile invokes optional ./version_hook which can be linked
+   to any script that will generate a version_src.h file from source
+   control information as appropriate.  (You can also have a static
+   version_src.h file that #defines the VERSION_* macros.)
+
+**** Changes relevant to server hackers:
+-- Added HACKING as an index to the various server-hacking
+   documentation files scattered about the source directory.
+   (do we need a doc directory?)
+-- If you add or remove #defines from options.h, you should update
+   version_opt_gen.pl accordingly and rerun it to generate a new
+   version_options.h, which then populates the group returned
+   by server_version("options").

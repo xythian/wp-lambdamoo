@@ -316,6 +316,9 @@ parser.o:	my-ctype.h my-math.h my-stdlib.h my-string.h \
 network.o: 	net_single.o net_multi.o
 net_proto.o:	net_bsd_tcp.o net_bsd_lcl.o net_sysv_tcp.o net_sysv_lcl.o
 net_mplex.o:	net_mp_selct.o net_mp_poll.o net_mp_fake.o
+version.o:	version_src.h version_options.h
+version_src.h:
+	if [ ! -e $@ ]; then touch $@; fi
 
 $(OPT_NET_OBJS):
 	touch $@
