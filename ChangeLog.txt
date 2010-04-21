@@ -2373,12 +2373,12 @@ Version 1.8.1, 10 January 2000
 -- Server hackers should read README.rX for more information on
    changes to server internals.
 
-Version 1.8.2
+Version 1.8.2, circa November 2006 (not released)
 Because of the long time with no release after 1.8.1, some distributors began
 to distribute 1.8.1 plus patches as 1.8.2.  To avoid confusion, we have opted
 to make the next official release version 1.8.3.
 
-Version 1.8.3, in progress
+Version 1.8.3, circa June 2008 (not released)
 -- SF bug #887464: fixed a bug in the server's startup processing, in which it
    scans for unknown built-in functions in active verbs (Thanks luke-jr and
    Gavin Lambert for reports and patches.)
@@ -2391,6 +2391,10 @@ Version 1.8.3, in progress
 -- SF bug #1500775: fixed two use-after-free bugs that could lead very rarely to
    calling the wrong functions during player connection (Thanks Garance Drosehn
    for the report and initial patch.)
+-- Added sync so that checkpoint file will not be lost by being unlinked
+   before being physically written to the disk
+-- Fixed uninitialized fileds that caused occasional weirdness in size accounting
+   for forked tasks and wrong line numbers in decompile
 **** Changes relevant to programmers / wizards:
 -- SF bug #227620: add_verb() now returns (positive integer) verb index
 -- bf_crypt() now passes salts longer than 2 characters to the underlying C
@@ -2412,13 +2416,13 @@ Version 1.8.3, in progress
           SUFFIX
           OUTPUTPREFIX
           OUTPUTSUFFIX
-       will be recognized on that connection.  Option value is a list 
+       will be recognized on that connection.  Option value is a list
        of strings, but set_connection_option() also accepts any numeric
        value, in which case all 5 intrinsic commands are enabled/disabled
        according to the value being true/false.
    (*) "disable-oob"
-       which, if set true, disables all out-of-band command processing 
-       on subsequent input lines, i.e., the server behaves for that 
+       which, if set true, disables all out-of-band command processing
+       on subsequent input lines, i.e., the server behaves for that
        connection as if OUT_OF_BAND_PREFIX had never been #defined.
        Out-of-band quoting (see below) is likewise disabled.
 -- If "disable-oob" is set false (as it is by default), then it is now the case
@@ -2449,6 +2453,12 @@ Version 1.8.3, in progress
    stdout and stderr are now closed if they are not being used.
    (Outside of emergency wizard mode, stdout is only used on an an NP_SINGLE
    server; stderr is only used if no logfile (-l) is specifed.)
+-- Added new compile option INPUT_APPLY_BACKSPACE to process
+   backspace/delete characters on nonbinary connections (patch 1571939)
 **** Changes relevant to server hackers:
 -- New call_verb2() accepts verb name that is a MOO string (ie, str_ref-able)
 -- str_hash() replaced with a faster (and better?) string hash function
+
+Version 1.8.4, in progress
+-- Fix FOR statement infinite loop when $maxint is the upper limit
+-- Fix random($maxint) to return in correct range
