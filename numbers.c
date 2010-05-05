@@ -745,7 +745,7 @@ muladdmod(Unsignednum a, Unsignednum b, Unsignednum c, Intnum m)
     if (hi != 0) {
 	int d_sh = rlg2(hi);
 	int sh;
-	for (sh = 32 - d_sh;
+	for (sh = 2*HALFWORD - d_sh;
 	     hi <<= d_sh, hi %= m, hi != 0;
 	     sh -= d_sh) {
 
