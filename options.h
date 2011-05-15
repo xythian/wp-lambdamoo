@@ -322,7 +322,7 @@
  * work by calling verbs on the waif.
  ******************************************************************************
  */
-/* #define WAIF_DICT */
+#define WAIF_DICT
 
 /*****************************************************************************
  ********** You shouldn't need to change anything below this point. **********
