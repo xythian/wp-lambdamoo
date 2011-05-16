@@ -22,6 +22,9 @@
 #include "options.h"
 #include "config.h"
 
+#define MAXINT	((Num) 9223372036854775807LL)
+#define MAXOBJ	((Objid) MAXINT)
+
 /* Note: it's a pretty hard assumption in MOO that integers and objects
    are the same data type. */
 typedef int64_t Num;
