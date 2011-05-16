@@ -9,3 +9,5 @@ y.tab.h
 moo
 *.db
 \#*\#
+.\#*
+*.bak
