@@ -182,7 +182,7 @@
  */
 
 /* disable by default, +O enables: */
-/* #define OUTBOUND_NETWORK 0 */
+#define OUTBOUND_NETWORK 0
 
 /* enable by default, -O disables: */
 /* #define OUTBOUND_NETWORK 1 */
