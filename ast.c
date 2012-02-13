@@ -279,6 +279,12 @@ free_expr(Expr * expr)
     case EXPR_IN:
     case EXPR_ASGN:
     case EXPR_EXP:
+    case EXPR_BITAND:
+    case EXPR_BITXOR:
+    case EXPR_BITOR:
+    case EXPR_SHL:
+    case EXPR_SHR:
+    case EXPR_LSHR:
 	free_expr(expr->e.bin.lhs);
 	free_expr(expr->e.bin.rhs);
 	break;
@@ -307,6 +313,7 @@ free_expr(Expr * expr)
 
     case EXPR_NEGATE:
     case EXPR_NOT:
+    case EXPR_COMPLEMENT:
 	free_expr(expr->e.expr);
 	break;
 

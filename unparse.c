@@ -139,29 +139,40 @@ static struct prec prec_table[] =
     {EXPR_GE, 4},
     {EXPR_IN, 4},
 
-    {EXPR_PLUS, 5},
-    {EXPR_MINUS, 5},
+    {EXPR_BITOR, 5},
 
-    {EXPR_TIMES, 6},
-    {EXPR_DIVIDE, 6},
-    {EXPR_MOD, 6},
+    {EXPR_BITXOR, 6},
 
-    {EXPR_EXP, 7},
+    {EXPR_BITAND, 7},
 
-    {EXPR_NEGATE, 8},
-    {EXPR_NOT, 8},
+    {EXPR_SHL, 8},
+    {EXPR_SHR, 8},
+    {EXPR_LSHR, 8},
 
-    {EXPR_PROP, 9},
-    {EXPR_VERB, 9},
-    {EXPR_INDEX, 9},
-    {EXPR_RANGE, 9},
+    {EXPR_PLUS, 9},
+    {EXPR_MINUS, 9},
 
-    {EXPR_VAR, 10},
-    {EXPR_ID, 10},
-    {EXPR_LIST, 10},
-    {EXPR_CALL, 10},
-    {EXPR_LENGTH, 10},
-    {EXPR_CATCH, 10}
+    {EXPR_TIMES, 10},
+    {EXPR_DIVIDE, 10},
+    {EXPR_MOD, 10},
+
+    {EXPR_EXP, 11},
+
+    {EXPR_NEGATE, 12},
+    {EXPR_COMPLEMENT, 12},
+    {EXPR_NOT, 12},
+
+    {EXPR_PROP, 13},
+    {EXPR_VERB, 13},
+    {EXPR_INDEX, 13},
+    {EXPR_RANGE, 13},
+
+    {EXPR_VAR, 14},
+    {EXPR_ID, 14},
+    {EXPR_LIST, 14},
+    {EXPR_CALL, 14},
+    {EXPR_LENGTH, 14},
+    {EXPR_CATCH, 14}
 };
 
 static int expr_prec[SizeOf_Expr_Kind];
@@ -188,6 +199,12 @@ static struct binop binop_table[] =
     {EXPR_DIVIDE, " / "},
     {EXPR_MOD, " % "},
     {EXPR_EXP, " ^ "},
+    {EXPR_BITOR, " .|. "},
+    {EXPR_BITXOR, " .^. "},
+    {EXPR_BITAND, " .&. "},
+    {EXPR_SHL, " << "},
+    {EXPR_SHR, " >> "},
+    {EXPR_LSHR, " >>> "},
 };
 
 static const char *binop_string[SizeOf_Expr_Kind];
@@ -570,6 +587,12 @@ unparse_expr(Stream * str, Expr * expr)
     case EXPR_LE:
     case EXPR_GE:
     case EXPR_IN:
+    case EXPR_BITOR:
+    case EXPR_BITXOR:
+    case EXPR_BITAND:
+    case EXPR_SHL:
+    case EXPR_SHR:
+    case EXPR_LSHR:
 	bracket_lt(str, expr->kind, expr->e.bin.lhs);
 	stream_add_string(str, binop_string[expr->kind]);
 	bracket_le(str, expr->kind, expr->e.bin.rhs);
@@ -593,6 +616,11 @@ unparse_expr(Stream * str, Expr * expr)
     case EXPR_NEGATE:
 	stream_add_char(str, '-');
 	bracket_lt(str, EXPR_NEGATE, expr->e.expr);
+	break;
+
+    case EXPR_COMPLEMENT:
+	stream_add_char(str, '~');
+	bracket_lt(str, EXPR_COMPLEMENT, expr->e.expr);
 	break;
 
     case EXPR_NOT:
