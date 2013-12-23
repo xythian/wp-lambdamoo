@@ -92,6 +92,8 @@ enum Expr_Kind {
     EXPR_EQ, EXPR_NE, EXPR_LT, EXPR_LE, EXPR_GT, EXPR_GE,
     EXPR_IN, EXPR_LIST, EXPR_COND,
     EXPR_CATCH, EXPR_LENGTH, EXPR_SCATTER,
+    EXPR_BITOR, EXPR_BITXOR, EXPR_BITAND, EXPR_COMPLEMENT,
+    EXPR_SHL, EXPR_SHR, EXPR_LSHR,
     SizeOf_Expr_Kind		/* The last element is also the number of elements... */
 };
 

@@ -32,6 +32,11 @@ enum Extended_Opcode {
     EOP_WHILE_ID, EOP_EXIT, EOP_EXIT_ID,
     EOP_SCATTER, EOP_EXP,
 
+    /* bitwise operators */
+    EOP_BITAND, EOP_BITXOR, EOP_BITOR,
+    EOP_SHL, EOP_SHR, EOP_LSHR,
+    EOP_COMPLEMENT,
+
     Last_Extended_Opcode = 255
 };
 

@@ -104,11 +104,15 @@ static void	check_loop_name(const char *, enum loop_exit_kind);
 %right	'='
 %nonassoc '?' '|'
 %left	tOR tAND
-%left   tEQ tNE '<' tLE '>' tGE tIN
+%left	tEQ tNE '<' tLE '>' tGE tIN
+%left	tBITOR
+%left	tBITXOR
+%left	tBITAND
+%left	tSHL tSHR tLSHR
 %left	'+' '-'
 %left	'*' '/' '%'
 %right	'^'
-%left	'!' tUNARYMINUS
+%left	'!' '~' tUNARYMINUS
 %nonassoc '.' ':' '[' '$'
 
 %%
@@ -511,6 +515,18 @@ expr:
 		{
 		    $$ = alloc_binary(EXPR_OR, $1, $3);
 		}
+	| expr tBITOR expr
+		{
+		    $$ = alloc_binary(EXPR_BITOR, $1, $3);
+		}
+	| expr tBITXOR expr
+		{
+		    $$ = alloc_binary(EXPR_BITXOR, $1, $3);
+		}
+	| expr tBITAND expr
+		{
+		    $$ = alloc_binary(EXPR_BITAND, $1, $3);
+		}
 	| expr tEQ expr
 		{
 		    $$ = alloc_binary(EXPR_EQ, $1, $3);
@@ -539,6 +555,18 @@ expr:
 		{
 		    $$ = alloc_binary(EXPR_IN, $1, $3);
 		}
+	| expr tSHL expr
+		{
+		    $$ = alloc_binary(EXPR_SHL, $1, $3);
+		}
+	| expr tSHR expr
+		{
+		    $$ = alloc_binary(EXPR_SHR, $1, $3);
+		}
+	| expr tLSHR expr
+		{
+		    $$ = alloc_binary(EXPR_LSHR, $1, $3);
+		}
 	| '-' expr  %prec tUNARYMINUS
 		{
 		    if ($2->kind == EXPR_VAR
@@ -554,11 +582,16 @@ expr:
 			  default:
 			    break;
 			}
-		        $$ = $2;
+			$$ = $2;
 		    } else {
 			$$ = alloc_expr(EXPR_NEGATE);
 			$$->e.expr = $2;
 		    }
+		}
+	| '~' expr
+		{
+		    $$ = alloc_expr(EXPR_COMPLEMENT);
+		    $$->e.expr = $2;
 		}
 	| '!' expr
 		{
@@ -768,6 +801,51 @@ follow(int expect, int ifyes, int ifno)     /* look ahead for >=, etc. */
     return ifno;
 }
 
+/* look ahead for bit-wise operators */
+static int
+checkbitwise()
+{
+    int c1 = lex_getc();
+    int c2 = lex_getc();
+
+    if (c2 != '.') {
+	lex_ungetc(c2);
+	lex_ungetc(c1);
+	return 0;
+    }
+
+    if (c1 == '&')
+	return tBITAND;
+
+    if (c1 == '|')
+	return tBITOR;
+
+    if (c1 == '^')
+	return tBITXOR;
+
+    lex_ungetc(c2);
+    lex_ungetc(c1);
+    return 0;
+}
+
+static int
+checkrightshift(int iftwo, int ifone, int ifnone)
+{
+    int c1 = lex_getc();
+
+    if (c1 == '>') {
+	int c2 = lex_getc();
+	if (c2 == '>')
+	    return iftwo;
+
+	lex_ungetc(c2);
+	return ifone;
+    }
+
+    lex_ungetc(c1);
+    return ifnone;
+}
+
 static Stream  *token_stream = 0;
 
 static int
@@ -854,14 +932,31 @@ start_over:
 		    stream_add_utf(token_stream, c);
 		    c = lex_getc();
 		} while (my_isdigit(c));
-	    } else if (stream_length(token_stream) == 0)
+	    } else if (stream_length(token_stream) == 0) {
 		/* no digits before or after `.'; not a number at all */
 		goto normal_dot;
-	    else if (cc != '.') {
-		/* Some digits before dot, not `..' */
-		type = tFLOAT;
-		stream_add_utf(token_stream, c);
-		c = lex_getc();
+	    } else if (cc != '.' && cc != '|' && cc != '&') {
+		/* Some digits before dot, not `..' or '.|.' or '.&.' */
+		int isxor = 0;
+		if (cc == '^') {
+		    /* This might of the form 9.^.5 where the intention was
+		     * to find the square root. Keep the previous parsing
+		     * of this case. */
+		    int ccc, cccc;
+		    cc = lex_getc();
+		    ccc = lex_getc();
+		    lex_ungetc(cccc = lex_getc());
+		    lex_ungetc(ccc);
+		    lex_ungetc(cc);
+		    if (ccc == '.' && !my_isdigit(cccc)) {
+			isxor = 1;
+		    }
+		}
+		if (!isxor) {
+		    type = tFLOAT;
+		    stream_add_utf(token_stream, c);
+		    c = lex_getc();
+		}
 	    }
 	}
 
@@ -950,9 +1045,13 @@ start_over:
 
     switch(c) {
     case '>':
-	return follow('=', tGE, '>');
+	return ((c = follow('=', tGE, 0))
+		? c
+		: checkrightshift(tLSHR, tSHR, '>'));
     case '<':
-	return follow('=', tLE, '<');
+	return ((c = follow('=', tLE, 0))
+		? c
+		: follow('<', tSHL, '<'));
     case '=':
 	return ((c = follow('=', tEQ, 0))
 		? c
@@ -965,7 +1064,9 @@ start_over:
 	return follow('&', tAND, '&');
     normal_dot:
     case '.':
-	return follow('.', tTO, '.');
+	return ((c = checkbitwise())
+		? c
+		: follow('.', tTO, '.'));
     default:
 	if (c < 127) {
 	    return c;

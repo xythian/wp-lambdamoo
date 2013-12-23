@@ -2077,6 +2077,106 @@ do {    						    	\
 		    }
 		    break;
 
+		case EOP_BITAND:
+		case EOP_BITXOR:
+		case EOP_BITOR:
+		    {
+			Var rhs, lhs, ans;
+
+			rhs = POP();
+			lhs = POP();
+			if (lhs.type == TYPE_INT && rhs.type == TYPE_INT) {
+			    ans.type = TYPE_INT;
+			    if (eop == EOP_BITAND)
+				ans.v.num = lhs.v.num & rhs.v.num;
+			    else if (eop == EOP_BITXOR)
+				ans.v.num = lhs.v.num ^ rhs.v.num;
+			    else if (eop == EOP_BITOR)
+				ans.v.num = lhs.v.num | rhs.v.num;
+			    else
+				panic("Can't happen in EOP bitwise operators!");
+			} else {
+			    ans.type = TYPE_ERR;
+			    ans.v.err = E_TYPE;
+			}
+
+			free_var(lhs);
+			free_var(rhs);
+			if (ans.type == TYPE_ERR)
+			    PUSH_ERROR(ans.v.err);
+			else
+			    PUSH(ans);
+		    }
+		    break;
+
+		case EOP_SHL:
+		case EOP_SHR:
+		case EOP_LSHR:
+		    {
+			Var rhs, lhs, ans;
+
+			rhs = POP();
+			lhs = POP();
+			if (lhs.type == TYPE_INT && rhs.type == TYPE_INT) {
+			    if (rhs.v.num < 0
+				|| rhs.v.num >= sizeof(Num) * CHAR_BIT) {
+				ans.type = TYPE_ERR;
+				ans.v.err = E_INVARG;
+			    } else {
+
+/*
+ * Defines logical and arithmetic right shift behavior. Needed because
+ * ANSI C doesn't define what happens when you right shift a negative
+ * number.
+ */
+#define HIGHONES(c)	((Num)(~(UNum)0 << sizeof(Num) * CHAR_BIT - (c)))
+#define LOWONES(c)	(~HIGHONES(c))
+#define LOGSHIFTR(a,b)	((Num)((UNum)a >> b) & LOWONES(b))
+#define SHIFTR(a,b)	(LOGSHIFTR(a,b) ^ (a < 0 ? HIGHONES(b) : 0))
+
+				ans.type = TYPE_INT;
+				if (eop == EOP_SHL)
+				    ans.v.num = lhs.v.num << rhs.v.num;
+				else if (eop == EOP_SHR)
+				    ans.v.num = SHIFTR(lhs.v.num, rhs.v.num);
+				else if (eop == EOP_LSHR)
+				    ans.v.num = LOGSHIFTR(lhs.v.num, rhs.v.num);
+				else
+				    panic("Can't happen in EOP bitwise operators!");
+			    }
+			} else {
+			    ans.type = TYPE_ERR;
+			    ans.v.err = E_TYPE;
+			}
+
+			free_var(lhs);
+			free_var(rhs);
+			if (ans.type == TYPE_ERR)
+			    PUSH_ERROR(ans.v.err);
+			else
+			    PUSH(ans);
+		    }
+		    break;
+
+		case EOP_COMPLEMENT:
+		    {
+			Var arg, ans;
+
+			arg = POP();
+			if (arg.type == TYPE_INT) {
+			    ans.type = TYPE_INT;
+			    ans.v.num = ~arg.v.num;
+			} else {
+			    free_var(arg);
+			    PUSH_ERROR(E_TYPE);
+			    break;
+			}
+
+			PUSH(ans);
+			free_var(arg);
+		    }
+		    break;
+
 		default:
 		    panic("Unknown extended opcode!");
 		}

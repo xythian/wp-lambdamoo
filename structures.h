@@ -28,6 +28,7 @@
 /* Note: it's a pretty hard assumption in MOO that integers and objects
    are the same data type. */
 typedef int64_t Num;
+typedef uint64_t UNum; // for logical right shift operator
 #define PRIdN	PRId64
 #define SCNdN	SCNd64
 typedef Num Objid;

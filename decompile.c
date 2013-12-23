@@ -797,6 +797,33 @@ decompile(Bytecodes bc, Byte * start, Byte * end, Stmt ** stmt_sink,
 			s->kind = STMT_CONTINUE;
 		    ADD_STMT(HOT_OP(s));
 		    break;
+		case EOP_BITAND:
+		    kind = EXPR_BITAND;
+		    goto finish_extended_binary;
+		case EOP_BITXOR:
+		    kind = EXPR_BITXOR;
+		    goto finish_extended_binary;
+		case EOP_BITOR:
+		    kind = EXPR_BITOR;
+		    goto finish_extended_binary;
+		case EOP_SHL:
+		    kind = EXPR_SHL;
+		    goto finish_extended_binary;
+		case EOP_SHR:
+		    kind = EXPR_SHR;
+		    goto finish_extended_binary;
+		case EOP_LSHR:
+		    kind = EXPR_LSHR;
+		  finish_extended_binary:
+		    e = pop_expr();
+		    e = alloc_binary(kind, pop_expr(), e);
+		    push_expr(HOT_OP2(e->e.bin.lhs, e->e.bin.rhs, e));
+		    break;
+		case EOP_COMPLEMENT:
+		    e = alloc_expr(EXPR_COMPLEMENT);
+		    e->e.expr = pop_expr();
+		    push_expr(HOT_OP1(e->e.expr, e));
+		    break;
 		default:
 		    panic("Unknown extended opcode in DECOMPILE!");
 		}

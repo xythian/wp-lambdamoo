@@ -626,6 +626,10 @@ generate_expr(Expr * expr, State * state)
 	generate_expr(expr->e.expr, state);
 	emit_byte(expr->kind == EXPR_NOT ? OP_NOT : OP_UNARY_MINUS, state);
 	break;
+    case EXPR_COMPLEMENT:
+	generate_expr(expr->e.expr, state);
+	emit_extended_byte(EOP_COMPLEMENT, state);
+	break;
     case EXPR_EQ:
     case EXPR_NE:
     case EXPR_GE:
@@ -688,6 +692,43 @@ generate_expr(Expr * expr, State * state)
 		panic("Not a binary operator in GENERATE_EXPR()");
 	    }
 	    emit_byte(op, state);
+	    pop_stack(1, state);
+	}
+	break;
+    case EXPR_BITAND:
+    case EXPR_BITXOR:
+    case EXPR_BITOR:
+    case EXPR_SHL:
+    case EXPR_SHR:
+    case EXPR_LSHR:
+	{
+	    Opcode op = EOP_BITAND;	/* initialize to silence warning */
+
+	    generate_expr(expr->e.bin.lhs, state);
+	    generate_expr(expr->e.bin.rhs, state);
+	    switch (expr->kind) {
+	    case EXPR_BITAND:
+		op = EOP_BITAND;
+		break;
+	    case EXPR_BITXOR:
+		op = EOP_BITXOR;
+		break;
+	    case EXPR_BITOR:
+		op = EOP_BITOR;
+		break;
+	    case EXPR_SHL:
+		op = EOP_SHL;
+		break;
+	    case EXPR_SHR:
+		op = EOP_SHR;
+		break;
+	    case EXPR_LSHR:
+		op = EOP_LSHR;
+		break;
+	    default:
+		panic("Not a binary operator in GENERATE_EXPR()");
+	    }
+	    emit_extended_byte(op, state);
 	    pop_stack(1, state);
 	}
 	break;
