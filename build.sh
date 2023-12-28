@@ -3,5 +3,4 @@ set -ve
 autoconf
 (cd pcre; autoconf)
 ./configure
-make
-
+make PERL=perl
