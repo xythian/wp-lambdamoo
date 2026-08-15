@@ -68,6 +68,35 @@ static Timer_ID task_alarm_id;
 static const char *handler_verb_name;	/* For in-DB traceback handling */
 static Var handler_verb_args;
 
+/*
+ * C only defines shifts whose count is smaller than the width of the left
+ * operand. Callers validate that constraint before using these helpers.
+ * Unsigned operands give left and logical-right shifts well-defined behavior;
+ * arithmetic right shift then restores the sign-extension bits explicitly.
+ */
+static Num
+shift_left(Num value, UNum count)
+{
+    return (Num)((UNum)value << count);
+}
+
+static Num
+logical_shift_right(Num value, UNum count)
+{
+    return (Num)((UNum)value >> count);
+}
+
+static Num
+arithmetic_shift_right(Num value, UNum count)
+{
+    UNum result = (UNum)value >> count;
+
+    if (value < 0 && count != 0)
+	result |= ~(UNum)0 << (sizeof(Num) * CHAR_BIT - count);
+
+    return (Num)result;
+}
+
 #ifdef WAIF_DICT
 /*
  * Jay Carlson's WAIF DICT patch.  These static moo-strings are needed for
@@ -2199,24 +2228,16 @@ do {								\
 				ans.type = TYPE_ERR;
 				ans.v.err = E_INVARG;
 			    } else {
-
-/*
- * Defines logical and arithmetic right shift behavior. Needed because
- * ANSI C doesn't define what happens when you right shift a negative
- * number.
- */
-#define HIGHONES(c)	((Num)(~(UNum)0 << (sizeof(Num) * CHAR_BIT - (c))))
-#define LOWONES(c)	(~HIGHONES(c))
-#define LOGSHIFTR(a,b)	((Num)((UNum)a >> b) & LOWONES(b))
-#define SHIFTR(a,b)	(LOGSHIFTR(a,b) ^ (a < 0 ? HIGHONES(b) : 0))
-
 				ans.type = TYPE_INT;
 				if (eop == EOP_SHL)
-				    ans.v.num = lhs.v.num << rhs.v.num;
+				    ans.v.num = shift_left(lhs.v.num,
+							   (UNum)rhs.v.num);
 				else if (eop == EOP_SHR)
-				    ans.v.num = SHIFTR(lhs.v.num, rhs.v.num);
+				    ans.v.num = arithmetic_shift_right(lhs.v.num,
+								      (UNum)rhs.v.num);
 				else if (eop == EOP_LSHR)
-				    ans.v.num = LOGSHIFTR(lhs.v.num, rhs.v.num);
+				    ans.v.num = logical_shift_right(lhs.v.num,
+								   (UNum)rhs.v.num);
 				else
 				    panic("Can't happen in EOP bitwise operators!");
 			    }
