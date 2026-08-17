@@ -328,12 +328,14 @@ dbio_write_var(Var v)
 	dbio_write_string(v.v.str);
 	break;
     case TYPE_OBJ:
-    case TYPE_ERR:
     case TYPE_INT:
     case TYPE_CATCH:
     case TYPE_FINALLY:
 	dbio_write_num(v.v.num);
 	break;
+    case TYPE_ERR:
+        dbio_write_num((uint32_t) v.v.err);
+        break;
     case TYPE_FLOAT:
 	dbio_write_float(v.v.fnum);
 	break;
