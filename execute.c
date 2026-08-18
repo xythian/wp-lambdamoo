@@ -2011,7 +2011,7 @@ do {								\
 				    free_var(RUN_ACTIV.rt_env[id]);
 				    RUN_ACTIV.rt_env[id] = sublist(var_ref(list),
 								   i,
-							  i + nrest - 1);
+							  i + nrest);
 				    offset += nrest - 1;
 				} else if (label == 0) {	/* required */
 				    free_var(RUN_ACTIV.rt_env[id]);
