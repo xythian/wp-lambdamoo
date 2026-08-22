@@ -89,7 +89,7 @@ END
 MOO_LIB_PCRE2([%USE%],
   [%FAIL%[="PCRE2 library not found;
    use 'apt-get install libpcre2-dev' in Debian or Ubuntu;
-   Fedora, Red Hat, MacOS homebrew all have 'pcre2' packages)"]],
+   Fedora, Red Hat, MacOS homebrew all have 'pcre2' packages."]],
   [%FAIL%[="-lpcre2-8 cannot be used: this PCRE2 library lacks
    support for Unicode character properties."]])
 END
