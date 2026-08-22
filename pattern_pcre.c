@@ -32,7 +32,7 @@ typedef struct {
 } regexp_t;
 
 typedef struct {
-    PCRE2_SIZE ovec[10 * 2];
+    PCRE2_SIZE ovec[MATCH_GROUP_LIMIT * 2];
     int valid;
 } rmatch_data_t;
 
@@ -295,7 +295,8 @@ static
 int rmatch_callout(pcre2_callout_block *block, void *callout_data)
 {
     rmatch_data_t *rmatch = callout_data;
-    int capture_top = block->capture_top > 10 ? 10 : block->capture_top;
+    int capture_top = block->capture_top > MATCH_GROUP_LIMIT
+	? MATCH_GROUP_LIMIT : block->capture_top;
 
     if (!rmatch->valid || block->current_position > rmatch->ovec[1] ||
 	(block->current_position == rmatch->ovec[1] &&
@@ -319,7 +320,7 @@ Match_Result match_pattern(Pattern p, const char *string,
 			   Match_Indices *indices, int is_reverse)
 {
     regexp_t *regexp = p.ptr;
-    pcre2_match_data *match_data = pcre2_match_data_create(10, 0);
+    pcre2_match_data *match_data = pcre2_match_data_create(MATCH_GROUP_LIMIT, 0);
     PCRE2_SIZE *ov;
     int rc;
     uint32_t options = 0;
@@ -365,8 +366,8 @@ Match_Result match_pattern(Pattern p, const char *string,
 	}
     }
 
-    if (rc == 0 || rc > 10)
-	rc = 10;  /* there were more subpatterns than output vectors */
+    if (rc == 0 || rc > MATCH_GROUP_LIMIT)
+	rc = MATCH_GROUP_LIMIT;  /* there were more subpatterns than output vectors */
 
     for (i = 0; i < rc; ++i) {
 	/* convert from 0-based open interval to 1-based closed one */
@@ -379,7 +380,7 @@ Match_Result match_pattern(Pattern p, const char *string,
 	    indices[i].end   =     ov[i * 2 + 1];
 	}
     }
-    for (i = rc; i < 10; ++i) {
+    for (i = rc; i < MATCH_GROUP_LIMIT; ++i) {
 	indices[i].start =  0;
 	indices[i].end   = -1;
     }
