@@ -1,5 +1,8 @@
 Makefile
 autom4te.cache
+bf_register.c
+bf_register.h
+bf_register.lastrun
 clean-keeps-keywords
 clean-keeps-moo
 clean-keeps-parser
@@ -12,6 +15,7 @@ config.lastrun
 config.cache
 extensions2.ac
 keywords.c
+parser.c
 version_options.h
 version.lastck
 version_src.h
@@ -25,3 +29,4 @@ moo
 .\#*
 *.bak
 *.d
+*~
