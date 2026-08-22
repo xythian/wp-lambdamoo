@@ -178,6 +178,9 @@
 #undef HAVE_SIGEMPTYSET
 #undef HAVE_SIGPROCMASK
 #undef HAVE_SIGSETMASK
+
+/* Use the PCRE2 API; otherwise pattern_pcre.c uses the PCRE1 API. */
+#undef HAVE_PCRE2
 #undef HAVE_SIGRELSE
 
 /* It used to be very much the fashion in UNIX programming to make use of
