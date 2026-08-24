@@ -33,4 +33,4 @@ moo
 .\#*
 *.bak
 *.d
-*~
+configure~
