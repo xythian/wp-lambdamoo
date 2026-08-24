@@ -1,0 +1,397 @@
+# Bound extension design notes
+
+This document records prospective capabilities motivated by known extensions.
+`README.Bound` documents the API that exists today; this file is design work,
+not an implemented compatibility promise.
+
+The principal use cases are SQLite databases and MOO-defined SQL functions,
+Kaitai Struct schemas and decoders, JSON `to_json` callbacks, and WASM modules
+that call MOO or eventually define bound subtypes.
+
+## Native calls into MOO
+
+A provider needs to call a MOO verb and continue native work after it returns.
+This should use a serializable native frame rather than retained C stack
+addresses:
+
+```c
+typedef enum {
+    BOUND_START,
+    BOUND_RETURNED,
+    BOUND_RAISED,
+    BOUND_CANCELLED
+} BoundResumeReason;
+
+typedef package (*bound_call_handler)(
+    BoundValue *receiver,
+    unsigned phase,
+    Var state,
+    BoundResumeReason reason,
+    Var value,
+    Objid progr);
+```
+
+The persistent frame should contain only database-safe values:
+
+```text
+receiver       bound value owning the operation
+operation      stable provider operation name
+phase          provider-defined state-machine position
+state          arbitrary serializable MOO value
+```
+
+Raw statement pointers, WASM stack pointers, and library callback contexts
+must not cross a MOO call, suspension, or checkpoint.
+
+A provider should be able to request a call conceptually like:
+
+```c
+bound_call_moo_verb(lookup, receiver_as_this, verb, args,
+                    next_phase, serializable_state);
+```
+
+Verb lookup and `this` are deliberately separate. Inheritance may begin at a
+database object while secure `this` is an object, WAIF, or bound value. This
+generalizes a facility currently special-cased for WAIFs without allowing MOO
+code to spoof `this`.
+
+The provider must receive the actual outcome: a returned value, the full raised
+exception, or cancellation. The legacy built-in rule that substitutes zero
+while unwinding is insufficient for SQLite, JSON, and WASM providers, which
+need to translate exceptions.
+
+The VM can probably reuse its `BI_CALL` activation and checkpoint machinery by
+registering one internal bound dispatcher. It would serialize the generic
+frame and resolve the provider and operation by stable names on resumption. A
+missing provider must produce a defined extension-unavailable error rather
+than use stale native state.
+
+## Provider persistence envelope
+
+The implemented prototype replaces the initial normal-`Var` ABI while retaining
+its crucial graph property: provider state can reference MOO values, including
+the bound value itself and other bound values. A WAIF-like provider requires
+those identities and relationships to survive a dump and reload.
+
+The encoding has two core-framed channels:
+
+```text
+opaque blob       arbitrary provider bytes
+references        core-serialized list of Var values
+```
+
+The provider interface is an encoder/decoder rather than direct DB access:
+
+```c
+enum error (*encode)(void *payload, BoundEncoder *out);
+enum error (*decode)(unsigned schema, BoundDecoder *in, void **payload);
+
+enum error bound_encoder_write(BoundEncoder *, const void *, size_t);
+unsigned bound_encoder_add_ref(BoundEncoder *, Var value);
+const void *bound_decoder_bytes(BoundDecoder *, size_t *length);
+unsigned bound_decoder_ref_count(BoundDecoder *);
+enum error bound_decoder_ref(BoundDecoder *, unsigned index, Var *out);
+```
+
+The provider writes arbitrary bytes to an isolated core-owned accumulator and
+stores returned reference indexes in its own blob format. It never receives
+the database stream. The core envelope contains subtype, schema, owner, flags,
+blob length and safely encoded blob bytes, followed by a framed reference list.
+
+On load, the core allocates and registers the `BoundValue` wrapper before
+reading its reference sidecars. A reference back to that record therefore
+resolves to the same wrapper. `r` records preserve ordinary aliases, while
+sidecars preserve provider-owned graphs such as properties, callbacks, or
+relationships between distinct bound values. Decoding may store references to
+other wrappers whose providers have not decoded yet; it must not require their
+payloads during initial reconstruction.
+
+The complete envelope is consumed and validated before provider decoding:
+
+- an absent provider retains both the exact blob and referenced Vars opaquely;
+- a decode error also leaves that recoverable opaque representation;
+- invalid framing or core encoding fails database loading;
+- provider bytes cannot be mistaken for the next database record;
+- later registration may retry decoding the retained representation.
+
+The prototype limits blob size and reference count. An aggregate referenced-value
+budget remains future hardening; individual Vars currently use the server normal
+database reader and allocation limits. The envelope protects DB framing and relationships;
+it cannot make memory-unsafe compiled provider code harmless in-process.
+
+Decoder references are owned, strong `Var` references. Consequently this
+prototype reconstructs cyclic identity correctly but does not collect a cycle
+held entirely through provider payloads. A WAIF-like provider needs explicit
+cycle breaking, a carefully defined weak-edge model, or future tracing support.
+
+### Identity preservation versus interning
+
+Identity preservation is semantic and comes first. Every reference to one
+bound wrapper must reload as that wrapper, and a provider graph must retain its
+edges through core-managed references. Content interning is only a memory
+optimization layered on top.
+
+An immutable provider may optionally intern shareable payload storage during a
+temporary load scope. Separately serialized equal wrappers then remain distinct
+wrappers but can point to one retained payload. `bytes` is the initial example;
+mutable streams are ineligible. The opt-in contract needs immutable/shareable,
+retain, destroy, key/hash, and equality hooks. Equality remains authoritative
+so a bad key may miss deduplication but must never merge unequal payloads.
+
+Unavailable representations may similarly share exact core-owned blob storage
+by subtype, schema, blob bytes, and compatible reference identity. Permanent
+runtime interning is separate: it needs weak tables or explicit cache lifetime
+and should not be implied by load-time interning.
+
+## Cooperative versus foreign-stack calls
+
+Cooperative providers stop at a safe boundary, return control to the VM, and
+are later re-entered from serialized state. This fits JSON callbacks,
+yield-capable WASM, encoders, incremental parsers, and SQLite orchestration
+between calls into SQLite.
+
+A foreign library can instead call application code before returning:
+
+```text
+MOO db:query()
+  -> sqlite3_step()
+    -> SQLite C UDF callback
+      -> MOO verb wanted here
+```
+
+Unwinding to the MOO VM destroys the active `sqlite3_step()` and UDF C stacks.
+SQLite does not provide a continuation that resumes that exact call. The bound
+call frame is necessary for many callbacks but is not, by itself, sufficient
+for a SQLite UDF. Restarting the statement after obtaining a result is unsound:
+it may repeat work or side effects, and SQL evaluation is not a replay protocol.
+
+## SQLite design note
+
+Likely bound types include:
+
+```text
+sqlite.database
+sqlite.statement
+sqlite.row, or a normal immutable MOO value
+sqlite.blob, or the generic immutable bytes type
+```
+
+A MOO-facing function API might be:
+
+```moo
+db:define_function("distance", 2, #42, "sql_distance");
+rows = db:query("SELECT distance(x, y) FROM points");
+```
+
+A registration needs the SQL name and arity, verb lookup object, verb name,
+authority policy, and applicable SQLite flags such as deterministic,
+direct-only, or innocuous.
+
+Authority must be explicit. Registration must not accidentally capture
+unlimited authority forever. Plausible modes are the querying programmer, the
+database value's owner, or an owner-authority mode requiring wizard permission.
+
+### Execution choices for MOO SQL functions
+
+An inline nested interpreter could keep the SQLite C stack intact while running
+the MOO verb. The callback could not suspend; exceptions, tick exhaustion, and
+attempted suspension would become SQLite errors, and recursive use of the
+invoking connection would be rejected. This preserves SQLite semantics, but
+the current interpreter uses global execution state and is not safely
+reentrant. Changing that is a substantial VM project.
+
+The VM should express this with a first-class, nestable non-suspendable task
+constraint rather than relying on callback-specific convention. Direct or
+indirect attempts to suspend must raise; they must not make the caller continue
+as though the callback returned zero or another default value. Conflict replay
+is not a suspension: it discards and reconstructs the complete attempt,
+including the transient SQLite invocation.
+
+A more plausible first implementation runs `sqlite3_step()` on a worker. When
+SQLite invokes a UDF, the worker posts a request and blocks with its C stack
+intact. The main server thread runs the MOO verb and returns the result, after
+which the worker continues SQLite.
+
+The first brokered version should specify that:
+
+- MOO SQL callbacks may not suspend;
+- all semantic yield paths enforce that constraint centrally and raise on
+  violation;
+- recursive use of the invoking database connection fails;
+- checkpoints wait for active callbacks to finish;
+- MOO exceptions become `sqlite3_result_error()` results;
+- SQLite errors become structured MOO exceptions;
+- task cancellation interrupts the worker where SQLite permits it.
+
+Allowing suspension would leave a worker, statement, transaction, locks, and
+native stack alive across an arbitrary wait or checkpoint. The first ABI should
+not promise that.
+
+The first checkpoint-safe SQLite surface deliberately does not expose prepared
+statements, row cursors, connections, incremental blobs, or open transactions.
+It exposes atomic query, execute, and batch calls over a logical database image;
+each mutation updates canonical fork-safe bytes before returning to MOO.
+
+The detailed SQLite and WASM designs, including forked-checkpoint constraints,
+foreign callbacks, transient handle caches, and WASM-defined bound subtypes,
+are specified in `DESIGN.ExtensionCases.md`. The worker/broker SQLite model
+must be prototyped before it changes the generic bound contract.
+
+## Kaitai Struct design note
+
+Kaitai motivates complementary bound types:
+
+```text
+kaitai.schema       validated or compiled schema
+kaitai.decoder      mutable incremental parsing state
+kaitai.value        immutable parsed structure
+```
+
+The simple use compiles schemas into an extension and parses immutable bytes:
+
+```moo
+packet = bound_type("kaitai.ethernet"):parse(bytes);
+```
+
+A runtime form might be:
+
+```moo
+schema = kaitai:compile(ksy_source);
+packet = schema:parse(bytes);
+```
+
+Compilation could eventually be supplied by a native compiler service or WASM.
+A persisted schema should record canonical source or artifact, schema hash,
+compiler/runtime version, imports, and permission metadata.
+
+### Seekable immutable byte sources
+
+Kaitai parsers need length, random access, seeking, and substreams. The current
+contiguous immutable output view is useful for `notify()`, but too restrictive
+for segmented, mapped, COW, SQLite-blob, or WASM-backed data.
+
+A separate optional byte-source capability could resemble:
+
+```c
+typedef struct {
+    size_t length;
+    enum error (*read_at)(void *token, size_t offset,
+                          void *destination, size_t length);
+    void (*release)(void *token);
+    void *token;
+} BoundByteSource;
+```
+
+Optional contiguous-view and slice operations can preserve zero-copy fast paths
+without requiring every source to be contiguous.
+
+### Dynamic fields and indexing
+
+Parsed fields come from a runtime schema, while current bound property tables
+are static. A useful fallback hook is:
+
+```c
+enum error (*get_property)(void *payload, const char *name,
+                           Var *result, Objid progr);
+```
+
+Common operator hooks for indexing, ranges, length, and iteration would allow:
+
+```moo
+packet.header.message_type
+packet.entries[1]
+```
+
+These are also capabilities a hypothetical bound implementation of WAIFs would
+have needed.
+
+A bound lightweight-object thought experiment is specified in
+`DESIGN.ExtensionCases.md`. It identifies dynamic properties, secure MOO method
+dispatch, semantic class reflection, class evolution, and cycle collection as
+the decisive core contract tests.
+
+### Network decoding
+
+The complete-buffer path is straightforward:
+
+```moo
+buffer = bound_type("stream"):new();
+buffer:read(connection);
+packet = schema:parse(buffer:seal());
+```
+
+For messages spanning frames, the decoder can itself be an input sink:
+
+```moo
+decoder = schema:decoder();
+while (!decoder.complete)
+    decoder:read(connection);
+endwhile
+packet = decoder:finish();
+```
+
+Generated parsers generally expect requested bytes to exist. Re-running from
+the beginning after each short input is reasonable only for pure, strictly
+quota-limited parsing. A clean `need-more` result requires generated state
+machines or an interpreter whose offset, value stack, and partial result are
+serializable.
+
+Such an interpreter naturally supports cooperative MOO processors. A generated
+parser that invokes a processor within its C stack instead has SQLite's
+foreign-stack problem and must be non-suspending, brokered, or generated as
+resumable.
+
+A lazy `kaitai.value` need only retain its schema, immutable source bytes, root
+offset and length, and an optional field cache. Unevaluated fields can remain
+lazy across reload; cached values may be saved or recomputed.
+
+In-database schemas are executable resource descriptions. Compilation and
+execution need permissions, source/import restrictions, limits on reads,
+seeks, nesting, values and allocation, task charging, constrained processing
+hooks, and deterministic errors for invalid sizes and offsets.
+
+## Stream construction and sealing refinements
+
+The initial provider accepts an optional encoding. Extend it compatibly as:
+
+```moo
+bound_type("stream"):new([encoding [, initial [, capacity]]])
+```
+
+The default is UTF-8. A string initial value is converted from the server's
+character encoding into the selected stream encoding. A bytes or stream value
+contributes raw octets; construction copies them so later source mutation cannot
+affect the new stream. Capacity is a nonnegative allocation hint subject to all
+normal limits. Allocation uses the greater of the hint and required content,
+with overflow checked first.
+
+Sealing is a storage state transition. The first `seal()` makes the backing
+store immutable, and all aliases of the stream see that transition immediately.
+Each call may return a new bytes wrapper sharing the same immutable store. No
+byte copy is required, and bytes wrappers retain content equality and hashing,
+but wrapper identity is deliberately not part of the contract or persistence
+format.
+
+Mutation, clearing, and input on a sealed stream raise `E_INVARG` with a
+descriptive `Stream is sealed` message. Reading and repeated sealing remain
+valid. Persistence preserves the sealed state and byte content; it need not
+preserve an incidental relationship between separately created wrappers.
+
+## Resulting prospective capabilities
+
+The known use cases support adding, roughly in this order:
+
+1. Serializable cooperative native frames with return, raise, and cancellation
+   outcomes and arbitrary secure `this`.
+2. A seekable immutable byte-source capability alongside contiguous output
+   views.
+3. Dynamic property lookup and common operator hooks such as indexing.
+4. Provider-defined mutable input sinks and resumable decoders.
+5. A separately specified foreign-callback policy, prototyped with SQLite
+   rather than hidden inside the generic continuation ABI.
+6. Dynamic or WASM subtype registration only after persistence, authority,
+   quotas, and continuation behavior are defined for static providers.
+
+This keeps the mechanism driven by intended extensions while avoiding the
+assumption that every native callback becomes checkpointable merely by
+unwinding its C stack.

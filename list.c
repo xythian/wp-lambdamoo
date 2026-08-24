@@ -25,6 +25,7 @@
 #include "my-string.h"
 #include "my-math.h"
 
+#include "bound.h"
 #include "exceptions.h"
 #include "functions.h"
 #include "log.h"
@@ -267,6 +268,11 @@ stream_add_tostr(Stream * s, Var v)
 	stream_add_string(s, "{waif}");
 	break;
 #endif
+#ifdef BOUND_CORE
+    case TYPE_BOUND:
+	bound_tostr(v.v.bound, s);
+	break;
+#endif
 
     default:
 	panic("STREAM_ADD_TOSTR: Unknown Var type");
@@ -324,6 +330,11 @@ unparse_scalar(Stream * s, Var v)
     case TYPE_WAIF:
 	stream_printf(s, "[[class = #%"PRIdN", owner = #%"PRIdN"]]",
 		v.v.waif->class, v.v.waif->owner);
+	break;
+#endif
+#ifdef BOUND_CORE
+    case TYPE_BOUND:
+	bound_toliteral(v.v.bound, s);
 	break;
 #endif
 
@@ -1037,6 +1048,11 @@ bf_value_hash(volatile Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Obji
     Stream *volatile s = new_stream(100);
 
     TRY_STREAM {
+#ifdef BOUND_CORE
+        if (arglist.v.list[1].type == TYPE_BOUND)
+            bound_hash(arglist.v.list[1].v.bound, s);
+        else
+#endif
 	unparse_value(s, arglist.v.list[1]);
 	p = make_string_pack(hash_bytes(stream_contents(s), stream_length(s)));
     }
