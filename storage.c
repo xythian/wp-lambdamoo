@@ -58,6 +58,11 @@ refcount_overhead(Memory_Type type)
 	return MAX(sizeof(int), sizeof(void *));
 #endif
 
+#ifdef BOUND_CORE
+    case M_BOUND:
+	return MAX(sizeof(int), sizeof(void *));
+#endif
+
     default:
 	return 0;
     }

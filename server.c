@@ -28,6 +28,7 @@
 
 #include "server.h"
 #include "bf_register.h"
+#include "bound.h"
 
 #include "my-signal.h"
 #include "my-stdarg.h"
@@ -1666,37 +1667,47 @@ bf_connection_name(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid pr
 
 static package
 bf_notify(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
-{				/* (player, string [, no_flush]) */
+{
     Objid conn = arglist.v.list[1].v.obj;
-    const char *line = arglist.v.list[2].v.str;
-    int no_flush = (arglist.v.list[0].v.num > 2
-		    ? is_true(arglist.v.list[3])
-		    : 0);
+    Var message = arglist.v.list[2];
+    int no_flush = arglist.v.list[0].v.num > 2 ? is_true(arglist.v.list[3]) : 0;
     shandle *h = find_shandle(conn);
+    const char *data = NULL;
+    size_t length = 0;
+    void *token = NULL;
+    void (*release)(void *) = NULL;
+    enum error e = E_NONE;
     Var r;
 
-    if (!is_wizard(progr) && progr != conn) {
-	free_var(arglist);
-	return make_error_pack(E_PERM);
+    if (!is_wizard(progr) && progr != conn)
+        e = E_PERM;
+    else if (message.type == TYPE_STR) {
+        data = message.v.str;
+        length = strlen(data);
     }
-    r.type = TYPE_INT;
-    if (h && !h->disconnect_me) {
-	if (h->binary) {
-	    size_t length;
+#ifdef BOUND_CORE
+    else if (message.type == TYPE_BOUND)
+        e = bound_output_view(message.v.bound, &data, &length, &token, &release);
+#endif
+    else
+        e = E_TYPE;
+    if (e != E_NONE) {
+        free_var(arglist);
+        return make_error_pack(e);
+    }
 
-	    line = moobinary_to_raw_bytes(line, &length);
-	    if (!line) {
-		free_var(arglist);
-		return make_error_pack(E_INVARG);
-	    }
-	    r.v.num = network_send_bytes(h->nhandle, line, length, !no_flush);
-	} else
-	    r.v.num = network_send_line(h->nhandle, line, !no_flush);
-    } else {
-	if (in_emergency_mode)
-	    emergency_notify(conn, line);
-	r.v.num = 1;
+    r.type = TYPE_INT;
+    if (h && !h->disconnect_me)
+        r.v.num = h->binary
+            ? network_send_bytes(h->nhandle, data, length, !no_flush)
+            : network_send_bytes_line(h->nhandle, data, length, !no_flush);
+    else {
+        if (in_emergency_mode && !memchr(data, '\0', length))
+            emergency_notify(conn, data);
+        r.v.num = 1;
     }
+    if (release)
+        release(token);
     free_var(arglist);
     return make_var_pack(r);
 }
@@ -1896,7 +1907,7 @@ register_server(void)
 		      TYPE_OBJ);
     register_function("idle_seconds", 1, 1, bf_idle_seconds, TYPE_OBJ);
     register_function("connection_name", 1, 1, bf_connection_name, TYPE_OBJ);
-    register_function("notify", 2, 3, bf_notify, TYPE_OBJ, TYPE_STR, TYPE_ANY);
+    register_function("notify", 2, 3, bf_notify, TYPE_OBJ, TYPE_ANY, TYPE_ANY);
     register_function("boot_player", 1, 1, bf_boot_player, TYPE_OBJ);
     register_function("set_connection_option", 3, 3, bf_set_connection_option,
 		      TYPE_OBJ, TYPE_STR, TYPE_ANY);

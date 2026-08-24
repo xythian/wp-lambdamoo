@@ -226,6 +226,15 @@ stream_contents(Stream * s)
     return s->buffer;
 }
 
+char *
+stream_detach(Stream *s, size_t *length)
+{
+    char *buffer = stream_contents(s);
+    *length = s->current;
+    myfree(s, M_STREAM);
+    return buffer;
+}
+
 size_t
 stream_length(Stream * s)
 {

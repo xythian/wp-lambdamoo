@@ -266,5 +266,5 @@ server_version_full(Var arg)
 int
 check_db_version(DB_Version version)
 {
-    return version < Num_DB_Versions;
+    return version >= DBV_Prehistory && version <= current_db_version;
 }

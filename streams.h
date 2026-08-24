@@ -36,6 +36,7 @@ extern Stream *new_stream(size_t size);
 extern void free_stream(Stream *);
 
 extern char *stream_contents(Stream *);
+extern char *stream_detach(Stream *, size_t *);
 extern size_t stream_length(Stream *);
 extern int32_t stream_last_byte(Stream *s);
 

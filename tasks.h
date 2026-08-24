@@ -27,6 +27,11 @@ typedef struct {
     void *ptr;
 } task_queue;
 
+typedef struct {
+    Objid connection;
+    Var sink;
+} input_sink_request;
+
 extern task_queue new_task_queue(Objid player, Objid handler);
 extern void free_task_queue(task_queue q);
 
@@ -43,6 +48,7 @@ extern enum error enqueue_forked_task2(activation a, int f_index,
 extern enum error enqueue_suspended_task(vm the_vm, void *data);
 				/* data == &(int after_seconds) */
 extern enum error make_reading_task(vm the_vm, void *data);
+extern enum error make_reading_task_into(vm the_vm, void *data);
 				/* data == &(Objid connection) */
 extern void resume_task(vm the_vm, Var value);
 				/* Make THE_VM (a suspended task) runnable on

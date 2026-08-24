@@ -58,7 +58,7 @@ OPT_NET_SRCS = net_single.c net_multi.c \
 
 YSRCS = parser.y
 
-COMMON_HDRS = ast.h code_gen.h config_epilog.h \
+COMMON_HDRS = ast.h bound.h code_gen.h config_epilog.h \
 	db.h db_io.h db_private.h decompile.h db_tune.h \
 	disassemble.h eval_env.h eval_vm.h exceptions.h \
 	execute.h experiments.h functions.h \

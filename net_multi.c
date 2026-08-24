@@ -565,6 +565,13 @@ network_send_bytes(network_handle nh, const char *buffer, size_t buflen,
 }
 
 int
+network_send_bytes_line(network_handle nh, const char *buffer, size_t buflen,
+                        int flush_ok)
+{
+    return enqueue_output(nh, buffer, buflen, 1, flush_ok);
+}
+
+int
 network_buffered_output_length(network_handle nh)
 {
     nhandle *h = nh.ptr;

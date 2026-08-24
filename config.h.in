@@ -308,6 +308,10 @@
  */
 #undef WAIF_CORE
 
+/* Extensible bound values. */
+#undef BOUND_CORE
+#undef BOUND_STREAM
+
 /*----------------*
  |  Unit testing  |
  *----------------*/

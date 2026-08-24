@@ -17,6 +17,7 @@
 
 #include "tasks.h"
 #include "bf_register.h"
+#include "bound.h"
 
 #include "config.h"
 #include "options.h"
@@ -161,6 +162,7 @@ typedef struct tqueue {
     char reading;		/* some task is blocked on read() */
     char icmds;			/* which of .program/PREFIX/... are enabled */
     vm reading_vm;
+    Var reading_sink;
 } tqueue;
 
 typedef struct ext_queue {
@@ -358,6 +360,7 @@ find_tqueue(Objid player, int create_if_not_found)
     tq->program_stream = 0;
 
     tq->reading = 0;
+    tq->reading_sink.type = TYPE_NONE;
     tq->hold_input = 0;
     tq->disable_oob = 0;
     tq->icmds = ICMD_ALL_CMDS;
@@ -382,6 +385,8 @@ free_tqueue(tqueue * tq)
 	free_stream(tq->program_stream);
     if (tq->reading)
 	free_vm(tq->reading_vm, 1);
+    if (tq->reading_sink.type != TYPE_NONE)
+        free_var(tq->reading_sink);
 
     *(tq->prev) = tq->next;
     if (tq->next)
@@ -1178,10 +1183,34 @@ make_reading_task(vm the_vm, void *data)
     else {
 	tq->reading = 1;
 	tq->reading_vm = the_vm;
+        tq->reading_sink.type = TYPE_NONE;
 	if (tq->first_input)	/* Anything to read? */
 	    ensure_usage(tq);
 	return E_NONE;
     }
+}
+
+enum error
+make_reading_task_into(vm the_vm, void *data)
+{
+    input_sink_request *request = data;
+    tqueue *tq = find_tqueue(request->connection, 0);
+    enum error e;
+
+    if (!tq || tq->reading || is_out_of_input(tq))
+        e = E_INVARG;
+    else {
+        tq->reading = 1;
+        tq->reading_vm = the_vm;
+        tq->reading_sink = request->sink;
+        request->sink.type = TYPE_NONE;
+        if (tq->first_input)
+            ensure_usage(tq);
+        e = E_NONE;
+    }
+    free_var(request->sink);
+    myfree(request, M_BOUND_XTRA);
+    return e;
 }
 
 TaskID
@@ -1242,6 +1271,10 @@ run_ready_tasks(void)
 
 		tq->reading = 0;
 		current_task_id = tq->reading_vm->task_id;
+                if (tq->reading_sink.type != TYPE_NONE) {
+                    free_var(tq->reading_sink);
+                    tq->reading_sink.type = TYPE_NONE;
+                }
 		v.type = TYPE_ERR;
 		v.v.err = E_INVARG;
 		resume_from_previous_vm(tq->reading_vm, v);
@@ -1271,8 +1304,23 @@ run_ready_tasks(void)
 
 			tq->reading = 0;
 			current_task_id = tq->reading_vm->task_id;
-			v.type = TYPE_STR;
-			v.v.str = t->t.input.string;
+#ifdef BOUND_CORE
+                        if (tq->reading_sink.type == TYPE_BOUND) {
+                            size_t written = 0;
+                            enum error e = bound_input_sink(tq->reading_sink.v.bound,
+                                t->t.input.string, t->t.input.length,
+                                t->kind == TASK_BINARY, &written);
+                            free_var(tq->reading_sink);
+                            tq->reading_sink.type = TYPE_NONE;
+                            free_str(t->t.input.string);
+                            if (e == E_NONE) { v.type = TYPE_INT; v.v.num = written; }
+                            else { v.type = TYPE_ERR; v.v.err = e; }
+                        } else
+#endif
+                        {
+                            v.type = TYPE_STR;
+                            v.v.str = t->t.input.string;
+                        }
 			resume_from_previous_vm(tq->reading_vm, v);
 			did_one = 1;
 		    } else {
@@ -2039,6 +2087,10 @@ kill_task(TaskID id, Objid owner)
 		return E_PERM;
 	    free_vm(tq->reading_vm, 1);
 	    tq->reading = 0;
+            if (tq->reading_sink.type != TYPE_NONE) {
+                free_var(tq->reading_sink);
+                tq->reading_sink.type = TYPE_NONE;
+            }
 	    return E_NONE;
 	}
     }
@@ -2050,6 +2102,10 @@ kill_task(TaskID id, Objid owner)
 		return E_PERM;
 	    free_vm(tq->reading_vm, 1);
 	    tq->reading = 0;
+            if (tq->reading_sink.type != TYPE_NONE) {
+                free_var(tq->reading_sink);
+                tq->reading_sink.type = TYPE_NONE;
+            }
 	    return E_NONE;
 	}
 	for (tt = &(tq->first_bg); *tt; tt = &((*tt)->next)) {

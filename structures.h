@@ -316,11 +316,13 @@ typedef enum {
     TYPE_FINALLY,		/* on-stack marker for a TRY-FINALLY clause */
     _TYPE_FLOAT,		/* floating-point number; user-visible */
     _TYPE_WAIF,			/* lightweight object; user-visible */
+    _TYPE_BOUND,		/* extension-defined bound value; user-visible */
     /* add new elements here */
 
     TYPE_STR   = (_TYPE_STR   | TYPE_COMPLEX_FLAG),
     TYPE_LIST  = (_TYPE_LIST  | TYPE_COMPLEX_FLAG),
     TYPE_WAIF  = (_TYPE_WAIF  | TYPE_COMPLEX_FLAG),
+    TYPE_BOUND = (_TYPE_BOUND | TYPE_COMPLEX_FLAG),
     TYPE_FLOAT = (_TYPE_FLOAT
 #if FLOATS_ARE_BOXED
 		  | TYPE_COMPLEX_FLAG
@@ -376,6 +378,7 @@ typedef struct Var Var;
 
 /* insert forward declarations for extensions here */
 typedef struct Waif Waif;
+typedef struct BoundValue BoundValue;
 
 struct Var {
     union {
@@ -386,6 +389,7 @@ struct Var {
 	Var *list;		/* LIST */
 	FlBox fnum;		/* FLOAT */
 	Waif *waif;		/* WAIF */
+	BoundValue *bound;	/* BOUND */
     } v;
     var_type type;
 };

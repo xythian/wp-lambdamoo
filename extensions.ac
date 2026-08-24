@@ -154,6 +154,25 @@ END
   %option_set all = dict
   %option_set yes = dict
 
+##=================
+%%extension bound
+##=================
+  XT_CSRCS = bound.c ext-bound-stream.c
+  %disabled
+  %? Bound extension values:
+
+  --enable- bound = KWD,..
+    %? add extensible bound values
+
+  %option core BOUND_CORE
+    %? core registry, dispatch and persistence
+  %option stream BOUND_STREAM
+    %? immutable bytes and mutable streams
+    %implies core
+
+  %option_set all = stream
+  %option_set yes = stream
+
 
 ### Next line is boilerplate; do not edit.
 ],,,,,,,,[ end of extension declarations ],,,,,,,,
