@@ -30,6 +30,7 @@
 #include "my-string.h"
 #include <errno.h>
 
+#include "bound.h"
 #include "exceptions.h"
 #include "list.h"
 #include "log.h"
@@ -320,6 +321,12 @@ dbio_read_var_value(intmax_t vtype, Var *vp)
 #ifdef WAIF_CORE
     case _TYPE_WAIF:
 	if (!dbio_read_waif(vp))
+	    goto bad_value;
+	break;
+#endif
+#ifdef BOUND_CORE
+    case _TYPE_BOUND:
+	if (!dbio_read_bound(vp))
 	    goto bad_value;
 	break;
 #endif
@@ -749,6 +756,11 @@ write_scalar(Var v)
 #ifdef WAIF_CORE
     case TYPE_WAIF:
 	dbio_write_waif(v);
+	break;
+#endif
+#ifdef BOUND_CORE
+    case TYPE_BOUND:
+	dbio_write_bound(v);
 	break;
 #endif
 

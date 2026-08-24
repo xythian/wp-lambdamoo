@@ -57,10 +57,15 @@ typedef enum {
 				 * change exists solely to turn off special
 				 * bug handling in read_bi_func_data().
 				 */
+    DBV_Bound,                 /* Bound values with blob/reference envelopes. */
     Num_DB_Versions		/* Special: the current version is this - 1. */
 } DB_Version;
 
-#define current_db_version	((DB_Version) (Num_DB_Versions - 1))
+#ifdef BOUND_CORE
+#define current_db_version DBV_Bound
+#else
+#define current_db_version DBV_BFBugFixed
+#endif
 
 extern int check_db_version(DB_Version);
 				/* Returns true iff given version is within the

@@ -1,0 +1,330 @@
+# Bound values
+
+The bound-value extension provides one server value type, `TYPE_BOUND`, whose
+named subtypes are supplied by compiled-in providers.  It is intended for
+values that need native representation or integration without assigning a new
+MOO type number to every extension.
+
+The design is split into two layers. `BOUND_CORE` supplies the registry,
+dispatch, ownership, reflection, and persistence machinery. `BOUND_STREAM` is
+a useful provider that adds immutable `bytes` and a mutable, sealable `stream`.
+A future dynamically loaded or WASM-backed provider can target the same general
+model; dynamic registration is not part of this implementation yet.
+
+## Source layout
+
+`bound.c` and `bound.h` implement only the core extension mechanism. They do
+not implement the sample MOO-visible subtypes.
+
+`ext-bound-stream.c` is a provider extension built on that mechanism. It owns
+the `bytes` and `stream` implementations and registers their `BoundTypeDef`
+records. They intentionally share one provider file because `stream:seal()`
+transfers its private byte store to `bytes` without copying. Future providers
+such as SQLite, WASM, or Kaitai should live in their own extension sources and
+depend only on the public interface in `bound.h`.
+
+## Building
+
+Bound support is disabled by default.  Configure it with one of:
+
+```
+./configure --enable-bound=core
+./configure --enable-bound=stream
+./configure --enable-bound=yes
+```
+
+`stream` implies `core`; `yes` and `all` currently select the stream provider.
+A build with `--disable-bound` retains the pre-bound database version and
+rejects databases using the bound-value format.
+
+## MOO interface
+
+There is intentionally no global `BOUND` constant.  Bound subtypes are found
+by name:
+
+```
+bound_types()             => list of registered type handles
+bound_type("stream")      => the stream type handle
+bound_type("missing")     => E_INVARG
+```
+
+A type handle has these properties and verbs:
+
+```
+handle.name               canonical subtype name
+handle.available          true when its provider is loaded
+handle.owner              #0
+handle.class              another handle for the same subtype
+handle:new(@args)         construct an instance
+handle:verbs()            instance verb names
+handle:properties()       provider-defined instance property names
+```
+
+Every instance has read-only `owner` and `class` properties.  Constructors set
+the owner to the calling programmer.  Provider verbs and properties marked
+`BOUND_OP_PUBLIC` are callable by anyone; otherwise only the owner or a wizard
+may use them.  A writable property additionally needs `BOUND_OP_WRITE`.
+
+Bound values work with ordinary property and verb syntax, assignment,
+reference counting, `tostr()`, `toliteral()`, `value_bytes()`, equality, and
+`value_hash()`.  Providers may choose content equality and hashing or leave
+instances identity-only.
+
+## Provider interface
+
+Providers declare a static `BoundTypeDef` from `bound.h` and register it during
+server initialization:
+
+```c
+static const BoundTypeDef example_type = {
+    "example",              /* canonical name */
+    1,                      /* persistence schema */
+    class_verbs,
+    instance_verbs,
+    properties,
+    construct,
+    destroy,
+    encode,
+    decode,
+    bytes,
+    equal,
+    hash,
+    output,
+    input
+};
+
+void
+register_example(void)
+{
+    if (!register_bound_type(&example_type))
+        panic("duplicate example bound type");
+}
+```
+
+`register_bound_type()` requires a nonempty name plus `encode` and `decode`
+hooks, and rejects duplicate names.  Names are matched case-insensitively and
+the registry retains the provider definition for the life of the server.
+
+The main hooks are:
+
+- `construct(arglist, progr)` constructs a MOO-visible instance.  The handler
+  owns `arglist` and returns a normal built-in `package`.
+- `destroy(payload)` releases provider state when the final reference dies.
+- `encode(payload, encoder)` appends opaque bytes with
+  `bound_encoder_write()` and records MOO graph edges with
+  `bound_encoder_add_ref()`. The returned reference index can be stored in the
+  provider blob format.
+- `decode(schema, decoder, payload)` restores provider state from
+  `bound_decoder_bytes()` and `bound_decoder_ref()`. The provider uses the
+  saved schema number to migrate or reject older representations.
+- `bytes(payload)` reports provider-owned memory for `value_bytes()`.
+- `equal(lhs, rhs, case_matters)` and `hash(payload, stream)` provide matching
+  content semantics.  If `equal` is absent, distinct instances are unequal.
+- `output(...)` returns an immutable byte view plus a retention token and
+  release callback.  Consumers may safely retain the view independently of
+  the bound value.
+- `input(...)` appends one framed connection input item to a mutable sink and
+  reports the number of raw bytes accepted.  Its `binary` argument says
+  whether `data` is a MOO binary-encoded input item.
+
+The persistence ABI has two core-framed channels: an arbitrary provider byte
+blob and an indexed list of core-serialized `Var` references. Providers never
+receive the database stream. The decoder byte view is borrowed and valid only
+during `decode`; each successful `bound_decoder_ref()` returns an owned `Var`
+which the provider must eventually release with `free_var()`.
+
+The loader consumes and validates the complete envelope before calling provider
+code. It registers a new bound wrapper before reading reference sidecars, so a
+sidecar can resolve to that same wrapper and ordinary database `r` records
+continue to preserve aliases. Missing providers and decoder failures retain the
+blob and referenced Vars opaquely for a later registration attempt.
+
+For example, a graph-bearing provider can encode a callback edge as follows:
+
+```c
+unsigned callback_index = bound_encoder_add_ref(out, payload->callback);
+if (callback_index == UINT_MAX)
+    return E_QUOTA;
+return bound_encoder_write(out, &callback_index, sizeof callback_index);
+```
+
+Its decoder reads and validates the stored index, then calls
+`bound_decoder_ref(in, callback_index, &payload->callback)`. A real provider
+should define a portable byte order and schema for its blob rather than use the
+host-order integer shown in this abbreviated example.
+
+The prototype caps each opaque blob at 64 MiB and each sidecar at 1,048,576
+references. Invalid core framing fails database loading; provider-level decode
+errors preserve the opaque value. Database format `DBV_Bound` introduces the
+bound record; the earlier single-`Var` experiment was never assigned a shipped
+database revision.
+
+Sidecar references are strong `Var` references. This preserves reachability, but
+the server remains reference-counted: a provider payload that retains itself or
+a mutually cyclic bound graph will not be reclaimed automatically. A fully
+WAIF-like general graph needs a cycle strategy (provider-managed weak edges,
+explicit breaking, or future core tracing); persistence identity alone does not
+solve runtime cycle collection.
+
+Load-time interning remains a separate, unimplemented optimization. Distinct
+immutable wrappers may eventually share provider payload storage while true
+aliases and provider reference graphs retain their identities. This makes
+`bytes` eligible for string-like load-time memory deduplication without making
+wrapper identity part of its content contract. Mutable streams are not
+eligible. See `DESIGN.Bound`.
+
+Verb tables contain a name, handler, flags, minimum and maximum argument
+counts, and up to four argument prototypes.  A maximum of `-1` means variadic.
+Property handlers receive a write flag and an in/out `Var`.  Table arrays end
+with an entry whose name is `NULL`.
+
+Use `new_bound_value(type_name, owner, payload)` to wrap provider state and
+`bound_payload()` to recover it in handlers.  `bound_owner()`,
+`bound_type_name()`, and `bound_is_available()` expose common metadata.
+
+### Persistence and unavailable providers
+
+Database records contain the canonical subtype name, schema version, owner,
+class/instance distinction, opaque blob, and referenced values.  Multiple references to the
+same bound instance remain aliases after reload.
+
+If a database contains a subtype whose provider is unavailable, its encoded
+value is retained as an opaque bound value instead of being discarded.  Basic
+identity, rendering, owner, class, and availability reflection remain usable;
+provider operations return `E_INVIND`.  Registering that subtype later asks
+its `decode` hook to bind existing opaque instances.
+
+## Immutable bytes
+
+`bytes` owns an immutable sequence of octets.  Distinct byte values compare by
+content and produce matching `value_hash()` results.
+
+Construction accepts any number of recursively encoded values:
+
+```
+b = bound_type("bytes"):new(0, 1, 255);
+b = bound_type("bytes"):new("~00~01~ff");
+b = bound_type("bytes"):new({0, {1, 255}});
+```
+
+Integers must be in 0..255.  Strings use the server's existing MOO binary
+encoding, and lists are traversed recursively.
+
+The instance API is:
+
+```
+b.length                    raw byte length
+b:binary_string()           MOO binary-encoded string
+b:string([encoding])        decode bytes as text; UTF-8 by default
+```
+
+Text conversion returns `E_INVARG` for an unknown/invalid encoding, malformed
+input, or a result containing NUL, since a MOO string cannot represent NUL.
+
+`notify(connection, b [, no_flush])` accepts a `bytes` value.  On a binary
+connection it queues the exact octets.  On a nonbinary connection it queues
+the same length-delimited octets followed by the protocol EOL.  Other bound
+types are accepted only if they implement the immutable output-view hook.
+
+## Mutable streams
+
+A stream is an owner-controlled mutable byte accumulator with a default text
+encoding:
+
+```
+s = bound_type("stream"):new();          /* UTF-8 */
+s = bound_type("stream"):new("UTF-16LE");
+```
+
+Before this API is considered stable, the constructor is intended to grow
+without changing the meaning of its existing first argument:
+
+```moo
+s = bound_type("stream"):new([encoding [, initial [, capacity]]]);
+```
+
+`initial` may be a string, stream, or bytes value. Strings are encoded using
+`encoding`; stream and bytes values copy their raw octets. `capacity` is a
+nonnegative initial allocation hint, not permission to exceed normal allocation
+and quota limits. This expanded constructor is design work recorded in
+`DESIGN.Bound`; the current implementation accepts only `encoding`.
+
+Its read-only properties are:
+
+```
+s.length                    accumulated byte length
+s.sealed                    true after seal()
+```
+
+Mutation verbs are owner/wizard-only:
+
+```
+s:append_text(value [, encoding])
+s:append_binary(binary_string)
+s:append_bytes(@values)
+s:clear()
+s:read(connection)
+s:seal()
+```
+
+`append_text()` accepts strings, character-code integers, and nested lists.  It
+first builds the complete encoded addition, so an encoding failure does not
+partially change the stream.  The optional encoding overrides the stream's
+default for that append.  It returns the number of encoded bytes appended.
+
+`append_binary()` decodes one MOO binary string.  `append_bytes()` accepts the
+same recursive integer/string/list representation as the `bytes` constructor.
+Both return the raw byte count appended.  `clear()` empties an open stream.
+
+`read(connection)` has the same blocking and framing behavior as the existing
+`read()` operation.  The programmer must be a wizard or own the connection
+object.  One in-band input item is appended directly to the stream; binary
+connection input is decoded to raw octets, while nonbinary input is appended
+as received.  The suspended call resumes with the raw byte count.  The task
+queue retains the sink across the wait and releases it on input, error,
+disconnect, or task cancellation.
+
+Reading without mutation is public:
+
+```
+s:binary_string()
+s:string([encoding])
+```
+
+`string()` decodes using the stream's default encoding unless one is supplied.
+It has the same invalid-encoding and NUL restrictions as `bytes:string()`.
+
+### Sealing
+
+`s:seal()` transfers the stream's storage into an immutable `bytes` backing
+store without copying it, then returns a `bytes` value sharing that store.
+Every alias of the stream immediately observes `s.sealed == 1`.  A sealed
+stream remains readable and persistent but all later mutation, clearing, and
+input operations raise `E_INVARG`. The intended raised error should identify
+that the stream is sealed rather than exposing a bare, unexplained code.
+
+Sealing is idempotent with respect to stream state and byte content, not bound
+wrapper identity. The first call transitions the backing store to immutable
+storage. Each call returns a `bytes` wrapper sharing that same store without a
+copy. The wrappers compare and hash by content, but callers should not rely on
+them being the same bound instance, including across a database reload. Each
+returned byte value keeps the stream's owner.
+
+```moo
+s = bound_type("stream"):new();
+s:append_text("hello");
+b = s:seal();
+return {s.sealed, b.length, b:string()};
+/* => {1, 5, "hello"} */
+```
+
+## Current boundary
+
+This is the static, compile-time provider layer.  It supplies the stable value,
+registry, persistence, dispatch, byte-view, and input-sink surfaces needed by
+future SQLite, encoder, WASM module, or other providers.  It does not yet let
+MOO code or a WASM module register a new subtype at runtime, and providers add
+verbs through their type tables rather than adding new global built-ins.
+
+See `DESIGN.Bound` for prospective native-to-MOO continuations and the SQLite
+and Kaitai Struct design exercises that motivate additional provider hooks.
