@@ -432,11 +432,14 @@ orchestrates synchronous native operations.
 1. Add dynamic property hooks. *(Implemented: get, put, and enumeration.)*
 2. Add the generic byte-source hook and implement it for bytes and sealed
    streams. *(Implemented, including extension-facing bytes constructors.)*
-3. Implement primitive codecs and bounded cursor operations.
+3. Implement primitive codecs and bounded cursor operations. *(Implemented as
+   the persistent `struct.cursor` provider, including bounded child cursors and
+   byte extraction.)*
 4. Implement resolved layouts and lazy immutable values.
 5. Ship path access before VM indexing hooks.
-6. Implement persistence for cursor/layout sessions and shared builder edit
-   sessions, including reload of nested views and suspended parser tasks.
+6. Implement persistence for layout sessions and shared builder edit sessions,
+   including reload of nested views and suspended parser tasks. *(Cursor
+   persistence and source alias preservation are implemented.)*
 7. Implement fixed-layout overlays and immutable `finish()`.
 8. Add logical construction primitives for generated builders.
 9. Prototype an in-db compiler for integers, fixed bytes, nested types, `if`,
