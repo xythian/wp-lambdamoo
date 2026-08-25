@@ -554,6 +554,33 @@ bound_output_view(BoundValue *v, const char **bytes, size_t *length,
 }
 
 enum error
+bound_byte_source(BoundValue *v, BoundByteSource *source)
+{
+    const BoundTypeDef *def = v->entry->def;
+    enum error e;
+
+    source->length = 0;
+    source->read_at = NULL;
+    source->release = NULL;
+    source->token = NULL;
+    if ((v->flags & (BV_CLASS | BV_OPAQUE)) || !def || !def->byte_source)
+        return E_TYPE;
+    e = def->byte_source(v->payload, source);
+    if (e != E_NONE)
+        return e;
+    if (!source->read_at || !source->release) {
+        if (source->release)
+            source->release(source->token);
+        source->length = 0;
+        source->read_at = NULL;
+        source->release = NULL;
+        source->token = NULL;
+        return E_INVARG;
+    }
+    return E_NONE;
+}
+
+enum error
 bound_input_sink(BoundValue *v, const char *data, size_t length, int binary,
                  size_t *written)
 {

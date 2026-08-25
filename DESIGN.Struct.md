@@ -334,10 +334,11 @@ typedef struct {
 
 Optional contiguous views and slices preserve zero-copy paths.
 
-`BoundTypeDef` therefore needs an optional byte-source hook and the core needs a
-checked accessor analogous to `bound_output_view()`. Bytes implements `read_at`, a
-contiguous fast path, and retention. Struct values retain the source token while
-any lazy child can read it.
+`BoundTypeDef` now has the optional `byte_source` hook and the core provides the
+checked `bound_byte_source()` accessor. Bytes implements bounds-checked
+`read_at` and retention; sealed streams expose the same immutable store, while
+open streams reject the capability. Struct values will retain the source token
+while any lazy child can read it.
 
 ## Persistence
 
@@ -425,7 +426,8 @@ orchestrates synchronous native operations.
 ## Implementation sequence
 
 1. Add dynamic property hooks.
-2. Add the generic byte-source hook, implement it for bytes, and add the bytes constructor.
+2. Add the generic byte-source hook and implement it for bytes and sealed
+   streams. *(Implemented; extension-facing bytes constructors remain.)*
 3. Implement primitive codecs and bounded cursor operations.
 4. Implement resolved layouts and lazy immutable values.
 5. Ship path access before VM indexing hooks.

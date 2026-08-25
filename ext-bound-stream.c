@@ -197,6 +197,37 @@ bytes_output(void *payload, const char **data, size_t *length,
     return E_NONE;
 }
 
+static enum error
+byte_store_read_at(void *token, size_t offset, void *destination, size_t length)
+{
+    ByteStore *s = token;
+
+    if (offset > s->length || length > s->length - offset)
+        return E_RANGE;
+    if (length && !destination)
+        return E_INVARG;
+    if (length)
+        memcpy(destination, s->data + offset, length);
+    return E_NONE;
+}
+
+static enum error
+byte_store_source(ByteStore *s, BoundByteSource *source)
+{
+    byte_store_retain(s);
+    source->length = s->length;
+    source->read_at = byte_store_read_at;
+    source->release = byte_store_release;
+    source->token = s;
+    return E_NONE;
+}
+
+static enum error
+bytes_source(void *payload, BoundByteSource *source)
+{
+    return byte_store_source(payload, source);
+}
+
 static package
 bytes_construct(Var args, Objid progr)
 {
@@ -286,6 +317,16 @@ static size_t
 bound_stream_length(BoundStream *s)
 {
     return s->open ? stream_length(s->open) : s->sealed->length;
+}
+
+static enum error
+bound_stream_source(void *payload, BoundByteSource *source)
+{
+    BoundStream *s = payload;
+
+    if (!s->sealed)
+        return E_INVARG;
+    return byte_store_source(s->sealed, source);
 }
 
 static package
@@ -557,6 +598,14 @@ bound_stream_input(void *payload, const char *data, size_t length, int binary,
     return E_NONE;
 }
 
+static void
+free_input_sink_request(void *data)
+{
+    input_sink_request *request = data;
+    free_var(request->sink);
+    myfree(request, M_BOUND_XTRA);
+}
+
 static package
 bound_stream_read(BoundValue *value, Var args, Objid progr)
 {
@@ -573,7 +622,8 @@ bound_stream_read(BoundValue *value, Var args, Objid progr)
     request->sink.v.bound = value;
     addref(value);
     free_var(args);
-    return make_suspend_pack(make_reading_task_into, request);
+    return make_suspend_pack_with_cancel(make_reading_task_into, request,
+                                         free_input_sink_request);
 }
 
 static const BoundVerbDef bytes_verbs[] = {
@@ -604,12 +654,13 @@ static const BoundPropDef stream_props[] = {
 static const BoundTypeDef bytes_type = {
     "bytes", 1, NULL, bytes_verbs, bytes_props, bytes_construct,
     byte_store_release, bytes_encode, bytes_decode, bytes_size, bytes_equal,
-    bytes_hash, bytes_output, NULL
+    bytes_hash, bytes_output, bytes_source, NULL
 };
 static const BoundTypeDef stream_type = {
     "stream", 1, NULL, stream_verbs, stream_props, bound_stream_construct,
     bound_stream_destroy, bound_stream_encode, bound_stream_decode,
-    bound_stream_size, NULL, NULL, NULL, bound_stream_input
+    bound_stream_size, NULL, NULL, NULL, bound_stream_source,
+    bound_stream_input
 };
 
 void
