@@ -21,6 +21,14 @@ typedef struct BoundEncoder BoundEncoder;
 typedef struct BoundDecoder BoundDecoder;
 
 typedef struct {
+    size_t length;
+    enum error (*read_at)(void *token, size_t offset,
+                          void *destination, size_t length);
+    void (*release)(void *token);
+    void *token;
+} BoundByteSource;
+
+typedef struct {
     const char *name;
     bound_verb_handler handler;
     unsigned flags;
@@ -51,6 +59,7 @@ typedef struct BoundTypeDef {
     void (*hash)(void *payload, Stream *out);
     enum error (*output)(void *payload, const char **bytes, size_t *length,
                          void **token, void (**release)(void *));
+    enum error (*byte_source)(void *payload, BoundByteSource *source);
     enum error (*input)(void *payload, const char *data, size_t length,
                         int binary, size_t *written);
 } BoundTypeDef;
@@ -82,6 +91,7 @@ extern package bound_call_verb(BoundValue *, const char *, Var, Objid);
 
 extern enum error bound_output_view(BoundValue *, const char **, size_t *,
                                     void **, void (**)(void *));
+extern enum error bound_byte_source(BoundValue *, BoundByteSource *);
 extern enum error bound_input_sink(BoundValue *, const char *, size_t, int, size_t *);
 
 extern void dbio_write_bound(Var);

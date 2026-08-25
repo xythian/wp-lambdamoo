@@ -64,6 +64,7 @@ static Num root_activ_vector;	/* root_activ_vector == MAIN_VECTOR
 static int ticks_remaining;
 int task_timed_out;
 static int interpreter_is_running = 0;
+static unsigned non_suspending_depth = 0;
 static Timer_ID task_alarm_id;
 
 static const char *handler_verb_name;	/* For in-DB traceback handling */
@@ -207,9 +208,36 @@ error_backtrace_list(const char *msg)
     return backtrace_list;
 }
 
+void
+enter_non_suspending(void)
+{
+    if (non_suspending_depth == (unsigned) -1)
+        panic("non-suspending depth overflow");
+    non_suspending_depth++;
+}
+
+void
+leave_non_suspending(void)
+{
+    if (!non_suspending_depth)
+        panic("non-suspending depth underflow");
+    non_suspending_depth--;
+}
+
+int
+task_can_suspend(void)
+{
+    return non_suspending_depth == 0;
+}
+
 static enum error
 suspend_task(package p)
 {
+    if (!task_can_suspend()) {
+        if (p.u.susp.cancel)
+            p.u.susp.cancel(p.u.susp.data);
+        return E_INVARG;
+    }
     vm the_vm = new_vm(current_task_id, top_activ_stack + 1);
     unsigned i;
     enum error e;

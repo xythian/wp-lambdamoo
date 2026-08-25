@@ -270,7 +270,8 @@ Kaitai parsers need length, random access, seeking, and substreams. The current
 contiguous immutable output view is useful for `notify()`, but too restrictive
 for segmented, mapped, COW, SQLite-blob, or WASM-backed data.
 
-A separate optional byte-source capability could resemble:
+The implemented bound core now provides a separate optional byte-source
+capability:
 
 ```c
 typedef struct {
@@ -282,8 +283,10 @@ typedef struct {
 } BoundByteSource;
 ```
 
-Optional contiguous-view and slice operations can preserve zero-copy fast paths
-without requiring every source to be contiguous.
+The bytes provider implements this directly. A stream exposes it only after
+`seal()`, retaining the same immutable `ByteStore`; an open mutable stream is
+rejected. The existing output-view hook remains the contiguous zero-copy fast
+path. Slice operations remain prospective.
 
 ### Dynamic fields and indexing
 
@@ -384,7 +387,7 @@ The known use cases support adding, roughly in this order:
 1. Serializable cooperative native frames with return, raise, and cancellation
    outcomes and arbitrary secure `this`.
 2. A seekable immutable byte-source capability alongside contiguous output
-   views.
+   views. *(Implemented by the core and bytes/sealed-stream provider.)*
 3. Dynamic property lookup and common operator hooks such as indexing.
 4. Provider-defined mutable input sinks and resumable decoders.
 5. A separately specified foreign-callback policy, prototyped with SQLite

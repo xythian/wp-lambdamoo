@@ -120,9 +120,12 @@ The main hooks are:
 - `bytes(payload)` reports provider-owned memory for `value_bytes()`.
 - `equal(lhs, rhs, case_matters)` and `hash(payload, stream)` provide matching
   content semantics.  If `equal` is absent, distinct instances are unequal.
-- `output(...)` returns an immutable byte view plus a retention token and
-  release callback.  Consumers may safely retain the view independently of
-  the bound value.
+- `output(...)` returns an immutable contiguous byte view plus a retention
+  token and release callback. Consumers may safely retain the view independently
+  of the bound value.
+- `byte_source(...)` returns a retained immutable source with a length,
+  bounds-checked random-access `read_at` callback, token, and release callback.
+  It supports segmented or mapped providers without requiring contiguity.
 - `input(...)` appends one framed connection input item to a mutable sink and
   reports the number of raw bytes accepted.  Its `binary` argument says
   whether `data` is a MOO binary-encoded input item.
@@ -321,10 +324,16 @@ return {s.sealed, b.length, b:string()};
 ## Current boundary
 
 This is the static, compile-time provider layer.  It supplies the stable value,
-registry, persistence, dispatch, byte-view, and input-sink surfaces needed by
+registry, persistence, dispatch, contiguous byte-view, retained seekable
+byte-source, and input-sink surfaces needed by
 future SQLite, encoder, WASM module, or other providers.  It does not yet let
 MOO code or a WASM module register a new subtype at runtime, and providers add
 verbs through their type tables rather than adding new global built-ins.
+
+The VM also has a nestable non-suspending execution guard. Suspension packages
+may provide cancellation cleanup, so rejecting a semantic yield does not leak a
+provider request. The guard currently raises `E_INVARG`; the provider-to-MOO
+callback frame which will enter and leave that guard remains prospective.
 
 See `DESIGN.Bound` for prospective native-to-MOO continuations and the SQLite
 and Kaitai Struct design exercises that motivate additional provider hooks.

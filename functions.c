@@ -385,15 +385,23 @@ tail_call_pack(void)
 }
 
 package
-make_suspend_pack(enum error(*proc) (vm, void *), void *data)
+make_suspend_pack_with_cancel(enum error(*proc) (vm, void *), void *data,
+                              void (*cancel) (void *))
 {
     package p;
 
     p.kind = BI_SUSPEND;
     p.u.susp.proc = proc;
+    p.u.susp.cancel = cancel;
     p.u.susp.data = data;
 
     return p;
+}
+
+package
+make_suspend_pack(enum error(*proc) (vm, void *), void *data)
+{
+    return make_suspend_pack_with_cancel(proc, data, NULL);
 }
 
 static Var
