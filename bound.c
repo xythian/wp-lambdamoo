@@ -473,11 +473,14 @@ bound_get_prop(BoundValue *v, const char *name, Var *out, Objid progr)
     if (!bound_is_available(v))
         return E_INVIND;
     prop = find_prop(v->entry->def->properties, name);
-    if (!prop)
-        return E_PROPNF;
-    if (!(prop->flags & BOUND_OP_PUBLIC) && !controls(v, progr))
-        return E_PERM;
-    return prop->handler(v, out, progr, 0);
+    if (prop) {
+        if (!(prop->flags & BOUND_OP_PUBLIC) && !controls(v, progr))
+            return E_PERM;
+        return prop->handler(v, out, progr, 0);
+    }
+    if (!(v->flags & BV_CLASS) && v->entry->def->get_property)
+        return v->entry->def->get_property(v->payload, name, out, progr);
+    return E_PROPNF;
 }
 
 enum error
@@ -490,13 +493,18 @@ bound_put_prop(BoundValue *v, const char *name, Var value, Objid progr)
     if (!bound_is_available(v))
         return E_INVIND;
     prop = find_prop(v->entry->def->properties, name);
-    if (!prop)
+    if (prop) {
+        if (!(prop->flags & BOUND_OP_WRITE))
+            return E_PERM;
+        if (!(prop->flags & BOUND_OP_PUBLIC) && !controls(v, progr))
+            return E_PERM;
+        return prop->handler(v, &value, progr, 1);
+    }
+    if (!v->entry->def->put_property)
         return E_PROPNF;
-    if (!(prop->flags & BOUND_OP_WRITE))
+    if (!controls(v, progr))
         return E_PERM;
-    if (!(prop->flags & BOUND_OP_PUBLIC) && !controls(v, progr))
-        return E_PERM;
-    return prop->handler(v, &value, progr, 1);
+    return v->entry->def->put_property(v->payload, name, value, progr);
 }
 
 package
@@ -521,9 +529,33 @@ bound_call_verb(BoundValue *v, const char *name, Var args, Objid progr)
         free_var(args);
         return make_var_pack(names_for_verbs(def->verbs));
     }
-    if ((v->flags & BV_CLASS) && !mystrcasecmp(name, "properties")) {
+    if (!mystrcasecmp(name, "properties")) {
+        Var names = names_for_props(def->properties);
         free_var(args);
-        return make_var_pack(names_for_props(def->properties));
+        if (!(v->flags & BV_CLASS) && def->property_names) {
+            Var dynamic;
+            enum error e = def->property_names(v->payload, &dynamic, progr);
+            int i;
+            if (e != E_NONE) {
+                free_var(names);
+                return make_error_pack(e);
+            }
+            if (dynamic.type != TYPE_LIST) {
+                free_var(names);
+                free_var(dynamic);
+                return make_error_pack(E_TYPE);
+            }
+            for (i = 1; i <= dynamic.v.list[0].v.num; i++) {
+                if (dynamic.v.list[i].type != TYPE_STR) {
+                    free_var(names);
+                    free_var(dynamic);
+                    return make_error_pack(E_TYPE);
+                }
+                names = setadd(names, var_ref(dynamic.v.list[i]));
+            }
+            free_var(dynamic);
+        }
+        return make_var_pack(names);
     }
     verb = find_verb(v->flags & BV_CLASS ? def->class_verbs : def->verbs, name);
     if (!verb) {

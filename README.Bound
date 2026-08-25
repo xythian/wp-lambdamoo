@@ -77,20 +77,24 @@ server initialization:
 
 ```c
 static const BoundTypeDef example_type = {
-    "example",              /* canonical name */
-    1,                      /* persistence schema */
-    class_verbs,
-    instance_verbs,
-    properties,
-    construct,
-    destroy,
-    encode,
-    decode,
-    bytes,
-    equal,
-    hash,
-    output,
-    input
+    .name = "example",
+    .schema_version = 1,
+    .class_verbs = class_verbs,
+    .verbs = instance_verbs,
+    .properties = properties,
+    .construct = construct,
+    .destroy = destroy,
+    .encode = encode,
+    .decode = decode,
+    .bytes = bytes,
+    .equal = equal,
+    .hash = hash,
+    .output = output,
+    .byte_source = byte_source,
+    .input = input,
+    .get_property = get_property,
+    .put_property = put_property,
+    .property_names = property_names
 };
 
 void
@@ -129,6 +133,11 @@ The main hooks are:
 - `input(...)` appends one framed connection input item to a mutable sink and
   reports the number of raw bytes accepted.  Its `binary` argument says
   whether `data` is a MOO binary-encoded input item.
+- `get_property`, `put_property`, and `property_names` provide fallback
+  access for runtime-defined fields. Static properties take precedence. The
+  core enforces owner/wizard control for dynamic writes; providers enforce any
+  additional read policy. `value:properties()` merges, validates, and
+  deduplicates static and dynamic names.
 
 The persistence ABI has two core-framed channels: an arbitrary provider byte
 blob and an indexed list of core-serialized `Var` references. Providers never
@@ -228,6 +237,19 @@ input, or a result containing NUL, since a MOO string cannot represent NUL.
 connection it queues the exact octets.  On a nonbinary connection it queues
 the same length-delimited octets followed by the protocol EOL.  Other bound
 types are accepted only if they implement the immutable output-view hook.
+
+## Extension-facing bytes constructors
+
+`ext-bound-stream.h` exports `make_bound_bytes_copy()` and
+`make_bound_bytes_take()`. The copy form accepts borrowed data and creates
+stream-allocator-owned storage. The take form assumes ownership on a valid call;
+when a release callback is supplied it is invoked with the supplied token after
+the last byte view, byte source, or bound value releases the store. With no
+callback, `data` must be storage releasable as `M_STREAM`. Both return a bytes
+value or an error Var.
+
+Providers should use designated `BoundTypeDef` initializers so later optional
+hooks do not silently shift the ABI.
 
 ## Mutable streams
 
