@@ -1,4 +1,4 @@
-#include "bound.h"
+#include "ext-bound-stream.h"
 
 #include "config.h"
 #include "options.h"
@@ -18,6 +18,8 @@ typedef struct ByteStore {
     unsigned refs;
     char *data;
     size_t length;
+    void (*release)(void *);
+    void *release_token;
 } ByteStore;
 
 typedef struct BoundStream {
@@ -33,6 +35,8 @@ byte_store_new(char *data, size_t length)
     s->refs = 1;
     s->data = data;
     s->length = length;
+    s->release = NULL;
+    s->release_token = NULL;
     return s;
 }
 
@@ -47,9 +51,59 @@ byte_store_release(void *p)
 {
     ByteStore *s = p;
     if (--s->refs == 0) {
-        myfree(s->data, M_STREAM);
+        if (s->release)
+            s->release(s->release_token);
+        else
+            myfree(s->data, M_STREAM);
         myfree(s, M_BOUND_XTRA);
     }
+}
+
+Var
+make_bound_bytes_take(Objid owner, char *data, size_t length,
+                      void (*release)(void *), void *token)
+{
+    ByteStore *store;
+    Var result;
+
+    if (length && !data) {
+        result.type = TYPE_ERR;
+        result.v.err = E_INVARG;
+        return result;
+    }
+    store = byte_store_new(data, length);
+    store->release = release;
+    store->release_token = token;
+    result = new_bound_value("bytes", owner, store);
+    if (result.type != TYPE_BOUND) {
+        byte_store_release(store);
+        result.type = TYPE_ERR;
+        result.v.err = E_INVARG;
+    }
+    return result;
+}
+
+Var
+make_bound_bytes_copy(Objid owner, const void *data, size_t length)
+{
+    char *copy;
+    Var result;
+
+    if (length && !data) {
+        result.type = TYPE_ERR;
+        result.v.err = E_INVARG;
+        return result;
+    }
+    if (length == (size_t) -1) {
+        result.type = TYPE_ERR;
+        result.v.err = E_QUOTA;
+        return result;
+    }
+    copy = mymalloc(length + 1, M_STREAM);
+    if (length)
+        memcpy(copy, data, length);
+    copy[length] = 0;
+    return make_bound_bytes_take(owner, copy, length, NULL, NULL);
 }
 
 static const char *
@@ -652,15 +706,32 @@ static const BoundPropDef stream_props[] = {
     {NULL}
 };
 static const BoundTypeDef bytes_type = {
-    "bytes", 1, NULL, bytes_verbs, bytes_props, bytes_construct,
-    byte_store_release, bytes_encode, bytes_decode, bytes_size, bytes_equal,
-    bytes_hash, bytes_output, bytes_source, NULL
+    .name = "bytes",
+    .schema_version = 1,
+    .verbs = bytes_verbs,
+    .properties = bytes_props,
+    .construct = bytes_construct,
+    .destroy = byte_store_release,
+    .encode = bytes_encode,
+    .decode = bytes_decode,
+    .bytes = bytes_size,
+    .equal = bytes_equal,
+    .hash = bytes_hash,
+    .output = bytes_output,
+    .byte_source = bytes_source
 };
 static const BoundTypeDef stream_type = {
-    "stream", 1, NULL, stream_verbs, stream_props, bound_stream_construct,
-    bound_stream_destroy, bound_stream_encode, bound_stream_decode,
-    bound_stream_size, NULL, NULL, NULL, bound_stream_source,
-    bound_stream_input
+    .name = "stream",
+    .schema_version = 1,
+    .verbs = stream_verbs,
+    .properties = stream_props,
+    .construct = bound_stream_construct,
+    .destroy = bound_stream_destroy,
+    .encode = bound_stream_encode,
+    .decode = bound_stream_decode,
+    .bytes = bound_stream_size,
+    .byte_source = bound_stream_source,
+    .input = bound_stream_input
 };
 
 void

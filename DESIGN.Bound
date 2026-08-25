@@ -290,13 +290,12 @@ path. Slice operations remain prospective.
 
 ### Dynamic fields and indexing
 
-Parsed fields come from a runtime schema, while current bound property tables
-are static. A useful fallback hook is:
-
-```c
-enum error (*get_property)(void *payload, const char *name,
-                           Var *result, Objid progr);
-```
+Parsed fields come from a runtime schema, while the original bound property
+tables are static. The core now implements fallback `get_property`,
+`put_property`, and `property_names` hooks. Static definitions take precedence;
+the core enforces owner/wizard control for dynamic writes, and providers may
+apply stricter read policy. `value:properties()` merges validated dynamic names
+with the static table.
 
 Common operator hooks for indexing, ranges, length, and iteration would allow:
 
@@ -389,6 +388,7 @@ The known use cases support adding, roughly in this order:
 2. A seekable immutable byte-source capability alongside contiguous output
    views. *(Implemented by the core and bytes/sealed-stream provider.)*
 3. Dynamic property lookup and common operator hooks such as indexing.
+   *(Property get, put, and enumeration are implemented; indexing remains.)*
 4. Provider-defined mutable input sinks and resumable decoders.
 5. A separately specified foreign-callback policy, prototyped with SQLite
    rather than hidden inside the generic continuation ABI.
