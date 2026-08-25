@@ -246,10 +246,13 @@ restarts that segment against a newer snapshot.
 
 Native-to-MOO callbacks sometimes require a real result while a foreign C stack
 remains active. The VM should have a first-class, nestable non-suspendable task
-constraint, provisionally `TASK_NO_SUSPEND`. Every path which can semantically
+constraint, provisionally `TASK_NO_SUSPEND`. The prototype now implements a
+nestable execution guard and checks it in the central suspension path. Every
+path which can semantically
 yield—including direct or indirect `suspend()`, input waits, and a native
 built-in returning a suspended package—checks it centrally. An attempted yield
-raises an explicit MOO error; it must never be interpreted as a fabricated
+raises `E_INVARG` in the prototype; a dedicated error remains a possible ABI
+choice. It must never be interpreted as a fabricated
 callback result such as integer zero.
 
 This constraint does not prohibit optimistic conflict replay. Resource or tick
