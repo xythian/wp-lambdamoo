@@ -150,7 +150,7 @@ Runtime fields require dynamic bound hooks:
 ```c
 enum error (*get_property)(void *, const char *, Var *, Objid);
 enum error (*put_property)(void *, const char *, Var, Objid);
-Var (*property_names)(void *, Objid);
+enum error (*property_names)(void *, Var *, Objid);
 ```
 
 Indexing hooks are needed for sequences and builder arrays. A path API can ship
@@ -312,7 +312,8 @@ A retained seekable byte source is a first-version requirement, not a future
 generalization. The struct provider must not access the private `ByteStore` in
 `ext-bound-stream.c`; it requests this capability through the bound interface.
 
-The bytes provider needs an extension-facing constructor with precise ownership:
+The bytes provider now exposes extension-facing constructors with precise
+ownership in `ext-bound-stream.h`:
 
 ```c
 Var make_bound_bytes_copy(Objid, const void *, size_t);
@@ -332,7 +333,10 @@ typedef struct {
 } BoundByteSource;
 ```
 
-Optional contiguous views and slices preserve zero-copy paths.
+`make_bound_bytes_copy()` copies borrowed input. `make_bound_bytes_take()`
+transfers lifetime to the store and invokes an optional token release callback
+after its last retained user. Without a callback, the data must use the stream
+allocator. Optional slices remain prospective.
 
 `BoundTypeDef` now has the optional `byte_source` hook and the core provides the
 checked `bound_byte_source()` accessor. Bytes implements bounds-checked
@@ -425,9 +429,9 @@ orchestrates synchronous native operations.
 
 ## Implementation sequence
 
-1. Add dynamic property hooks.
+1. Add dynamic property hooks. *(Implemented: get, put, and enumeration.)*
 2. Add the generic byte-source hook and implement it for bytes and sealed
-   streams. *(Implemented; extension-facing bytes constructors remain.)*
+   streams. *(Implemented, including extension-facing bytes constructors.)*
 3. Implement primitive codecs and bounded cursor operations.
 4. Implement resolved layouts and lazy immutable values.
 5. Ship path access before VM indexing hooks.

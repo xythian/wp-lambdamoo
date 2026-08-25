@@ -158,6 +158,7 @@ END
 %%extension bound
 ##=================
   XT_CSRCS = bound.c ext-bound-stream.c
+  XT_HDRS = ext-bound-stream.h
   %disabled
   %? Bound extension values:
 

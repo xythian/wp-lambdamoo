@@ -62,6 +62,11 @@ typedef struct BoundTypeDef {
     enum error (*byte_source)(void *payload, BoundByteSource *source);
     enum error (*input)(void *payload, const char *data, size_t length,
                         int binary, size_t *written);
+    enum error (*get_property)(void *payload, const char *name, Var *result,
+                               Objid progr);
+    enum error (*put_property)(void *payload, const char *name, Var value,
+                               Objid progr);
+    enum error (*property_names)(void *payload, Var *result, Objid progr);
 } BoundTypeDef;
 
 extern int register_bound_type(const BoundTypeDef *);
