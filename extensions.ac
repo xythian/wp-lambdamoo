@@ -157,7 +157,7 @@ END
 ##=================
 %%extension bound
 ##=================
-  XT_CSRCS = bound.c ext-bound-stream.c
+  XT_CSRCS = bound.c ext-bound-stream.c ext-bound-struct.c
   XT_HDRS = ext-bound-stream.h
   %disabled
   %? Bound extension values:
@@ -170,6 +170,9 @@ END
   %option stream BOUND_STREAM
     %? immutable bytes and mutable streams
     %implies core
+  %option struct BOUND_STRUCT
+    %? bounded structured byte cursors
+    %implies stream
 
   %option_set all = stream
   %option_set yes = stream

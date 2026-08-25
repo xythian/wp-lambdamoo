@@ -311,6 +311,7 @@
 /* Extensible bound values. */
 #undef BOUND_CORE
 #undef BOUND_STREAM
+#undef BOUND_STRUCT
 
 /*----------------*
  |  Unit testing  |

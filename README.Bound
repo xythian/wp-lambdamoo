@@ -5,9 +5,11 @@ named subtypes are supplied by compiled-in providers.  It is intended for
 values that need native representation or integration without assigning a new
 MOO type number to every extension.
 
-The design is split into two layers. `BOUND_CORE` supplies the registry,
-dispatch, ownership, reflection, and persistence machinery. `BOUND_STREAM` is
-a useful provider that adds immutable `bytes` and a mutable, sealable `stream`.
+The design is split into layers. `BOUND_CORE` supplies the registry, dispatch,
+ownership, reflection, and persistence machinery. `BOUND_STREAM` is a useful
+provider that adds immutable `bytes` and a mutable, sealable `stream`.
+`BOUND_STRUCT` adds a persistent bounded cursor over the generic immutable byte
+source capability.
 A future dynamically loaded or WASM-backed provider can target the same general
 model; dynamic registration is not part of this implementation yet.
 
@@ -23,6 +25,11 @@ transfers its private byte store to `bytes` without copying. Future providers
 such as SQLite, WASM, or Kaitai should live in their own extension sources and
 depend only on the public interface in `bound.h`.
 
+`ext-bound-struct.c` is a second provider. It depends on the byte-source and
+bytes-construction interfaces exported by the stream provider, but not on its
+private representation. It is the first native building block for the layered
+structured-data design in `DESIGN.Struct`.
+
 ## Building
 
 Bound support is disabled by default.  Configure it with one of:
@@ -30,10 +37,13 @@ Bound support is disabled by default.  Configure it with one of:
 ```
 ./configure --enable-bound=core
 ./configure --enable-bound=stream
+./configure --enable-bound=struct
 ./configure --enable-bound=yes
 ```
 
-`stream` implies `core`; `yes` and `all` currently select the stream provider.
+`stream` implies `core`, and `struct` implies `stream`. `yes` and `all`
+currently select the stream provider; select `struct` explicitly to build the
+structured-byte cursor prototype.
 A build with `--disable-bound` retains the pre-bound database version and
 rejects databases using the bound-value format.
 
@@ -232,6 +242,44 @@ b:string([encoding])        decode bytes as text; UTF-8 by default
 
 Text conversion returns `E_INVARG` for an unknown/invalid encoding, malformed
 input, or a result containing NUL, since a MOO string cannot represent NUL.
+
+## Structured byte cursor
+
+`struct.cursor` is a persistent bounded reader over any bound value that
+implements the immutable byte-source capability. It retains its source rather
+than copying it:
+
+```
+c = bound_type("struct.cursor"):new(source [, start [, length]]);
+```
+
+`start` and `length` select a bounded window; omitted values mean the beginning
+and the remaining source. The cursor exposes read-only `position`, `length`,
+and `remaining` properties. Positions are relative to the selected window.
+
+Owner- or wizard-controlled operations are:
+
+```
+c:seek(position)       set an absolute position in the window
+c:skip(delta)          move by a signed amount
+c:align(boundary)      advance to the next boundary relative to window start
+c:read(codec)          decode one primitive and advance
+c:bytes(length)        copy bytes into a new immutable bytes value and advance
+c:subcursor(length)    make a bounded child over the same source and advance
+```
+
+Integer codecs are `u1`, `i1`, and signed or unsigned 2-, 4-, and 8-byte
+integers with `be` or `le` suffixes (for example `u4le` and `i8be`). Floating
+codecs are `f4be`, `f4le`, `f8be`, and `f8le`. A decoded integer outside the
+server's configured integer range returns `E_RANGE`. Invalid seeks, exhausted
+input, and malformed codec names return errors without changing the position.
+
+The saved representation records the window and current position and retains
+the source as a bound persistence reference. Aliases therefore remain aliases
+after reload, and a cursor resumes at the same position. This layer deliberately
+does not yet describe fields, conditionals, arrays, or lazy values: generated
+MOO code can orchestrate it now, while later `struct.layout` and immutable view
+providers can build on the same byte-source contract.
 
 `notify(connection, b [, no_flush])` accepts a `bytes` value.  On a binary
 connection it queues the exact octets.  On a nonbinary connection it queues
