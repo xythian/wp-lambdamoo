@@ -8,7 +8,7 @@
 #    sets shell vars for MOO_OPTION_ARG_ENABLES:
 #      $moo_d_{NETWORK_PROTOCOL,NETWORK_STYLE,MPLEX_STYLE,
 #              DEFAULT_{PORT,CONNECT_FILE},
-#              OUTBOUND_NETWORK}
+#              OUTBOUND_NETWORK,NAME_LOOKUP}
 #    (yes this takes an argument
 #    but it is probably a bad idea to change it.)
 #
@@ -32,6 +32,7 @@ AS_HELP_STRING([[--enable-$1=KWD[,KWD]]],
 [   <path>/<file>, '"<file>"':  DEFAULT_CONNECT_FILE=*]
 [               <port number>:  DEFAULT_PORT=*]
 [          noout, outoff, out:  OUTBOUND_NETWORK={undef,-O,+O}]
+[    dns=none, dns=subprocess:  NAME_LOOKUP=NL_*]
 [                        list:  list viable choices]
 [             require, nowarn:  if nonviable {error, dont care}]],
 [[ac_save_IFS=$IFS
@@ -47,6 +48,8 @@ for moo_kwd in ,x $enableval ; do
     out]],    [[moo_d=OUTBOUND_NETWORK; moo_v=OBN_ON]],  [[
     outoff]], [[moo_d=OUTBOUND_NETWORK; moo_v=OBN_OFF]], [[
     noout]],  [[moo_d=OUTBOUND_NETWORK; moo_v=no]],      [[
+    dns=none]],       [[moo_d=NAME_LOOKUP; moo_v=NL_NONE]],       [[
+    dns=subprocess]], [[moo_d=NAME_LOOKUP; moo_v=NL_SUBPROCESS]], [[
     no]],     [[moo_d=NETWORK_PROTOCOL; moo_v=NP_SINGLE
 	      moo_d_NETWORK_STYLE=no
 	      moo_d_MPLEX_STYLE=no

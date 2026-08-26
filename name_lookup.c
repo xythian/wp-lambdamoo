@@ -19,6 +19,11 @@
  * longjmps out of name lookups corrupt some UNIX name lookup modules, this
  * module uses a subprocess to do the name lookup.  On any failure, the
  * subprocess is restarted.
+ *
+ * All of that is the NL_SUBPROCESS implementation.  Under NL_NONE it is
+ * compiled out, the numeric-only translations below are all that is
+ * left, and the server never resolves anything.  Further implementations
+ * go in blocks of their own below; see options.h for what each means.
  */
 
 #include "name_lookup.h"
@@ -28,19 +33,60 @@
 
 #if NETWORK_PROTOCOL == NP_TCP	/* Skip almost entire file otherwise... */
 
-#include "my-signal.h"
-#include "my-stdlib.h"
-#include "my-unistd.h"
 #include "my-inet.h"		/* inet_addr() */
 #include "my-in.h"		/* struct sockaddr_in, INADDR_ANY, htons(),
 				   * htonl(), ntohl(), struct in_addr */
+#include "my-stdio.h"		/* sprintf() */
+
+#include "log.h"
+
+/******************************************************************************
+ * Numeric-only translations.
+ *
+ * Every implementation needs these, since they are what we hand back
+ * whenever no resolver is available to us: because the caller passed a
+ * zero timeout, because the lookup process has died, or -- under
+ * NL_NONE -- because there is no resolver in the first place.
+ *****************************************************************************/
+
+static const char *
+dotted_decimal(struct sockaddr_in *addr)
+{
+    static char decimal[20];
+    uint32_t a = ntohl(addr->sin_addr.s_addr);
+
+    sprintf(decimal, "%u.%u.%u.%u",
+	    (unsigned) (a >> 24) & 0xff, (unsigned) (a >> 16) & 0xff,
+	    (unsigned) (a >> 8) & 0xff, (unsigned) a & 0xff);
+    return decimal;
+}
+
+static uint32_t
+numeric_addr_from_name(const char *name)
+{
+    /* This cast is to work around systems that declare inet_addr() as
+     * taking a non-const string pointer.
+     */
+    uint32_t addr = inet_addr((void *) name);
+
+    return addr == 0xffffffff ? 0 : addr;
+}
+
+#if NAME_LOOKUP == NL_SUBPROCESS
+
+/******************************************************************************
+ * NL_SUBPROCESS: hand the work to a subprocess we can kill.
+ *****************************************************************************/
+
+#include "my-signal.h"
+#include "my-stdlib.h"
+#include "my-unistd.h"
 #include <netdb.h>		/* struct hostent, gethostbyaddr() */
 #include "my-socket.h"		/* AF_INET */
 #include "my-wait.h"
 #include "my-string.h"
 #include <errno.h>
 
-#include "log.h"
 #include "server.h"
 #include "storage.h"
 #include "timers.h"
@@ -376,15 +422,7 @@ lookup_name_from_addr(struct sockaddr_in *addr, unsigned timeout)
      * or the intermediary has failed and died; in either case,
      * we fall back on dotted-decimal notation.
      */
-    {
-	static char decimal[20];
-	uint32_t a = ntohl(addr->sin_addr.s_addr);
-
-	sprintf(decimal, "%u.%u.%u.%u",
-		(unsigned) (a >> 24) & 0xff, (unsigned) (a >> 16) & 0xff,
-		(unsigned) (a >> 8) & 0xff, (unsigned) a & 0xff);
-	return decimal;
-    }
+    return dotted_decimal(addr);
 }
 
 uint32_t
@@ -393,22 +431,56 @@ lookup_addr_from_name(const char *name, unsigned timeout)
     struct request req;
     uint32_t addr = 0;
 
-    if (!(timeout > 0 && check_intermediary())) {
+    if (!(timeout > 0 && check_intermediary()))
 	/* Numeric addresses should always work... */
-	addr = inet_addr((void *) name);
-    } else {
-	req.kind = REQ_ADDR_FROM_NAME;
-	req.timeout = timeout;
-	req.u.length = strlen(name);
-	if (write(to_intermediary, &req, sizeof(req)) != sizeof(req)
-	    || write(to_intermediary, name, req.u.length) != req.u.length)
-	    abandon_intermediary("LOOKUP_ADDR: Write to intermediary failed");
-	else if (read_failed(from_intermediary, &addr, sizeof(addr)))
-	    abandon_intermediary("LOOKUP_ADDR: Read from intermediary failed");
-    }
+	return numeric_addr_from_name(name);
+
+    req.kind = REQ_ADDR_FROM_NAME;
+    req.timeout = timeout;
+    req.u.length = strlen(name);
+    if (write(to_intermediary, &req, sizeof(req)) != sizeof(req)
+	|| write(to_intermediary, name, req.u.length) != req.u.length)
+	abandon_intermediary("LOOKUP_ADDR: Write to intermediary failed");
+    else if (read_failed(from_intermediary, &addr, sizeof(addr)))
+	abandon_intermediary("LOOKUP_ADDR: Read from intermediary failed");
 
     return addr == 0xffffffff ? 0 : addr;
 }
+
+#endif				/* NAME_LOOKUP == NL_SUBPROCESS */
+
+#if NAME_LOOKUP == NL_NONE
+
+/******************************************************************************
+ * NL_NONE: resolve nothing, spawn nothing.
+ *
+ * The signatures are unchanged so that callers need no #ifdefs of their
+ * own: what they get here is precisely what they already get from a real
+ * implementation once it has given up, so the timeouts are simply
+ * ignored.
+ *****************************************************************************/
+
+int
+initialize_name_lookup(void)
+{
+    oklog("NAME_LOOKUP: Not compiled in; "
+	  "using numeric addresses only\n");
+    return 1;
+}
+
+const char *
+lookup_name_from_addr(struct sockaddr_in *addr, unsigned timeout UNUSED_)
+{
+    return dotted_decimal(addr);
+}
+
+uint32_t
+lookup_addr_from_name(const char *name, unsigned timeout UNUSED_)
+{
+    return numeric_addr_from_name(name);
+}
+
+#endif				/* NAME_LOOKUP == NL_NONE */
 
 #endif				/* NETWORK_PROTOCOL == NP_TCP */
 

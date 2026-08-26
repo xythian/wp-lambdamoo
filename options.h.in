@@ -422,6 +422,47 @@ useful for anything other than quick experiments.)
 #undef OUTBOUND_NETWORK
 
 /******************************************************************************
+ * NAME_LOOKUP selects how the server translates between host names and
+ * IP addresses.  It must be defined as one of the following:
+ *
+ * NL_SUBPROCESS
+ *		The server spawns a dedicated subprocess and asks it to do
+ *		the translations, using gethostbyname()/gethostbyaddr() and
+ *		killing it off if it takes too long; see name_lookup.c.  This
+ *		is what the server has always done, and remains the default.
+ *
+ *		Note that what such a lookup consults is whatever the local
+ *		system has been configured to consult -- DNS, /etc/hosts,
+ *		LDAP, NIS, mDNS -- and not necessarily DNS at all.
+ *
+ * NL_NONE	The server does not translate anything.  None of the above
+ *		machinery is compiled in and no subprocess is spawned.
+ *
+ *		The server then behaves exactly as it already does when the
+ *		relevant timeout is zero or when the lookup subprocess has
+ *		died: connection_name() reports the peer in dotted-decimal
+ *		form, and open_network_connection() accepts only numeric
+ *		addresses, raising E_INVARG for anything inet_addr() cannot
+ *		parse.  The $server_options settings name_lookup_timeout and
+ *		address_lookup_timeout are ignored.
+ *
+ *		This is worth considering if you resolve names in-db instead,
+ *		or if you simply do not care about reverse DNS: it removes
+ *		the four fork() calls made at startup, and with them the only
+ *		part of the server that can stall the entire main loop
+ *		waiting on a resolver.
+ *
+ * Leaving NAME_LOOKUP undefined means NL_NONE, and `#define NAME_LOOKUP 1'
+ * means NL_SUBPROCESS, so plain --disable-def-NAME_LOOKUP and
+ * --enable-def-NAME_LOOKUP both do the obvious thing.
+ *
+ * NAME_LOOKUP is only relevant when NETWORK_PROTOCOL == NP_TCP; it is
+ * forced to NL_NONE for the other protocols, which have no host names.
+ */
+
+#undef NAME_LOOKUP
+
+/******************************************************************************
  * The following constants define certain aspects of the server's network
  * behavior if NETWORK_PROTOCOL is not defined as NP_SINGLE.
  *

@@ -116,6 +116,35 @@
 #define OUTBOUND_NETWORK 1
 #endif
 
+/* No NL_ value may be 0, since an unknown one (a typo, or a backend
+   that this server was not built with) is an undefined identifier and
+   thus 0 to #if -- that is what lets the check below catch it rather
+   than silently resolving to whichever value got 0.  NL_SUBPROCESS is 1
+   so that a bare --enable-def-NAME_LOOKUP, which the option machinery
+   turns into `#define NAME_LOOKUP 1', asks for a resolver rather than
+   for none.  Beyond that the numbering carries no meaning. */
+#define NL_SUBPROCESS	1
+#define NL_NONE		2
+
+/* An absent NAME_LOOKUP (i.e. --disable-def-NAME_LOOKUP) means no
+   lookups; say so explicitly, so everything downstream can just compare
+   against NL_*. */
+#ifndef NAME_LOOKUP
+#define NAME_LOOKUP NL_NONE
+#endif
+
+/* Host names are a TCP-only concept and name_lookup.c compiles to
+   nothing for the other protocols anyway, so rather than making every
+   non-TCP build ask for NL_NONE explicitly, just force it here. */
+#if NETWORK_PROTOCOL != NP_TCP
+#undef NAME_LOOKUP
+#define NAME_LOOKUP NL_NONE
+#endif
+
+#if NAME_LOOKUP != NL_NONE && NAME_LOOKUP != NL_SUBPROCESS
+#  error Illegal value for "NAME_LOOKUP"
+#endif
+
 
 #if NETWORK_PROTOCOL != NP_LOCAL && NETWORK_PROTOCOL != NP_SINGLE && NETWORK_PROTOCOL != NP_TCP
 #  error Illegal value for "NETWORK_PROTOCOL"

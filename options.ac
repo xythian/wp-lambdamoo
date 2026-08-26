@@ -111,6 +111,8 @@ m4_if(#
   [initial socket file for NP_LOCAL]],
  [[OUTBOUND_NETWORK],    [OBN_OFF OBN_ON],            [[OBN_OFF]],
   [allow outgoing network connections]],
+ [[NAME_LOOKUP],         [NL_NONE NL_SUBPROCESS],     [[NL_SUBPROCESS]],
+  [how host names get resolved]],
 
 m4_if(#
 #

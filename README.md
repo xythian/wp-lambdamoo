@@ -337,11 +337,11 @@ There are two classes of command-line arguments for `./configure`
 
     manages all networking options (`NETWORK_PROTOCOL`,
     `NETWORK_STYLE`, `MPLEX_STYLE`, `DEFAULT_CONNECT_FILE`,
-    `DEFAULT_PORT`, and `OUTBOUND_NETWORK`),
+    `DEFAULT_PORT`, `OUTBOUND_NETWORK`, and `NAME_LOOKUP`),
     thence allowing you to do, e.g.,
 
     ```
-       ./configure --enable-net=tcp,8888,out
+       ./configure --enable-net=tcp,8888,out,dns=none
     ```
 
     which is equivalent to
@@ -349,11 +349,23 @@ There are two classes of command-line arguments for `./configure`
     ```
        ./configure --enable-def-NETWORK_PROTOCOL=NP_TCP \
                    --enable-def-DEFAULT_PORT=8888       \
-                   --enable-def-OUTBOUND_NETWORK=OBN_ON  \
+                   --enable-def-OUTBOUND_NETWORK=OBN_ON \
+                   --enable-def-NAME_LOOKUP=NL_NONE
     ```
 
     to get a server with TCP networking, default listener on port
-    8888, and `open_network_connection()` enabled by default.
+    8888, `open_network_connection()` enabled by default, and no
+    host name resolution at all.
+
+    That last one is worth knowing about.  `dns=subprocess` (the
+    default) is the name-lookup subprocess the server has always
+    spawned; `dns=none` is no resolution at all, which means the
+    server neither spawns that subprocess nor blocks its main loop
+    waiting on a resolver.  `connection_name()` then reports peers in
+    dotted-decimal form and `open_network_connection()` accepts only
+    numeric addresses, which is what you want if you resolve names
+    in-db or simply do not care about reverse DNS.  See
+    `options.h.in` for the details.
 
   + `--enable-sz`
 
