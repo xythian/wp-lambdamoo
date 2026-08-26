@@ -37,10 +37,16 @@ server. It has an opaque, unguessable identity and trusted origin metadata. Its
 lifetime is independent of a particular edge-to-server connection and a
 particular MOO process.
 
-A session records enough delivery state to establish what input and output a
-new attachment may safely continue. A session does not imply that an executing
-MOO task, uncheckpointed database mutation, or arbitrary process memory
-survives a crash.
+The session corresponds to what the server currently represents in-database as
+a connection. The protocol separates that object from the external transport
+and from the current server process without requiring a new user-visible
+concept.
+
+A session records enough attachment state to establish a clean boundary when a
+backend is replaced. It does not imply that an executing MOO task,
+uncheckpointed database mutation, or arbitrary process memory survives a
+crash. In particular, a replacement server may have loaded an older checkpoint
+which does not contain tasks that were blocked in `read()`.
 
 The edge is initially authoritative for the existence of live sessions because
 it owns the external connections. Which additional session state is durable,
@@ -97,26 +103,31 @@ Each direction is an ordered sequence of opaque byte spans. Sequence positions
 refer to byte boundaries, not protocol-frame counts, so changing frame sizes or
 carriers does not change the session contract.
 
-Acknowledgement meanings must be explicit. At minimum, the design must
-distinguish:
+Acknowledgements exist to bound buffers and transfer ownership between the
+edge and backend. The edge does not need to know whether input created a MOO
+task or whether that task completed. Once the edge gives input to the backend,
+it will not replay that input to another attachment.
 
-- received into a bounded transport buffer;
-- accepted by the session layer;
-- submitted as MOO input; and
-- completed by a MOO task.
+A graceful replacement may quiesce both directions and agree on a clean byte
+boundary before changing attachments. A backend crash has deliberately weaker
+semantics:
 
-The first implementation does not need to offer every acknowledgement level,
-but it must never imply a stronger guarantee than it implements.
+- input already given to the failed backend is never replayed;
+- input buffered at the edge for that attachment is discarded;
+- the edge stops reading additional client input until recovery policy permits
+  it to resume; and
+- the replacement may restore the session from an older checkpoint, including
+  one without tasks that had been waiting in `read()`.
 
-After a crash there may be input that the old server received but whose effect
-cannot be determined from the surviving state. Such input is uncertain. The
-edge must not silently replay uncertain input as though it were known not to
-have executed. Policy may discard it, surface an interruption, or use a future
-application-level idempotency mechanism.
+The protocol must distinguish graceful replacement from crash recovery. The
+edge or a higher-level gateway can translate that event into appropriate user
+messaging, suppress it where policy permits, or expose it to in-database resume
+logic. Preserving the external connection after a crash is useful even though
+the logical interruption is not transparent.
 
-Likewise, output acknowledged by the edge can be deduplicated across attachment
-replacement. Output accepted by an external transport but not actually observed
-by a client may remain inherently uncertain.
+Output already accepted from the failed backend may be drained to the client.
+The protocol does not claim that the client observed it, or that output and
+database state are transactionally consistent across a crash.
 
 ## Flow control and buffering
 
@@ -214,10 +225,10 @@ A replacement sequence should have the following shape:
 3. It applies bounded backpressure to client input while retaining the external
    connection.
 4. A replacement backend authenticates and advertises readiness.
-5. The peers identify the session and exchange their surviving delivery
-   positions and relevant session metadata.
-6. They either agree on a safe continuation boundary or report an explicit
-   uncertainty or incompatibility.
+5. The peers identify the session, the crash or graceful-replacement mode, and
+   the relevant session metadata.
+6. For a graceful replacement they agree on delivery positions. After a crash,
+   the edge reports the discontinuity and does not replay old input.
 7. The edge grants a new attachment generation.
 8. Ordered traffic resumes without changing the external connection.
 
@@ -264,8 +275,9 @@ throughput is a guardrail, not the selection criterion.
 
 - What session metadata must survive a server crash, and which component owns
   each field?
-- What is the first acknowledgement level the MOO server can implement honestly?
-- How should uncertain input be represented to database code and users?
+- What acknowledgement is sufficient to transfer buffer ownership without
+  exposing MOO task lifecycle to the edge?
+- What crash/recovery event should be represented to database code and users?
 - Does resumption restore a logged-in player directly, or invoke an
   authenticated in-database resume hook?
 - Can the normal network interface represent attachment loss without treating
