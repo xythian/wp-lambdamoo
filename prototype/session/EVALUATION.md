@@ -65,6 +65,24 @@ and open per-session streams to the same backend endpoint. A rendezvous service
 may still be useful for finding a replacement backend, but it does not need to
 carry session data.
 
+Harbor already supplies the broker layer above this boundary. Its `runtimeSession`
+owns one persistent MOO upstream and accepts multiple frontend attachments. A
+`connect` attachment mirrors session output, while `terminal` runs one scoped
+command by sending unique `PREFIX` and `SUFFIX` markers to MOO and routing the
+lines between them only to the requesting terminal. Harbor can therefore replace
+its ordinary upstream dial/redial loop with a Go implementation of this session
+carrier without moving multi-client semantics into the MOO protocol.
+
+That would make MOO replacement invisible to Harbor frontend attachments and
+avoid reconnecting and logging the player in again. It would not eliminate the
+terminal marker protocol: the carrier transports an ordered byte stream and does
+not identify which output belongs to a command. Recovery mode should be exposed
+to Harbor as an out-of-band event. Harbor can preserve an active terminal command
+across a coordinated graceful replacement, but after crash recovery it must fail
+the command explicitly because the checkpoint may predate its task or suffix. A
+client-visible recovery line is insufficient and could otherwise be mistaken for
+command output.
+
 At the anticipated scale, one backend descriptor and worker context per session
 is a reasonable first implementation. It removes outer stream IDs,
 cross-session scheduling, and multiplexed flow-control state. The slow-session
