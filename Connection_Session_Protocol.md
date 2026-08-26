@@ -52,6 +52,32 @@ The edge is initially authoritative for the existence of live sessions because
 it owns the external connections. Which additional session state is durable,
 and where it is stored, remains an explicit policy decision.
 
+### Multiple edges
+
+The architecture must permit several edge processes at once. For example, a C
+reference edge may own conventional TCP and TLS listeners while a separate web
+server owns WebSocket connections. Each edge remains authoritative for the
+sessions whose external connections it owns, and each independently attaches
+those sessions to the same backend service.
+
+Multiple edges do not inherently require a broker. With the initial
+one-stream-per-session carrier, the backend can accept authenticated attachment
+connections from any permitted edge. Session identifiers must be globally
+unique rather than merely unique within an edge, and attachment setup must
+include the edge instance identity and generation. After backend replacement,
+each edge discovers the replacement and reattaches its own live sessions.
+
+Some small rendezvous or control-plane facility may still be useful for backend
+readiness, endpoint discovery, authorization, and coordinated shutdown. It can
+be built into the reference edge, supplied by a supervisor, or introduced as a
+separate bespoke service. It should not carry session data or become the owner
+of sessions unless a demonstrated requirement calls for that role.
+
+A broker or shared session owner becomes necessary if a session must migrate
+between edge processes or survive failure of the edge that owns its external
+connection. Those are distinct availability goals and are out of scope for the
+first prototype. The interface must not preclude adding such an owner later.
+
 ### Backend attachment
 
 An attachment is a temporary association between one session and one MOO server
@@ -284,5 +310,9 @@ throughput is a guardrail, not the selection criterion.
   it as a permanent client disconnect?
 - Is a separate control connection necessary, or can discovery and attachment
   remain completely per-session?
+- Which discovery or rendezvous mechanism lets independent edge processes find
+  and coordinate with a replacement backend?
+- Must sessions ever migrate between edges or survive edge-process failure, and
+  would that justify a shared broker or session owner?
 - Which limits and timeout policies belong to the protocol, and which are local
   edge policy?
