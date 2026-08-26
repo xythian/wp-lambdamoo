@@ -3,3 +3,5 @@ backend
 test_protocol
 integration_test
 test-tmp/
+moo_integration_test
+session_benchmark

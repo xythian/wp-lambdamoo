@@ -249,8 +249,16 @@ handle_backend(struct client *client, int backend)
             && detach.output_position == client->output_position) {
             client->next_mode = SP_MODE_GRACEFUL;
             result = 2;
-        } else
+        } else {
+            fprintf(stderr,
+                    "edge: invalid detach mode=%u input=%llu/%llu output=%llu/%llu\n",
+                    (unsigned) detach.mode,
+                    (unsigned long long) detach.input_position,
+                    (unsigned long long) client->input_position,
+                    (unsigned long long) detach.output_position,
+                    (unsigned long long) client->output_position);
             result = -1;
+        }
     } else if (frame.type == SP_CLOSE)
         result = 0;
     else

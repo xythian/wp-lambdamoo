@@ -31,6 +31,7 @@
 #include "prototype/session/protocol.c"
 
 #include <errno.h>
+#include <poll.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -169,6 +170,57 @@ push_output(session_handle *h)
             return 0;
     }
     return 1;
+}
+
+static int
+drain_output(session_handle *h)
+{
+    struct pollfd writable = {h->fd, POLLOUT, 0};
+    int attempts = 4;
+
+    while (h->output_head) {
+        int result;
+
+        if (!push_output(h))
+            return 0;
+        if (!h->output_head)
+            return 1;
+        do {
+            result = poll(&writable, 1, 250);
+        } while (result < 0 && errno == EINTR);
+        if (result <= 0 || !(writable.revents & POLLOUT) || --attempts == 0)
+            return 0;
+    }
+    return 1;
+}
+
+static int
+finish_detach(session_handle *h)
+{
+    struct pollfd readable = {h->fd, POLLIN, 0};
+    unsigned char discard[256];
+    int attempts = 4;
+
+    if (shutdown(h->fd, SHUT_WR) < 0)
+        return 0;
+    while (attempts-- > 0) {
+        int result;
+        do {
+            result = poll(&readable, 1, 250);
+        } while (result < 0 && errno == EINTR);
+        if (result < 0)
+            return 0;
+        if (result == 0)
+            continue;
+        {
+            ssize_t count = read(h->fd, discard, sizeof(discard));
+            if (count == 0)
+                return 1;
+            if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
+                return 0;
+        }
+    }
+    return 0;
 }
 
 static void
@@ -695,13 +747,14 @@ network_shutdown(void)
 
     for (h = all_handles; h; h = h->next) {
         struct sp_detach detach = {
-            SP_MODE_GRACEFUL, h->input_position, h->output_acked
+            SP_MODE_GRACEFUL, h->input_position, h->output_position
         };
         unsigned char payload[SP_DETACH_SIZE];
 
         sp_encode_detach(&detach, payload);
-        (void) queue_frame(h, SP_DETACH, payload, sizeof(payload), 0);
-        (void) push_output(h);
+        if (!queue_frame(h, SP_DETACH, payload, sizeof(payload), 0)
+            || !drain_output(h) || !finish_detach(h))
+            errlog("SESSION DETACH: graceful completion failed\n");
     }
     while (all_handles)
         remove_handle(all_handles, 0);

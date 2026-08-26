@@ -4,18 +4,15 @@ Date: 2026-08-26.
 
 ## Result
 
-The one-stream-per-session design is viable at the prototype level. It
-demonstrates the central architectural property without a multiplexing library:
-a certificate-validated TLS client remains on the same external connection
-while its session moves between C backend processes.
+The one-stream-per-session design is viable end to end. A certificate-validated
+TLS client remains on the same external connection while its session moves
+between both harness backends and real LambdaMOO processes. The selectable MOO
+backend authorizes player restoration against the loaded checkpoint and handles
+both crash and graceful replacement.
 
-The automated optimized suite completed successfully on the development host.
-A clean build, certificate generation, unit tests, and all integration
-scenarios took 1.10 seconds wall-clock. This timing is only a test-cycle
-guardrail; it is not a throughput benchmark.
-
-The same unit and integration scenarios also passed with AddressSanitizer and
-UndefinedBehaviorSanitizer enabled.
+The automated suite covers codec behavior, synthetic-backend replacement, and
+real-MOO crash and graceful replacement. The protocol codec suite also passes
+with AddressSanitizer and UndefinedBehaviorSanitizer enabled.
 
 ## Scenario evidence
 
@@ -33,7 +30,32 @@ UndefinedBehaviorSanitizer enabled.
 | Malformed private peer | A same-UID peer sends an invalid header; its attachment is closed while existing sessions continue | Pass |
 | Transport authentication | Unix peers must have the same effective UID; the TLS client validates the generated certificate and `localhost` name | Pass |
 | Codec safety | Truncation, invalid magic, fixed-size control codecs, byte order, and size bounds are unit-tested | Pass |
-| Sanitizers | Complete process topology runs under ASan and UBSan | Pass |
+| Sanitizers | Protocol codec suite runs under ASan and UBSan | Pass |
+| Real MOO crash | Minimal.db connection #3 survives `SIGKILL`, checkpoint load, and accepts a later command | Pass |
+| Real MOO graceful restart | Signal shutdown drains and detaches; replacement resumes without crash mode | Pass |
+
+## Basic workload benchmark
+
+`make -C prototype/session benchmark` measures the reference TLS edge and harness
+on loopback. It retains 100 sessions, measures 500 sequential 32-byte echo round
+trips on one established session, and transfers five 4 MiB responses. This models
+the expected hundreds-of-connections scale, perceived command lag, and large
+Waterpoint extraction-style output. It is not a saturation benchmark.
+
+On the 2026-08-26 development host (Linux 6.8, AMD Ryzen 9 9955HX), one run
+produced:
+
+| Measurement | Result |
+| --- | ---: |
+| 100 sequential verified-TLS attachments | 4,281.742 ms total; 42.817 ms mean |
+| Established-session RTT p50 / p95 / p99 | 0.013 / 0.025 / 0.080 ms |
+| Five 4 MiB responses | 1.495 ms median; 1.602 ms maximum; 2,676.202 MiB/s median |
+
+The loopback throughput number is primarily a sanity ceiling and will not
+predict a real client path. The useful conclusion is that this prototype adds
+no locally measurable lag at MOO scale and handles multi-megabyte output with
+large headroom. TLS setup, operational behavior, copying, and failure semantics
+remain more important selection criteria than raw carrier speed.
 
 ## What the experiment says
 
@@ -61,25 +83,22 @@ reader. Output follows the reverse path. `writev`, retained buffers, or a
 shared-memory data carrier could reduce these copies without changing session
 identity, positions, acknowledgements, or recovery modes.
 
-## Remaining questions
+## Remaining work
 
-The harness does not prove that the existing LambdaMOO server can restore an
-in-database connection without invoking its normal disconnect path. The next
-implementation step is a selectable `network.h` backend, including line and
-binary input, output queue limits, suspension, echo options, trusted origin
-metadata, and the server/database resume boundary.
+The server integration answers the original checkpoint boundary: a resumed
+player/listener pair must occur in the loaded list of formerly active
+connections, and the edge carries that binding without treating it as a bearer
+credential. Crash recovery resumes the player directly and emits an explicit
+client notice; graceful recovery uses a bounded detach drain.
 
-The prototype also does not yet answer:
+Production work still includes:
 
-- what in-database state identifies a resumable connection after checkpoint
-  rollback;
-- whether crash recovery resumes a player directly or calls a database hook;
-- how user-visible recovery events are represented outside the harness;
-- how a replacement endpoint is published to several edges in production;
-- whether partial TLS records waiting in the external kernel socket should be
-  treated as post-recovery input; or
-- whether Waterpoint needs edge-process failover in addition to backend
+- a non-thread-per-session reference edge event loop;
+- structured trusted-origin metadata and connection-option policy;
+- certificate rotation, metrics, configuration, and endpoint discovery;
+- coordinated graceful quiescing across many sessions rather than bounded
+  per-session shutdown waits;
+- a decision about partial TLS records waiting in the external kernel socket;
+- load tests on a realistic Waterpoint database and host; and
+- edge-process failover, if Waterpoint requires it in addition to backend
   failover.
-
-Those decisions should be made while integrating the real server rather than by
-adding machinery to the carrier.
