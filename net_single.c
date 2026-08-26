@@ -105,6 +105,13 @@ network_send_bytes(network_handle nh UNUSED_, const char *buffer, size_t buflen,
     return 1;
 }
 
+void
+network_set_connection_player(network_handle nh UNUSED_, Objid player UNUSED_,
+			      Objid listener UNUSED_)
+{
+    /* The single-user transport has no replaceable edge. */
+}
+
 int
 network_buffered_output_length(network_handle nh UNUSED_)
 {

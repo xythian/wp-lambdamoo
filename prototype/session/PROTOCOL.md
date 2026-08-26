@@ -43,12 +43,19 @@ The edge sends `HELLO` first:
 | reserved | 7 |
 | next input position | 8 |
 | next output position | 8 |
+| bound player | 8 |
+| listener object | 8 |
 | origin length | 2 |
 | trusted origin metadata | origin length |
 
 IDs are opaque. Session IDs are globally unique. Edge instance IDs are fresh
 for each edge process. The generation increases whenever that edge replaces the
 attachment. Recovery mode is initial, graceful, or crash.
+
+The bound player is the signed 64-bit MOO object number, or `INT64_MIN` for a
+new, unbound session. The listener is meaningful only for a bound player. A
+replacement server authorizes a resume by matching both values against the
+formerly active connections in its loaded checkpoint.
 
 The backend authenticates and authorizes the carrier before trusting the IDs or
 origin. It answers with `WELCOME`, containing generation, mode, seven reserved
@@ -58,6 +65,12 @@ the attachment.
 After a crash, positions establish a new no-replay boundary; they do not claim
 that the failed server processed input or that its state survived. After a
 graceful replacement, they describe the quiesced delivery boundary.
+
+After login or another in-server connection reassignment, the backend sends
+`BIND`, containing the signed 64-bit player and listener object numbers. The
+edge retains this binding and includes it in later `HELLO` frames. `BIND` does
+not itself authorize a future resume; the secured carrier and checkpoint match
+do that.
 
 ## Data and ownership
 

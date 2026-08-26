@@ -68,10 +68,19 @@ extern server_handle server_new_connection(server_listener l,
 				 * the server to some external place, and L is
 				 * NULL_SERVER_LISTENER; if `outbound' is
 				 * false, the L is the listening point on which
-				 * the new connection was received.  By this
+				 * the new connection was received. By this
 				 * call, the network and server exchange tokens
 				 * representing the connection for use in later
 				 * calls on each other.
+				 */
+
+extern server_handle server_resume_connection(server_listener l,
+					      network_handle h,
+					      Objid player,
+					      Objid listener,
+					      int crashed);
+				/* Attach a network connection to a connection
+				 * recorded in the loaded checkpoint.
 				 */
 
 extern void server_refuse_connection(server_listener l,

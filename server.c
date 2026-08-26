@@ -429,9 +429,9 @@ send_message(Objid listener, network_handle nh, const char *msg_name,...)
 static void
 main_loop(void)
 {
-    int i;
-
+#if NETWORK_PROTOCOL != NP_SESSION
     /* First, notify DB of disconnections for all checkpointed connections */
+    int i;
     for (i = 1;
 	 i <= (TYPE_LIST == checkpointed_connections.type
 	       ? checkpointed_connections.v.list[0].v.num
@@ -444,6 +444,7 @@ main_loop(void)
     }
     free_var(checkpointed_connections);
     checkpointed_connections = zero;
+#endif
 
     /* Second, run #0:server_started() */
     run_server_task(-1, SYSTEM_OBJECT, "server_started", new_list(0), "", 0);
@@ -1039,6 +1040,64 @@ server_new_connection(server_listener sl, network_handle nh, int outbound)
     return result;
 }
 
+server_handle
+server_resume_connection(server_listener sl, network_handle nh,
+                         Objid player, Objid listener, int crashed)
+{
+    server_handle result = {0};
+    slistener *l = sl.ptr;
+    shandle *h;
+    int checkpoint_index = 0;
+    int i;
+
+    if (!valid(player) || find_shandle(player)
+        || TYPE_LIST != checkpointed_connections.type)
+        return result;
+
+    for (i = 1; i <= checkpointed_connections.v.list[0].v.num; i++) {
+        Var v = checkpointed_connections.v.list[i];
+        if (v.v.list[1].v.obj == player && v.v.list[2].v.obj == listener) {
+            checkpoint_index = i;
+            break;
+        }
+    }
+    if (!checkpoint_index)
+        return result;
+
+    if (!l || l->oid != listener) {
+        for (l = all_slisteners; l && l->oid != listener; l = l->next)
+            ;
+        if (!l)
+            return result;
+    }
+
+    checkpointed_connections =
+        listdelete(checkpointed_connections, checkpoint_index);
+    h = (shandle *) mymalloc(sizeof(shandle), M_NETWORK);
+    h->next = all_shandles;
+    h->prev = &all_shandles;
+    if (all_shandles)
+        all_shandles->prev = &(h->next);
+    all_shandles = h;
+
+    h->nhandle = nh;
+    h->connection_time = time(0);
+    h->last_activity_time = time(0);
+    h->player = player;
+    h->listener = listener;
+    h->tasks = new_task_queue(player, listener);
+    h->disconnect_me = 0;
+    h->outbound = 0;
+    h->binary = 0;
+    h->print_messages = l->print_messages;
+
+    oklog("SESSION %s: #%"PRIdN" on %s\n",
+          crashed ? "RECOVERED" : "REATTACHED", player,
+          network_connection_name(nh));
+    result.ptr = h;
+    return result;
+}
+
 void
 server_refuse_connection(server_listener sl, network_handle nh)
 {
@@ -1103,6 +1162,7 @@ player_connected(Objid old_id, Objid new_id, int is_newly_created)
 
     new_h->player = new_id;
     new_h->connection_time = time(0);
+    network_set_connection_player(new_h->nhandle, new_id, new_h->listener);
 
     if (existing_h) {
 	/* we now have two shandles with the same player value while
@@ -1217,7 +1277,8 @@ write_active_connections(void)
 
     if (have_ckpted) {
 	int i;
-	for (i = 1; i <= count; i++) {
+	int checkpointed_count = checkpointed_connections.v.list[0].v.num;
+	for (i = 1; i <= checkpointed_count; i++) {
 	    Var v = checkpointed_connections.v.list[i];
 	    dbio_printf("%"PRIdN" %"PRIdN"\n", v.v.list[1].v.obj, v.v.list[2].v.obj);
 	}

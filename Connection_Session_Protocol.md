@@ -1,12 +1,15 @@
 # Connection-independent session protocol
 
-Status: initial design implemented as a standalone prototype, 2026-08-26.
+Status: working end-to-end prototype, 2026-08-26.
 
 The C reference edge, backend harness, protocol implementation, tests, and
 scenario results are in [`prototype/session/`](prototype/session/README.md).
-The prototype validates this boundary independently of the LambdaMOO network
-layer. Integration as a selectable `network.h` backend remains the next
-phase.
+The `session` configure option selects a LambdaMOO `network.h` backend using the
+same protocol. The complete path has retained a verified TLS connection across
+a forced server crash, restored its player/listener binding from a checkpoint,
+and processed subsequent input in the replacement process. Graceful quiescing,
+operational hardening, and an automated full-server scenario remain future
+work.
 
 ## Objective
 

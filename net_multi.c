@@ -640,7 +640,15 @@ network_set_connection_binary(network_handle nh, int do_binary)
     h->binary = do_binary;
 }
 
+void
+network_set_connection_player(network_handle nh UNUSED_, Objid player UNUSED_,
+			      Objid listener UNUSED_)
+{
+    /* Ordinary transports do not retain sessions across server processes. */
+}
+
 #if NETWORK_PROTOCOL == NP_LOCAL
+
 #  define NETWORK_CO_TABLE(DEFINE, nh, value, _)
        /* No network-specific connection options */
 

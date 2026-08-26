@@ -51,7 +51,7 @@ COMMON_CSRCS = \
 XT_CSRCS = @XT_CSRCS@
 ALL_XT_CSRCS = @ALL_XT_CSRCS@
 
-OPT_NET_SRCS = net_single.c net_multi.c \
+OPT_NET_SRCS = net_single.c net_multi.c net_session.c \
 	net_mp_selct.c net_mp_poll.c net_mp_fake.c \
 	net_tcp.c \
 	net_bsd_tcp.c net_bsd_lcl.c net_sysv_tcp.c net_sysv_lcl.c

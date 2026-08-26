@@ -121,6 +121,8 @@ valid_type_and_length(uint8_t type, uint32_t length)
     case SP_CLOSE:
     case SP_ERROR:
         return length <= SP_MAX_CONTROL;
+    case SP_BIND:
+        return length == SP_BIND_SIZE;
     default:
         return 0;
     }
@@ -215,7 +217,9 @@ sp_encode_hello(const struct sp_hello *hello, unsigned char **payload,
     p[40] = hello->mode;
     sp_put_u64(p + 48, hello->input_position);
     sp_put_u64(p + 56, hello->output_position);
-    put_u16(p + 64, hello->origin_length);
+    sp_put_u64(p + 64, (uint64_t) hello->player);
+    sp_put_u64(p + 72, (uint64_t) hello->listener);
+    put_u16(p + 80, hello->origin_length);
     if (hello->origin_length)
         memcpy(p + SP_HELLO_FIXED_SIZE, hello->origin, hello->origin_length);
     *payload = p;
@@ -230,7 +234,7 @@ sp_decode_hello(const struct sp_frame *frame, struct sp_hello *hello)
 
     if (frame->type != SP_HELLO || frame->length < SP_HELLO_FIXED_SIZE)
         return -1;
-    origin_length = get_u16(frame->payload + 64);
+    origin_length = get_u16(frame->payload + 80);
     if ((uint32_t) SP_HELLO_FIXED_SIZE + origin_length != frame->length
         || !all_zero(frame->payload + 41, 7))
         return -1;
@@ -245,6 +249,8 @@ sp_decode_hello(const struct sp_frame *frame, struct sp_hello *hello)
     hello->input_position = sp_get_u64(frame->payload + 48);
     hello->output_position = sp_get_u64(frame->payload + 56);
     hello->origin_length = origin_length;
+    hello->player = (int64_t) sp_get_u64(frame->payload + 64);
+    hello->listener = (int64_t) sp_get_u64(frame->payload + 72);
     hello->origin = frame->payload + SP_HELLO_FIXED_SIZE;
     return 0;
 }
@@ -315,4 +321,21 @@ sp_decode_detach(const struct sp_frame *frame, struct sp_detach *detach)
     detach->output_position = sp_get_u64(frame->payload + 16);
     return detach->mode == SP_MODE_GRACEFUL || detach->mode == SP_MODE_CRASH
         ? 0 : -1;
+}
+
+void
+sp_encode_bind(const struct sp_bind *bind, unsigned char payload[SP_BIND_SIZE])
+{
+    sp_put_u64(payload, (uint64_t) bind->player);
+    sp_put_u64(payload + 8, (uint64_t) bind->listener);
+}
+
+int
+sp_decode_bind(const struct sp_frame *frame, struct sp_bind *bind)
+{
+    if (frame->type != SP_BIND || frame->length != SP_BIND_SIZE)
+        return -1;
+    bind->player = (int64_t) sp_get_u64(frame->payload);
+    bind->listener = (int64_t) sp_get_u64(frame->payload + 8);
+    return 0;
 }
