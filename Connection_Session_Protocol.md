@@ -1,6 +1,12 @@
 # Connection-independent session protocol
 
-Status: initial design direction, 2026-08-26.
+Status: initial design implemented as a standalone prototype, 2026-08-26.
+
+The C reference edge, backend harness, protocol implementation, tests, and
+scenario results are in [`prototype/session/`](prototype/session/README.md).
+The prototype validates this boundary independently of the LambdaMOO network
+layer. Integration as a selectable `network.h` backend remains the next
+phase.
 
 ## Objective
 
