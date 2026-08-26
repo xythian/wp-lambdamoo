@@ -32,6 +32,8 @@ the OpenSSL command-line tool are required.
 
 ```sh
 make -C prototype/session test
+make -C prototype/session test-server-integration # after a session-backend MOO build
+make -C prototype/session benchmark
 make -C prototype/session test-sanitize
 ```
 
@@ -57,6 +59,12 @@ Point the reference edge at that Unix socket. On first attachment MOO sends a
 with the player/listener binding; MOO accepts it only when the pair occurs in
 the loaded checkpoint. The ordinary `tcp` networking backend remains the
 default.
+
+The full-server integration test preserves one TLS object through a forced
+crash and a signal-driven graceful shutdown, checks the corresponding recovery
+mode in MOO logs, and submits commands after each replacement. The benchmark
+retains 100 TLS sessions and reports small-message latency percentiles plus a
+4 MiB transfer rate; see [`EVALUATION.md`](EVALUATION.md).
 
 ## Demonstrated semantics
 

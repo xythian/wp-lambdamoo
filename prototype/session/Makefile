@@ -1,11 +1,12 @@
-.PHONY: all test test-unit test-integration test-sanitize clean
+.PHONY: all test test-unit test-integration test-server-integration \
+	test-sanitize benchmark clean
 
 CC ?= cc
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -pedantic -O2
 SANITIZE_FLAGS ?= -fsanitize=address,undefined -fno-omit-frame-pointer
 OPENSSL ?= openssl
 
-all: test_protocol edge backend integration_test
+all: test_protocol edge backend integration_test moo_integration_test session_benchmark
 
 test_protocol: protocol.c protocol.h test_protocol.c
 	$(CC) $(CFLAGS) -o $@ protocol.c test_protocol.c
@@ -18,6 +19,12 @@ backend: protocol.c protocol.h backend.c
 
 integration_test: integration_test.c
 	$(CC) $(CFLAGS) -o $@ integration_test.c -lssl -lcrypto
+
+moo_integration_test: moo_integration_test.c
+	$(CC) $(CFLAGS) -o $@ moo_integration_test.c -lssl -lcrypto
+
+session_benchmark: session_benchmark.c
+	$(CC) $(CFLAGS) -o $@ session_benchmark.c -lssl -lcrypto
 
 test: test-unit test-integration
 
@@ -33,10 +40,17 @@ test-tmp/cert.pem test-tmp/key.pem:
 test-integration: all test-tmp/cert.pem test-tmp/key.pem
 	./integration_test ./edge ./backend test-tmp/cert.pem test-tmp/key.pem test-tmp
 
+test-server-integration: all test-tmp/cert.pem test-tmp/key.pem
+	./moo_integration_test ../../moo ./edge ../../Minimal.db \
+		test-tmp/cert.pem test-tmp/key.pem test-tmp
+
+benchmark: edge backend session_benchmark test-tmp/cert.pem test-tmp/key.pem
+	./session_benchmark ./edge ./backend test-tmp/cert.pem test-tmp/key.pem test-tmp
+
 test-sanitize:
 	$(CC) $(CFLAGS) $(SANITIZE_FLAGS) -o test_protocol protocol.c test_protocol.c
 	ASAN_OPTIONS=detect_leaks=1 ./test_protocol
 
 clean:
-	rm -f test_protocol edge backend integration_test
+	rm -f test_protocol edge backend integration_test moo_integration_test session_benchmark
 	rm -rf test-tmp
