@@ -63,6 +63,7 @@
 #define NP_SINGLE	1
 #define NP_TCP		2
 #define NP_LOCAL	3
+#define NP_SESSION	4
 
 #define NS_BSD		1
 #define NS_SYSV		2
@@ -105,7 +106,8 @@
 #  endif
 #endif
 
-#if (NETWORK_PROTOCOL == NP_LOCAL || NETWORK_PROTOCOL == NP_SINGLE) && defined(OUTBOUND_NETWORK)
+#if (NETWORK_PROTOCOL == NP_LOCAL || NETWORK_PROTOCOL == NP_SINGLE \
+     || NETWORK_PROTOCOL == NP_SESSION) && defined(OUTBOUND_NETWORK)
 #  error You cannot define "OUTBOUND_NETWORK" with that "NETWORK_PROTOCOL"
 #endif
 
@@ -117,7 +119,8 @@
 #endif
 
 
-#if NETWORK_PROTOCOL != NP_LOCAL && NETWORK_PROTOCOL != NP_SINGLE && NETWORK_PROTOCOL != NP_TCP
+#if NETWORK_PROTOCOL != NP_LOCAL && NETWORK_PROTOCOL != NP_SINGLE \
+    && NETWORK_PROTOCOL != NP_TCP && NETWORK_PROTOCOL != NP_SESSION
 #  error Illegal value for "NETWORK_PROTOCOL"
 #endif
 

@@ -5,8 +5,9 @@ This directory implements the first carrier described in
 secured Unix-domain stream per session attachment, with a stable TLS edge
 retaining the external connection while backend processes are replaced.
 
-The prototype is intentionally standalone. The backend is an echo and
-large-output harness, not yet a LambdaMOO `network.h` implementation.
+The prototype includes both a standalone echo/large-output harness and the
+configure-selectable LambdaMOO `session` networking backend. The latter has
+preserved one TLS connection across a forced server crash and checkpoint resume.
 
 ## Components
 
@@ -21,6 +22,8 @@ large-output harness, not yet a LambdaMOO `network.h` implementation.
 - `test_protocol.c`: codec, framing, truncation, and malformed-header tests.
 - `integration_test.c`: process-level TLS and replacement scenarios.
 - `PROTOCOL.md`: the prototype 1.0 wire contract.
+- `../../net_session.c`: LambdaMOO endpoint, line/binary adaptation, bounded
+  output, and checkpoint-authorized session restoration.
 
 ## Build and test
 
@@ -40,6 +43,20 @@ authentication.
 Set `CC`, `CFLAGS`, or `OPENSSL` in the usual Make manner when needed. The
 prototype has no installation target and does not affect the normal server
 build.
+
+Build the server endpoint with:
+
+```sh
+./configure --enable-net=session,poll,require
+make
+./moo -l moo.log input.db output.db session.sock
+```
+
+Point the reference edge at that Unix socket. On first attachment MOO sends a
+`BIND` after login. Following a checkpoint and backend loss, the edge reconnects
+with the player/listener binding; MOO accepts it only when the pair occurs in
+the loaded checkpoint. The ordinary `tcp` networking backend remains the
+default.
 
 ## Demonstrated semantics
 
@@ -68,9 +85,8 @@ This code favors a legible experiment over a production event loop:
 - gateway configuration, certificate rotation, logging, and metrics are absent;
 - backend discovery is a fixed Unix socket path with retry;
 - sessions survive backend failure but not failure of their owning edge;
-- origin metadata is carried but the harness does not interpret it; and
-- no MOO connection options, line parsing, binary mode, login state, or
-  checkpoint resume hook are connected yet.
+- origin metadata is carried but has no structured schema yet; and
+- the standalone harness does not model MOO login/checkpoint authorization.
 
 These limitations are interface work or alternative-carrier work. None requires
 multiplexing to change the session-visible contract.

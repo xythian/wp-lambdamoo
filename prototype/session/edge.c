@@ -37,6 +37,8 @@ struct client {
     uint64_t input_acked;
     uint64_t output_position;
     uint8_t next_mode;
+    int64_t player;
+    int64_t listener;
 };
 
 static void
@@ -135,6 +137,8 @@ send_hello(struct client *client, int backend)
     hello.mode = client->next_mode;
     hello.input_position = client->input_position;
     hello.output_position = client->output_position;
+    hello.player = client->player;
+    hello.listener = client->listener;
     hello.origin = (const unsigned char *) client->origin;
     hello.origin_length = (uint16_t) strlen(client->origin);
     if (sp_encode_hello(&hello, &payload, &length) < 0)
@@ -228,6 +232,14 @@ handle_backend(struct client *client, int backend)
                 client->input_acked = ack.position;
             if (result == 0)
                 result = 1;
+        }
+    } else if (frame.type == SP_BIND) {
+        struct sp_bind bind;
+        result = sp_decode_bind(&frame, &bind);
+        if (result == 0) {
+            client->player = bind.player;
+            client->listener = bind.listener;
+            result = 1;
         }
     } else if (frame.type == SP_DETACH) {
         struct sp_detach detach;
@@ -402,6 +414,7 @@ main(int argc, char **argv)
         client->fd = fd;
         client->config = &config;
         client->next_mode = SP_MODE_INITIAL;
+        client->player = INT64_MIN;
         if (!client->tls
             || RAND_bytes(client->session_id, sizeof(client->session_id)) != 1) {
             SSL_free(client->tls);

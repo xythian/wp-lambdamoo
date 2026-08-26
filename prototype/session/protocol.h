@@ -12,7 +12,8 @@
 #define SP_MAX_DATA (1024u * 1024u)
 #define SP_MAX_PAYLOAD (SP_MAX_DATA + 8u)
 #define SP_ID_SIZE 16u
-#define SP_HELLO_FIXED_SIZE 66u
+#define SP_HELLO_FIXED_SIZE 82u
+#define SP_BIND_SIZE 16u
 #define SP_WELCOME_SIZE 32u
 #define SP_ACK_SIZE 16u
 #define SP_DETACH_SIZE 24u
@@ -25,7 +26,8 @@ enum sp_type {
     SP_ACK = 5,
     SP_DETACH = 6,
     SP_CLOSE = 7,
-    SP_ERROR = 8
+    SP_ERROR = 8,
+    SP_BIND = 9
 };
 
 enum sp_mode {
@@ -53,6 +55,8 @@ struct sp_hello {
     uint8_t mode;
     uint64_t input_position;
     uint64_t output_position;
+    int64_t player;
+    int64_t listener;
     uint16_t origin_length;
     const unsigned char *origin;
 };
@@ -76,6 +80,11 @@ struct sp_detach {
 };
 
 uint64_t sp_get_u64(const unsigned char *p);
+struct sp_bind {
+    int64_t player;
+    int64_t listener;
+};
+
 void sp_put_u64(unsigned char *p, uint64_t value);
 
 int sp_frame_read(int fd, struct sp_frame *frame);
@@ -95,5 +104,8 @@ int sp_decode_ack(const struct sp_frame *frame, struct sp_ack *ack);
 void sp_encode_detach(const struct sp_detach *detach,
                       unsigned char payload[SP_DETACH_SIZE]);
 int sp_decode_detach(const struct sp_frame *frame, struct sp_detach *detach);
+void sp_encode_bind(const struct sp_bind *bind,
+                    unsigned char payload[SP_BIND_SIZE]);
+int sp_decode_bind(const struct sp_frame *frame, struct sp_bind *bind);
 
 #endif

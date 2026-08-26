@@ -36,6 +36,8 @@ test_hello(void)
     source.mode = SP_MODE_CRASH;
     source.input_position = 1234;
     source.output_position = 5678;
+    source.player = 3;
+    source.listener = 0;
     source.origin = origin;
     source.origin_length = (uint16_t) (sizeof(origin) - 1);
 
@@ -51,6 +53,8 @@ test_hello(void)
     assert(decoded.mode == source.mode);
     assert(decoded.input_position == source.input_position);
     assert(decoded.output_position == source.output_position);
+    assert(decoded.player == source.player);
+    assert(decoded.listener == source.listener);
     assert(decoded.origin_length == source.origin_length);
     assert(memcmp(decoded.origin, origin, source.origin_length) == 0);
     free(payload);
@@ -116,6 +120,9 @@ test_codecs(void)
     unsigned char ack_bytes[SP_ACK_SIZE];
     unsigned char detach_bytes[SP_DETACH_SIZE];
 
+    struct sp_bind bind = {3, 0};
+    struct sp_bind decoded_bind;
+    unsigned char bind_bytes[SP_BIND_SIZE];
     sp_encode_welcome(&welcome, welcome_bytes);
     frame = (struct sp_frame) {SP_WELCOME, 0, SP_WELCOME_SIZE, welcome_bytes};
     assert(sp_decode_welcome(&frame, &decoded_welcome) == 0);
@@ -141,6 +148,12 @@ test_codecs(void)
     assert(decoded_detach.mode == SP_MODE_CRASH);
     assert(decoded_detach.input_position == 7);
     assert(decoded_detach.output_position == 8);
+    sp_encode_bind(&bind, bind_bytes);
+    frame = (struct sp_frame) {SP_BIND, 0, SP_BIND_SIZE, bind_bytes};
+    assert(sp_decode_bind(&frame, &decoded_bind) == 0);
+    assert(decoded_bind.player == 3);
+    assert(decoded_bind.listener == 0);
+
 }
 
 int

@@ -21,6 +21,8 @@
 
 #if NETWORK_PROTOCOL == NP_SINGLE
 #  include "net_single.c"
+#elif NETWORK_PROTOCOL == NP_SESSION
+#  include "net_session.c"
 #else
 #  include "net_multi.c"
 #endif

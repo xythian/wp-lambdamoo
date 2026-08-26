@@ -148,8 +148,14 @@ extern void network_suspend_input(network_handle nh);
 
 extern void network_resume_input(network_handle nh);
 				/* The network module may once again feel free
-				 * to call `server_receive_line()' for the
+				 * to call `server_receive_line()` for the
 				 * given connection.
+				 */
+
+extern void network_set_connection_player(network_handle nh,
+				          Objid player, Objid listener);
+				/* Inform a network implementation that a connection
+				 * has acquired its authenticated player identity.
 				 */
 
 extern void network_set_connection_binary(network_handle, int);
