@@ -84,7 +84,7 @@ Currently, there are two supported scenarios:
 
 ## Waterpoint releases
 
-Releases are cut by tagging a commit on `waterpoint-190` with the next
+Releases are cut by tagging a commit on `waterpoint` with the next
 `wp-`N and pushing the tag:
 
     git tag wp-3 <commit>
@@ -93,9 +93,9 @@ Releases are cut by tagging a commit on `waterpoint-190` with the next
 CI (`.github/workflows/ci.yml`) then builds that commit with the
 lambdamoo-tests `waterpoint` build configuration on Ubuntu 26.04, runs
 the lambdamoo-tests suite, checks that the binary's `server_version()`
-ends in `+wp.`N and that the commit is on `waterpoint-190`, and publishes
+ends in `+wp.`N and that the commit is on `waterpoint`, and publishes
 a GitHub Release `wp-`N with `moo`, `Minimal.db` and a `BUILDINFO` file.
-Pushes to `waterpoint-190` get the same build and tests, with the binary
+Pushes to `waterpoint` get the same build and tests, with the binary
 kept as a workflow artifact.
 
 To match a running server back to a release, use `server_version()`
