@@ -22,7 +22,6 @@
 #include <errno.h>
 #include "my-poll.h"
 
-#include "log.h"
 #include "storage.h"
 
 typedef struct pollfd Port;
@@ -83,11 +82,9 @@ mplex_wait(unsigned timeout)
 {
     int result = poll(ports, max_fd + 1, timeout * 1000);
 
-    if (result < 0) {
-	if (errno != EINTR)
-	    log_perror("Waiting for network I/O");
-	return 1;
-    } else
+    if (result < 0)
+	return errno == EINTR ? 1 : -1;
+    else
 	return (result == 0);
 }
 

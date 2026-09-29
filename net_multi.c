@@ -28,6 +28,7 @@
 #include "my-stdio.h"
 #include "my-stdlib.h"
 #include "my-string.h"
+#include "my-time.h"
 #include "my-unistd.h"
 
 #include "exceptions.h"
@@ -365,7 +366,8 @@ close_nhandle(nhandle * h)
 	b = bb;
     }
     free_stream(h->input);
-    proto_close_connection(h->rfd, h->wfd);
+    if (h->rfd >= 0 || h->wfd >= 0)
+	proto_close_connection(h->rfd, h->wfd);
     free_str(h->name);
     myfree(h, M_NETWORK);
 }
@@ -376,7 +378,8 @@ close_nlistener(nlistener * l)
     *(l->prev) = l->next;
     if (l->next)
 	l->next->prev = l->prev;
-    proto_close_listener(l->fd);
+    if (l->fd >= 0)
+	proto_close_listener(l->fd);
     free_str(l->name);
     myfree(l, M_NETWORK);
 }
@@ -588,6 +591,98 @@ network_resume_input(network_handle nh)
     h->input_suspended = 0;
 }
 
+static int
+fd_is_closed(int fd)
+{
+    return fd >= 0 && fcntl(fd, F_GETFD) < 0 && errno == EBADF;
+}
+
+/* The multiplexing wait failed with EBADF, meaning something closed a
+ * descriptor that is still in our wait set.  The wait will keep failing
+ * (without doing any I/O) until that descriptor is gone, so find each one
+ * and disown it.  The stale numbers are never close()d, since by now they
+ * may belong to something else.  Returns the number of descriptors dropped.
+ */
+static int
+drop_closed_fds(void)
+{
+    nlistener *l;
+    nhandle *h, *hnext;
+    fd_reg *reg;
+    int count = 0;
+
+    for (l = all_nlisteners; l; l = l->next)
+	if (fd_is_closed(l->fd)) {
+	    errlog("NETWORK: Descriptor %d for listener on %s was closed "
+		   "out from under us; it is no longer listening\n",
+		   l->fd, l->name);
+	    l->fd = -1;
+	    count++;
+	}
+    for (h = all_nhandles; h; h = hnext) {
+	hnext = h->next;
+	if (fd_is_closed(h->rfd) || fd_is_closed(h->wfd)) {
+	    errlog("NETWORK: Descriptor %d/%d for connection %s was closed "
+		   "out from under us; closing connection\n",
+		   h->rfd, h->wfd, h->name);
+	    if (fd_is_closed(h->rfd))
+		h->rfd = -1;
+	    if (fd_is_closed(h->wfd))
+		h->wfd = -1;
+	    server_close(h->shandle);
+	    close_nhandle(h);
+	    count++;
+	}
+    }
+    for (reg = reg_fds; reg < reg_fds + max_reg_fds; reg++)
+	if (fd_is_closed(reg->fd)) {
+	    errlog("NETWORK: Registered descriptor %d was closed "
+		   "out from under us; unregistering it\n", reg->fd);
+	    reg->fd = -1;
+	    count++;
+	}
+
+    return count;
+}
+
+#define MPLEX_ERROR_LOG_INTERVAL 60	/* seconds */
+
+static unsigned mplex_failures = 0;	/* consecutive failed waits */
+static time_t mplex_failure_logged;
+
+/* A failed wait returns immediately, so a failure that persists would
+ * otherwise spin the server and flood the log.  Log at most once per
+ * MPLEX_ERROR_LOG_INTERVAL, and stand in for the wait we didn't get.
+ */
+static void
+mplex_failed(int err, int timeout)
+{
+    time_t now = time(0);
+    int dropped = err == EBADF ? drop_closed_fds() : 0;
+
+    mplex_failures++;
+    if (mplex_failures == 1
+	|| now - mplex_failure_logged >= MPLEX_ERROR_LOG_INTERVAL) {
+	errlog("NETWORK: Waiting for network I/O: %s "
+	       "(%u consecutive failure%s)\n", strerror(err),
+	       mplex_failures, mplex_failures == 1 ? "" : "s");
+	mplex_failure_logged = now;
+    }
+    if (!dropped && timeout > 0)
+	sleep(timeout);
+}
+
+static void
+mplex_succeeded(void)
+{
+    if (mplex_failures > 0) {
+	oklog("NETWORK: Waiting for network I/O works again after "
+	      "%u consecutive failure%s\n",
+	      mplex_failures, mplex_failures == 1 ? "" : "s");
+	mplex_failures = 0;
+    }
+}
+
 int
 network_process_io(int timeout)
 {
@@ -596,7 +691,8 @@ network_process_io(int timeout)
 
     mplex_clear();
     for (l = all_nlisteners; l; l = l->next)
-	mplex_add_reader(l->fd);
+	if (l->fd >= 0)
+	    mplex_add_reader(l->fd);
     for (h = all_nhandles; h; h = h->next) {
 	if (!h->input_suspended)
 	    mplex_add_reader(h->rfd);
@@ -605,11 +701,17 @@ network_process_io(int timeout)
     }
     add_registered_fds();
 
-    if (mplex_wait(timeout))
+    switch (mplex_wait(timeout)) {
+    case -1:
+	mplex_failed(errno, timeout);
 	return 0;
-    else {
+    case 1:
+	mplex_succeeded();
+	return 0;
+    default:
+	mplex_succeeded();
 	for (l = all_nlisteners; l; l = l->next)
-	    if (mplex_is_readable(l->fd))
+	    if (l->fd >= 0 && mplex_is_readable(l->fd))
 		accept_new_connection(l);
 	for (h = all_nhandles; h; h = hnext) {
 	    hnext = h->next;
