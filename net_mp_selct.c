@@ -24,7 +24,6 @@
 #include "my-sys-time.h"	/* select(), struct timeval */
 #include "my-types.h"		/* fd_set, FD_ZERO(), FD_SET(), FD_ISSET() */
 
-#include "log.h"
 
 static fd_set input, output;
 static int max_descriptor;
@@ -64,11 +63,9 @@ mplex_wait(unsigned timeout)
 
     n = select(max_descriptor + 1, (void *) &input, (void *) &output, 0, &tv);
 
-    if (n < 0) {
-	if (errno != EINTR)
-	    log_perror("Waiting for network I/O");
-	return 1;
-    } else
+    if (n < 0)
+	return errno == EINTR ? 1 : -1;
+    else
 	return (n == 0);
 }
 

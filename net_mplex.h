@@ -24,7 +24,7 @@
  *
  *      mplex_clear();
  *      { mplex_add_reader(fd)  or  mplex_add_writer(fd) }*
- *      timed_out = mplex_wait(timeout);
+ *      result = mplex_wait(timeout);
  *      { mplex_is_readable(fd)  or  mplex_is_writable(fd) }*
  *
  * The set of file descriptors maintained by the abstraction is referred to
@@ -52,8 +52,12 @@ extern int mplex_wait(unsigned timeout);
 				/* Wait until it is possible either to do the
 				 * appropriate kind of I/O on some descriptor
 				 * in the wait set or until `timeout' seconds
-				 * have elapsed.  Return true iff the timeout
-				 * expired without any I/O becoming possible.
+				 * have elapsed.  Return 0 if I/O has become
+				 * possible, 1 if the timeout expired (or a
+				 * signal arrived) without any I/O becoming
+				 * possible, or -1 with errno set if the wait
+				 * itself failed.  Failures are not logged
+				 * here; that is the caller's job.
 				 */
 
 extern int mplex_is_readable(int fd);
