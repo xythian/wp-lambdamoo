@@ -28,9 +28,11 @@
 
 #include "my-in.h"
 
-extern int initialize_name_lookup(void);
+extern int initialize_name_lookup(int enabled);
 				/* Initialize the module, returning true iff
-				 * this succeeds.
+				 * this succeeds.  If !enabled, no lookup
+				 * process is started and the lookup functions
+				 * below handle only numeric addresses.
 				 */
 
 extern uint32_t lookup_addr_from_name(const char *name,

@@ -12,12 +12,13 @@ static in_addr_t bind_local_ip = INADDR_ANY;
 const char *
 proto_usage_string(void)
 {
-    return "[+O|-O] [-a ip_address] [[-p] port]";
+    return "[+O|-O] [+N|-N] [-a ip_address] [[-p] port]";
 }
 
 
 static int
-tcp_arguments(struct proto *proto, int argc, char **argv, int *pport)
+tcp_arguments(struct proto *proto, int argc, char **argv, int *pport,
+	      int *pname_lookup)
 {
     char *p = 0;
 
@@ -35,6 +36,13 @@ tcp_arguments(struct proto *proto, int argc, char **argv, int *pport)
 		oklog("CMDLINE: *** Ignoring %s (outbound network not supported)\n", argv[0]);
 	    }
 #endif
+	}
+	else if (argc > 0
+		 && (argv[0][0] == '-' || argv[0][0] == '+')
+		 && argv[0][1] == 'N'
+		 && argv[0][2] == 0
+		 ) {
+	    *pname_lookup = (argv[0][0] == '+');
 	}
 	else if (0 == strcmp(argv[0],"-a")) {
             if (argc <= 1)
@@ -65,6 +73,8 @@ tcp_arguments(struct proto *proto, int argc, char **argv, int *pport)
     oklog("CMDLINE: Outbound network connections %s.\n",
           proto->can_connect_outbound ? "enabled" : "disabled");
 #endif
+    oklog("CMDLINE: DNS name lookups %s.\n",
+	  *pname_lookup ? "enabled" : "disabled; numeric addresses only");
     return 1;
 }
 
@@ -80,15 +90,16 @@ proto_initialize(struct proto *proto, Var * desc, int argc, char **argv)
 #endif
 
     int port = DEFAULT_PORT;
+    int name_lookup = 1;
 
     proto->pocket_size = 1;
     proto->believe_eof = 1;
     proto->eol_out_string = "\r\n";
 
-    if (!tcp_arguments(proto, argc, argv, &port))
+    if (!tcp_arguments(proto, argc, argv, &port, &name_lookup))
 	return 0;
 
-    initialize_name_lookup();
+    initialize_name_lookup(name_lookup);
 
     desc->type = TYPE_INT;
     desc->v.num = port;
