@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches: [ waterpoint-190 ]
+    # Waterpoint releases: wp-1, wp-2, ... (see Version_Source.md)
+    tags: [ 'wp-[0-9]*' ]
+  pull_request:
+    branches: [ waterpoint-190 ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PLATFORM: ubuntu-26.04-x86_64
+
+jobs:
+  build-test:
+    name: Build and test (Ubuntu 26.04, waterpoint config)
+    runs-on: ubuntu-26.04
+    outputs:
+      server_version: ${{ steps.version.outputs.server_version }}
+
+    steps:
+    - name: Checkout wp-lambdamoo
+      uses: actions/checkout@v4
+      with:
+        path: wp-lambdamoo
+        # configure derives the server version from `git describe` (v* tags)
+        fetch-depth: 0
+
+    - name: Checkout lambdamoo-tests
+      uses: actions/checkout@v4
+      with:
+        repository: xythian/lambdamoo-tests
+        path: lambdamoo-tests
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y autoconf make gcc gperf bison \
+          libpcre2-dev libexpat1-dev libunistring-dev libcrypt-dev
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install test suite
+      working-directory: lambdamoo-tests
+      run: uv sync
+
+    - name: Build (lmt waterpoint config)
+      working-directory: lambdamoo-tests
+      run: uv run lmt build --no-cache --source ../wp-lambdamoo --config waterpoint --output ../dist
+
+    - name: Run lmt tests
+      working-directory: lambdamoo-tests
+      env:
+        MOO_MINIMAL_DB: ${{ github.workspace }}/wp-lambdamoo/Minimal.db
+      # Upgrade tests need prior server builds, which CI doesn't set up
+      run: uv run lmt test --candidate ../dist/moo -m "not upgrade"
+
+    - name: Check server_version()
+      id: version
+      run: |
+        db=$(mktemp -d)
+        cp wp-lambdamoo/Minimal.db "$db/in.db"
+        server_version=$(printf ';server_version()\nquit\n' \
+          | dist/moo -e "$db/in.db" "$db/out.db" 2>/dev/null \
+          | sed -n 's/^.*=> "\(.*\)"$/\1/p')
+        echo "server_version() = ${server_version}"
+        [ -n "${server_version}" ] || { echo "::error::could not read server_version()"; exit 1; }
+        if [ "${GITHUB_REF_TYPE}" = tag ]; then
+          n=$(expr "${GITHUB_REF_NAME}" : 'wp-\([0-9][0-9]*\)$') \
+            || { echo "::error::release tags must be wp-<number>"; exit 1; }
+          git -C wp-lambdamoo merge-base --is-ancestor HEAD origin/waterpoint-190 \
+            || { echo "::error::${GITHUB_REF_NAME} is not on waterpoint-190"; exit 1; }
+          case "${server_version}" in
+            *"+wp.${n}") ;;
+            *) echo "::error::release build reports '${server_version}', expected it to end in +wp.${n}"; exit 1 ;;
+          esac
+        fi
+        echo "server_version=${server_version}" >> "$GITHUB_OUTPUT"
+
+    - name: Package binary
+      id: package
+      env:
+        SERVER_VERSION: ${{ steps.version.outputs.server_version }}
+      run: |
+        if [ "${GITHUB_REF_TYPE}" = tag ]; then
+          version="${GITHUB_REF_NAME}"
+        else
+          version="waterpoint-190-$(git -C wp-lambdamoo rev-parse --short HEAD)"
+        fi
+        name="moo-${version}-${PLATFORM}"
+        mkdir -p "package/${name}"
+        cp dist/moo wp-lambdamoo/Minimal.db "package/${name}/"
+        {
+          echo "wp-lambdamoo ${version} for ${PLATFORM}"
+          echo "server_version(): ${SERVER_VERSION}"
+          echo "commit:     $(git -C wp-lambdamoo rev-parse HEAD)"
+          echo "describe:   $(git -C wp-lambdamoo describe --tags --match 'v[0-9]*')"
+          echo "config:     lmt build config 'waterpoint' (lambdamoo-tests $(git -C lambdamoo-tests rev-parse --short HEAD))"
+          echo "built on:   $(. /etc/os-release && echo "$PRETTY_NAME"), $(gcc --version | head -1)"
+          echo "runtime:    apt-get install libpcre2-8-0 libexpat1 libunistring5 libcrypt1"
+        } > "package/${name}/BUILDINFO"
+        tar -C package -czf "${name}.tar.gz" "${name}"
+        echo "name=${name}" >> "$GITHUB_OUTPUT"
+
+    - name: Upload binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.package.outputs.name }}
+        path: ${{ steps.package.outputs.name }}.tar.gz
+        if-no-files-found: error
+
+  release:
+    name: Release
+    if: github.ref_type == 'tag'
+    needs: build-test
+    env:
+      SERVER_VERSION: ${{ needs.build-test.outputs.server_version }}
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+
+    steps:
+    - name: Download binary
+      uses: actions/download-artifact@v4
+      with:
+        pattern: moo-${{ github.ref_name }}-*
+        merge-multiple: true
+
+    - name: Create GitHub Release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release create "${GITHUB_REF_NAME}" moo-*.tar.gz \
+          --repo "${GITHUB_REPOSITORY}" \
+          --title "Waterpoint ${GITHUB_REF_NAME}" \
+          --notes "server_version() reports \`${SERVER_VERSION}\`." \
+          --generate-notes
