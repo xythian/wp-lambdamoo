@@ -2,11 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [ waterpoint-190 ]
+    branches: [ waterpoint ]
     # Waterpoint releases: wp-1, wp-2, ... (see Version_Source.md)
     tags: [ 'wp-[0-9]*' ]
   pull_request:
-    branches: [ waterpoint-190 ]
+    branches: [ waterpoint ]
 
 permissions:
   contents: read
@@ -78,8 +78,8 @@ jobs:
         if [ "${GITHUB_REF_TYPE}" = tag ]; then
           n=$(expr "${GITHUB_REF_NAME}" : 'wp-\([0-9][0-9]*\)$') \
             || { echo "::error::release tags must be wp-<number>"; exit 1; }
-          git -C wp-lambdamoo merge-base --is-ancestor HEAD origin/waterpoint-190 \
-            || { echo "::error::${GITHUB_REF_NAME} is not on waterpoint-190"; exit 1; }
+          git -C wp-lambdamoo merge-base --is-ancestor HEAD origin/waterpoint \
+            || { echo "::error::${GITHUB_REF_NAME} is not on waterpoint"; exit 1; }
           case "${server_version}" in
             *"+wp.${n}") ;;
             *) echo "::error::release build reports '${server_version}', expected it to end in +wp.${n}"; exit 1 ;;
@@ -95,7 +95,7 @@ jobs:
         if [ "${GITHUB_REF_TYPE}" = tag ]; then
           version="${GITHUB_REF_NAME}"
         else
-          version="waterpoint-190-$(git -C wp-lambdamoo rev-parse --short HEAD)"
+          version="waterpoint-$(git -C wp-lambdamoo rev-parse --short HEAD)"
         fi
         name="moo-${version}-${PLATFORM}"
         mkdir -p "package/${name}"
