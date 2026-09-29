@@ -321,8 +321,13 @@ abandon_intermediary(const char *prefix)
 }
 
 int
-initialize_name_lookup(void)
+initialize_name_lookup(int enabled)
 {
+    if (!enabled) {
+	dead_intermediary = 1;
+	return 1;
+    }
+
     /* Change this to "return 1" to delay launch until we actually
      * need it.  But, it turns out the problem with doing that is the
      * longer we wait, the bigger the process gets, and the more
