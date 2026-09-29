@@ -276,6 +276,9 @@ m4_define([_MOO_SVF_SOURCE_GIT],
   if test "x$moo_gdesc" != x ; then
     moo_DEFSRC=$moo_DEFSRC' DEF(desc,"'$moo_gdesc'")'
   fi
+  if test "x$moo_wpdesc" != x ; then
+    moo_DEFSRC=$moo_DEFSRC' DEF(wp_desc,"'$moo_wpdesc'")'
+  fi
   ]_MOO_SVF_PUTVAR([DEFSRC])])
 
 #  _MOO_SVF_VN_FROM_GIT
@@ -283,6 +286,9 @@ m4_define([_MOO_SVF_SOURCE_GIT],
 #    extract version number from moo_gdesc
 #    set and write out
 #      moo_{MAJOR, MINOR, RELEASE}
+#    if a Waterpoint release tag (wp-N) is reachable, save its
+#      'git describe' in moo_wpdesc and append +wp.N to moo_EXT,
+#      counting commits since wp-N rather than since the v* tag
 #    if current commit is not the version-tagged one
 #      appends +n to moo_EXT if moo_EXT is not already set
 #    does *not* write out moo_EXT
@@ -304,6 +310,16 @@ m4_define([_MOO_SVF_VN_FROM_GIT],
   _MOO_SVF_PUTVAR([MAJOR])
   _MOO_SVF_PUTVAR([MINOR])
   _MOO_SVF_PUTVAR([RELEASE])[
+  # Waterpoint releases are tagged wp-N, apart from upstream's v* tags;
+  # tags with anything but digits after wp- are not releases
+  moo_wpdesc=`git describe --tags --match "wp-[0-9]*" --exclude "wp-*[!0-9]*" 2>/dev/null`
+  moo_wprel=`expr "X$moo_wpdesc" : 'Xwp-\([0-9][0-9]*\)'`
+  if test "x$moo_wprel" != x; then
+      moo_EXT=$moo_EXT+wp.$moo_wprel
+      moo_ccount=`expr "X$moo_wpdesc" : 'Xwp-[0-9][0-9]*-\([0-9][0-9]*\)-g'`
+  else
+      moo_wpdesc=
+  fi
   if test "x$moo_ccount" != x; then
       moo_EXT=$moo_EXT+$moo_ccount
   fi]])dnl

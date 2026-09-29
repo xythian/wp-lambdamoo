@@ -70,6 +70,38 @@ Currently, there are two supported scenarios:
     + `source/vcs` = "git"
     + `source/commit` is the commit id
 
+    + Waterpoint release tags of the form `wp-`N (N digits) are separate
+      from upstream's `v` tags.  If one is reachable, `+wp.`N is appended
+      to `ext`, and the `+`N commit count is counted from the `wp-` tag
+      instead of the `v` tag.  `source/wp_desc` is `git describe` for
+      the `wp-` tag.  For example, with upstream tag `v1.9.0alpha`:
+
+      | built from              | `server_version()`    | `source/wp_desc`  |
+      |-------------------------|-----------------------|-------------------|
+      | no `wp-` tag yet        | `1.9.0alpha+11`       | (absent)          |
+      | exactly `wp-3`          | `1.9.0alpha+wp.3`     | `wp-3`            |
+      | 5 commits after `wp-3`  | `1.9.0alpha+wp.3+5`   | `wp-3-5-g`...     |
+
+## Waterpoint releases
+
+Releases are cut by tagging a commit on `waterpoint-190` with the next
+`wp-`N and pushing the tag:
+
+    git tag wp-3 <commit>
+    git push origin wp-3
+
+CI (`.github/workflows/ci.yml`) then builds that commit with the
+lambdamoo-tests `waterpoint` build configuration on Ubuntu 26.04, runs
+the lambdamoo-tests suite, checks that the binary's `server_version()`
+ends in `+wp.`N and that the commit is on `waterpoint-190`, and publishes
+a GitHub Release `wp-`N with `moo`, `Minimal.db` and a `BUILDINFO` file.
+Pushes to `waterpoint-190` get the same build and tests, with the binary
+kept as a workflow artifact.
+
+To match a running server back to a release, use `server_version()`
+(the `+wp.`N part) or `server_version("source")` (`commit`, `wp_desc`).
+A trailing `?`N in `ext` means the server was built from modified sources.
+
 ## Options for ./configure
 
 Note that as per convention for all `--enable` and `--with` options,
