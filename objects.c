@@ -23,6 +23,7 @@
 #include "execute.h"
 #include "functions.h"
 #include "list.h"
+#include "log.h"
 #include "numbers.h"
 #include "quota.h"
 #include "server.h"
@@ -484,7 +485,17 @@ bf_recycle(Var arglist, Byte func_pc, void *vdata, Objid progr)
 
 	/* Do the same thing for the inheritance hierarchy (much easier!) */
 	while ((c = get_first(oid, db_for_all_children)) != NOTHING)
-	    db_change_parent(c, db_object_parent(oid));
+	    if (!db_change_parent(c, db_object_parent(oid))) {
+		/* A property defined on both the new parent's ancestry and
+		 * C's subtree (only possible in a damaged database) makes
+		 * this fail, and retrying would loop forever.  Orphan C
+		 * instead, which always succeeds.
+		 */
+		errlog("RECYCLE: could not reparent #%"PRIdN" to #%"PRIdN
+		       " (conflicting property names); making it an orphan\n",
+		       c, db_object_parent(oid));
+		db_change_parent(c, NOTHING);
+	    }
 	db_change_parent(oid, NOTHING);
 
 	/* Finish the demolition. */

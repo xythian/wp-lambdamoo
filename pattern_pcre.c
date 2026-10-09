@@ -19,12 +19,22 @@
 # include "utf.h"
 # include "storage.h"
 # include "exceptions.h"
+# include "execute.h"
 
 # define DEBUG       0
 # define UTF8_CHECK  0
 
 # define MATCH_LIMIT            100000
-# define MATCH_LIMIT_RECURSION    5000
+# define MATCH_LIMIT_DEPTH        5000
+
+/* Callout numbers.  The end callout (number 0) is used by rmatch() to find
+ * the rightmost match.  The start callout runs once for every starting
+ * position PCRE tries.  PCRE applies MATCH_LIMIT separately to each starting
+ * position, so without it a match over a long subject can run for minutes or
+ * hours without ever checking the task's seconds limit.
+ */
+# define START_CALLOUT            1
+# define START_CALLOUT_STR       "1"
 
 typedef struct {
     pcre2_code *code;
@@ -55,8 +65,10 @@ const char *translate(const char *moopat)
      * namely, the inclusion of _ in \w and its absence in %w.
      */
 
-    /* wrap entire expression so we can add a callout at the end */
-    stream_add_string(s, "(?:");
+    /* wrap entire expression so we can add callouts at the start and end;
+       PCRE skips over the start callout when looking for anchoring and
+       other start-of-match optimizations */
+    stream_add_string(s, "(?C" START_CALLOUT_STR ")(?:");
 
     while ((c = get_utf(&moopat))) {
 	switch (state) {
@@ -283,7 +295,7 @@ Pattern new_pattern(const char *pattern, int case_matters)
 	    panic("pcre2_match_context_create() failed");
 
 	pcre2_set_match_limit(regexp->match_context, MATCH_LIMIT);
-	pcre2_set_recursion_limit(regexp->match_context, MATCH_LIMIT_RECURSION);
+	pcre2_set_depth_limit(regexp->match_context, MATCH_LIMIT_DEPTH);
     }
 
     p.ptr = regexp;
@@ -292,10 +304,19 @@ Pattern new_pattern(const char *pattern, int case_matters)
 }
 
 static
-int rmatch_callout(pcre2_callout_block *block, void *callout_data)
+int match_callout(pcre2_callout_block *block, void *callout_data)
 {
     rmatch_data_t *rmatch = callout_data;
-    int capture_top = block->capture_top > MATCH_GROUP_LIMIT
+    int capture_top;
+
+    if (block->callout_number == START_CALLOUT)
+	/* give up if the task has run out of seconds */
+	return task_timed_out ? PCRE2_ERROR_CALLOUT : 0;
+
+    if (!rmatch)
+	return 0;  /* forward match: let it succeed */
+
+    capture_top = block->capture_top > MATCH_GROUP_LIMIT
 	? MATCH_GROUP_LIMIT : block->capture_top;
 
     if (!rmatch->valid || block->current_position > rmatch->ovec[1] ||
@@ -330,12 +351,9 @@ Match_Result match_pattern(Pattern p, const char *string,
     if (!match_data)
 	panic("pcre2_match_data_create() failed");
 
-    if (is_reverse) {
-	rmatch.valid = 0;
-	pcre2_set_callout(regexp->match_context, rmatch_callout, &rmatch);
-    }
-    else
-	pcre2_set_callout(regexp->match_context, 0, 0);
+    rmatch.valid = 0;
+    pcre2_set_callout(regexp->match_context, match_callout,
+		      is_reverse ? &rmatch : 0);
 
 # if !UTF8_CHECK
     options |= PCRE2_NO_UTF_CHECK;
@@ -360,7 +378,8 @@ Match_Result match_pattern(Pattern p, const char *string,
 	    fprintf(stderr, __FILE__ ": pcre2_match() failed: %d\n", rc);
 # endif
 	case PCRE2_ERROR_MATCHLIMIT:
-	case PCRE2_ERROR_RECURSIONLIMIT:
+	case PCRE2_ERROR_DEPTHLIMIT:
+	case PCRE2_ERROR_CALLOUT:
 	    pcre2_match_data_free(match_data);
 	    return MATCH_ABORTED;
 	}
