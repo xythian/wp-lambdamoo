@@ -1921,8 +1921,22 @@ do {								\
 	    {
 		register enum Extended_Opcode eop = *bv;
 		bv++;
-		if (COUNT_EOP_TICK(eop))
-		    ticks_remaining--;
+		/* Check the limits here as well as at the top of the loop:
+		 * a labelled while loop (EOP_WHILE_ID) can spin without ever
+		 * executing an opcode that is checked there.
+		 */
+		if (COUNT_EOP_TICK(eop)) {
+		    if (--ticks_remaining <= 0) {
+			STORE_STATE_VARIABLES();
+			abort_task(ABORT_TICKS);
+			return OUTCOME_ABORTED;
+		    }
+		    if (task_timed_out) {
+			STORE_STATE_VARIABLES();
+			abort_task(ABORT_SECONDS);
+			return OUTCOME_ABORTED;
+		    }
+		}
 		switch (eop) {
 		case EOP_RANGESET:
 		    {
