@@ -500,7 +500,8 @@ stream_add_recoded_chars(Stream *s,
 {
     iconv_t cd;
     char *outbuf;
-    size_t outbytesleft;
+    size_t outbytesleft, room;
+    volatile size_t need = inbytesleft * 2;
     volatile int ret;
 
     cd = iconv_open(tocode, fromcode);
@@ -509,8 +510,8 @@ stream_add_recoded_chars(Stream *s,
 
     TRY
 	do {
-	    stream_beginfill(s, inbytesleft * 2,
-			     &outbuf, &outbytesleft);
+	    stream_beginfill(s, need, &outbuf, &outbytesleft);
+	    room = outbytesleft;
 	    ret = (size_t) -1 !=
 		iconv(cd, (void *)&inbuf, &inbytesleft,
 		      /*  Evidently, Solaris wants inbuf
@@ -518,6 +519,14 @@ stream_add_recoded_chars(Stream *s,
 		      &outbuf, &outbytesleft);
 
 	    stream_endfill(s, outbytesleft);
+
+	    /* The next character can need more room than is left (one
+	     * ASCII byte becomes four bytes of UTF-32, for instance).
+	     * If nothing fit, ask for more than we had; otherwise
+	     * stream_beginfill() can hand back the same too-small space
+	     * and we would retry forever.
+	     */
+	    need = outbytesleft == room ? 2 * room + 16 : inbytesleft * 2;
 	}
 	while (!ret && errno == E2BIG);
 	/* E2BIG = remaining output buffer too small => try again
