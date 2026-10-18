@@ -766,6 +766,16 @@ error(const char *s, const char *t)
     (*(client.error))(client_data, fmt_error(s, t));
 }
 
+/* A broken lexer invariant is a server bug, but the parse is self-contained,
+ * so fail just this program rather than panicking the whole server.
+ */
+static void
+lexer_bug(const char *s)
+{
+    errlog("PARSER: internal lexer error at line %d: %s\n", lineno, s);
+    error("Internal parser error: ", s);
+}
+
 static void
 warning(const char *s, const char *t)
 {
@@ -905,7 +915,7 @@ start_over:
 	    return tOBJECT;
 	}
 	else if (pn.type != TYPE_ERR)
-	    panic("parse_number(#...) returned unexpected type");
+	    lexer_bug("parse_number(#...) returned unexpected type");
 	else if (pn.v.err == E_RANGE)
 	    yyerror("Object number outside of allowed range");
 	else
@@ -929,11 +939,11 @@ start_over:
 	    return tFLOAT;
 	}
 	else if (pn.type != TYPE_ERR)
-	    panic("parse_number returned unexpected type");
+	    lexer_bug("parse_number returned unexpected type");
 	else if (pn.v.err == E_NONE) {
 	    c = lex_getc();
 	    if (c == '.') goto normal_dot;
-	    else panic("parse_number ungot unexpected char.");
+	    else lexer_bug("parse_number ungot unexpected char");
 	}
 	else if (pn.v.err == E_RANGE)
 	    yyerror("INT literal outside of allowed range");
@@ -942,7 +952,7 @@ start_over:
 	else if (pn.v.err == E_INVARG)
 	    yyerror("Malformed numeric literal");
 	else
-	    panic("parse_number returned weird error code.");
+	    lexer_bug("parse_number returned weird error code");
 	return 0;
     }
 
