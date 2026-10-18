@@ -1173,9 +1173,14 @@ static inline uint32_t
 single_char_first_argument(Var arglist)
 {
     const char *s = arglist.v.list[1].v.str;
-    uint32_t ucs = get_utf(&s);
-    if (*s)
-	ucs = 0;
+    uint32_t ucs = 0;
+
+    /* get_utf() steps past the terminating NUL of an empty string */
+    if (*s) {
+	ucs = get_utf(&s);
+	if (*s)
+	    ucs = 0;
+    }
     free_var(arglist);
     return ucs;
 }
