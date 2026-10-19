@@ -265,7 +265,7 @@ parse_number(unsigned flags, int32_t c_first,
 	    goto range_error;
 	if (p != p0)
 	    goto parse_error;
-	ret.v.num = ((flags & PN_NONNEG) ? -i : i);
+	ret.v.num = ((flags & PN_NONNEG) ? num_negate((Num)i) : (Num)i);
     }
     else {
 	FlNum d = strtoflnum(stream_contents(ns)
@@ -330,8 +330,8 @@ parse_number(unsigned flags, int32_t c_first,
  *
  * (**)... the one weirdness being that if we're on a platform whose
  * INTMAX_MAX == NUM_MAX, then strtoimax() will produce NUM_MIN
- * directly and the two subsequent negations will actually be
- * no-ops,... but this will be completely invisible.
+ * directly and the two subsequent negations preserve NUM_MIN using
+ * explicitly wrapping arithmetic, without overflowing signed C integers.
  *
  * The one downside to all of this is if someone tries to write a
  * *positive* (NUM_MAX+1) into verbcode (i.e., without any leading
@@ -612,7 +612,8 @@ numeric_lt_or_eq(int not, Var a, Var b)
 			ans.v.err = E_TYPE;			\
 		    } else if (a.type == TYPE_INT) {		\
 			ans.type = TYPE_INT;			\
-			ans.v.num = a.v.num op b.v.num;		\
+			ans.v.num = num_from_unsigned((UNum)	\
+			    ((uintmax_t)a.v.num op (uintmax_t)b.v.num)); \
 		    } else {					\
 			FlNum d =				\
 			    fl_unbox(a.v.fnum)			\
@@ -680,7 +681,7 @@ do_power(Var lhs, Var rhs)
     Var ans;
 
     if (lhs.type == TYPE_INT) {	/* integer exponentiation */
-	Num a = lhs.v.num, b, r;
+	Num a = lhs.v.num, b;
 
 	if (rhs.type != TYPE_INT)
 	    goto type_error;
@@ -690,7 +691,7 @@ do_power(Var lhs, Var rhs)
 	if (b < 0) {
 	    switch (a) {
 	    case -1:
-		ans.v.num = (b & 1) ? 1 : -1;
+		ans.v.num = (b & 1) ? -1 : 1;
 		break;
 	    case 0:
 		ans.type = TYPE_ERR;
@@ -704,14 +705,16 @@ do_power(Var lhs, Var rhs)
 		break;
 	    }
 	} else {
-	    r = 1;
+	    uintmax_t base = (uintmax_t)a, r = 1;
+
 	    while (b != 0) {
 		if (b & 1)
-		    r *= a;
-		a *= a;
+		    r *= base;
 		b >>= 1;
+		if (b != 0)
+		    base *= base;
 	    }
-	    ans.v.num = r;
+	    ans.v.num = num_from_unsigned((UNum)r);
 	}
     } else if (lhs.type == TYPE_FLOAT) {	/* floating-point exponentiation */
 	FlNum d;

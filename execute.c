@@ -1402,7 +1402,7 @@ do {								\
 		arg = POP();
 		if (arg.type == TYPE_INT) {
 		    ans.type = TYPE_INT;
-		    ans.v.num = -arg.v.num;
+		    ans.v.num = num_negate(arg.v.num);
 		} else if (arg.type == TYPE_FLOAT) {
 		    ans.type = TYPE_FLOAT;
 		    ans.v.fnum = box_fl(-fl_unbox(arg.v.fnum));
