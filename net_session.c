@@ -16,6 +16,7 @@
 #include "my-socket.h"
 #include "my-signal.h"
 #include "my-stat.h"
+#include "my-time.h"
 #include "my-unistd.h"
 
 #include "log.h"
@@ -673,13 +674,85 @@ network_set_connection_player(network_handle nh, Objid player, Objid listener)
 #define NETWORK_CO_TABLE(DEFINE, nh, value, _)
     /* No carrier-specific connection options. */
 
+#define WAIT_ERROR_LOG_INTERVAL 60	/* seconds */
+
+static unsigned wait_failures = 0;	/* consecutive failed waits */
+static time_t wait_failure_logged;
+
+static int
+fd_is_closed(int fd)
+{
+    return fd >= 0 && fcntl(fd, F_GETFD) < 0 && errno == EBADF;
+}
+
+/* Drop the listener and sessions whose descriptors were closed out from
+ * under us, so that the next wait can succeed.
+ */
+static int
+drop_closed_fds(void)
+{
+    session_handle *h, *next;
+    int count = 0;
+
+    if (the_listener && fd_is_closed(the_listener->fd)) {
+        errlog("SESSION: Listener descriptor %d was closed out from under "
+               "us; no longer accepting sessions\n", the_listener->fd);
+        the_listener->fd = -1;
+        count++;
+    }
+    for (h = all_handles; h; h = next) {
+        next = h->next;
+        if (fd_is_closed(h->fd)) {
+            errlog("SESSION: Session descriptor %d was closed out from "
+                   "under us; closing it\n", h->fd);
+            h->fd = -1;
+            remove_handle(h, 1);
+            count++;
+        }
+    }
+    return count;
+}
+
+/* A failed wait returns immediately, so a failure that persists would
+ * otherwise spin the server and flood the log.  Log at most once per
+ * WAIT_ERROR_LOG_INTERVAL, and stand in for the wait we didn't get.
+ */
+static void
+wait_failed(int err, int timeout)
+{
+    time_t now = time(0);
+    int dropped = err == EBADF ? drop_closed_fds() : 0;
+
+    wait_failures++;
+    if (wait_failures == 1
+        || now - wait_failure_logged >= WAIT_ERROR_LOG_INTERVAL) {
+        errlog("NETWORK: Waiting for network I/O: %s "
+               "(%u consecutive failure%s)\n", strerror(err),
+               wait_failures, wait_failures == 1 ? "" : "s");
+        wait_failure_logged = now;
+    }
+    if (!dropped && timeout > 0)
+        sleep(timeout);
+}
+
+static void
+wait_succeeded(void)
+{
+    if (wait_failures > 0) {
+        oklog("NETWORK: Waiting for network I/O works again after "
+              "%u consecutive failure%s\n",
+              wait_failures, wait_failures == 1 ? "" : "s");
+        wait_failures = 0;
+    }
+}
+
 int
 network_process_io(int timeout)
 {
     session_handle *h, *next;
 
     mplex_clear();
-    if (the_listener)
+    if (the_listener && the_listener->fd >= 0)
         mplex_add_reader(the_listener->fd);
     for (h = all_handles; h; h = h->next) {
         if (!h->input_suspended)
@@ -688,9 +761,19 @@ network_process_io(int timeout)
             mplex_add_writer(h->fd);
     }
 
-    if (mplex_wait(timeout))
+    switch (mplex_wait(timeout)) {
+    case -1:
+        wait_failed(errno, timeout);
         return 0;
-    if (the_listener && mplex_is_readable(the_listener->fd))
+    case 1:
+        wait_succeeded();
+        return 0;
+    default:
+        wait_succeeded();
+        break;
+    }
+    if (the_listener && the_listener->fd >= 0
+        && mplex_is_readable(the_listener->fd))
         accept_session();
 
     for (h = all_handles; h; h = next) {
