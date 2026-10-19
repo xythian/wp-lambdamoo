@@ -144,7 +144,7 @@ typedef struct tqueue {
      * For tasks not at the end of a sequence,
      *   the next_itail field is ignored and may be garbage.
      */
-    int total_input_length;
+    size_t total_input_length;
     TaskID last_input_task_id;
     int input_suspended;
 
@@ -1674,10 +1674,10 @@ bf_task_id(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUS
     return make_var_pack(r);
 }
 
-static int
+static size_t
 activation_bytes(activation * ap)
 {
-    int total = BQM_SIZEOF(activation);
+    size_t total = BQM_SIZEOF(activation);
     Var *v;
     unsigned i;
 
@@ -1699,10 +1699,10 @@ activation_bytes(activation * ap)
     return total;
 }
 
-static int
+static size_t
 forked_task_bytes(forked_task ft)
 {
-    int total = BQM_SIZEOF(forked_task);
+    size_t total = BQM_SIZEOF(forked_task);
 
     /* ft.program is duplicated in ft.a */
     total += activation_bytes(&ft.a) - BQM_SIZEOF(activation);
@@ -1741,10 +1741,10 @@ list_for_forked_task(forked_task ft)
     return list;
 }
 
-static int
+static size_t
 suspended_task_bytes(vm the_vm)
 {
-    int total = BQM_SIZEOF(vmstruct);
+    size_t total = BQM_SIZEOF(vmstruct);
     unsigned i;
 
     for (i = 0; i <= the_vm->top_activ_stack; i++)

@@ -857,10 +857,10 @@ waif_put_prop(Waif *w, const char *name, Var val, Objid progr)
 
 /* Called from value_bytes()
  */
-int
+size_t
 waif_bytes(Waif *w)
 {
-    int len;
+    size_t len;
     int cnt;
 
     update_waif_propdefs(w);

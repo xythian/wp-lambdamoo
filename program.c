@@ -62,10 +62,11 @@ program_ref(Program * p)
     return p;
 }
 
-int
+size_t
 program_bytes(Program * p)
 {
-    unsigned i, count;
+    unsigned i;
+    size_t count;
 
     count = BQM_SIZEOF(Program);
     count += p->main_vector.size;

@@ -79,7 +79,7 @@ extern int strrindex(const char *, const char *, int);
 extern Var get_system_property(const char *);
 extern Objid get_system_object(const char *);
 
-extern int value_bytes(Var);
+extern size_t value_bytes(Var);
 
 extern void stream_add_moobinary_from_raw_bytes(
     Stream *, const char *buffer, size_t buflen);
