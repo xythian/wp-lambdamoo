@@ -403,10 +403,11 @@ get_system_object(const char *name)
 	return value.v.obj;
 }
 
-int
+size_t
 value_bytes(Var v)
 {
-    int i, len, size = BQM_SIZEOF(Var);
+    Num i, len;
+    size_t size = BQM_SIZEOF(Var);
 
     switch (v.type) {
     case TYPE_STR:

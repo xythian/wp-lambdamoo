@@ -61,7 +61,7 @@ incr_quota(Objid player)
     if (!h.ptr)
 	return;
 
-    if (v.type != TYPE_INT)
+    if (v.type != TYPE_INT || v.v.num == NUM_MAX)
 	return;
 
     v.v.num++;

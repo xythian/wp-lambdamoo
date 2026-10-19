@@ -48,8 +48,8 @@ extern const char *str_ref(const char *);
 extern Var memory_usage(void);
 
 extern void myfree(const void *where, Memory_Type type);
-extern void *mymalloc(unsigned size, Memory_Type type);
-extern void *myrealloc(void *where, unsigned size, Memory_Type type);
+extern void *mymalloc(size_t size, Memory_Type type);
+extern void *myrealloc(void *where, size_t size, Memory_Type type);
 
 static inline void		/* XXX was extern, fix for non-gcc compilers */
 free_str(const char *s)

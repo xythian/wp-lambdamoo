@@ -285,11 +285,12 @@ db_renumber_object(Objid old)
     return old;
 }
 
-int
+size_t
 db_object_bytes(Objid oid)
 {
     Object *o = objects[oid];
-    int i, len, count;
+    int i, len;
+    size_t count;
     Verbdef *v;
 
     count = BQM_SIZEOF(Object) + BQM_SIZEOF_PTR_TO(Object);

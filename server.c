@@ -15,6 +15,8 @@
     Pavel@Xerox.Com
  *****************************************************************************/
 
+#include <limits.h>
+
 #include "config.h"
 #include "options.h"
 
@@ -344,14 +346,16 @@ static void
 set_checkpoint_timer(int first_time)
 {
     Var v;
-    int interval, now = time(0);
+    int interval;
     static Timer_ID last_checkpoint_timer;
 
     v = get_system_property("dump_interval");
-    if (v.type != TYPE_INT || v.v.num < 60 || now + v.v.num < now) {
+    if (v.type != TYPE_INT || v.v.num < 60) {
 	free_var(v);
 	interval = 3600;	/* Once per hour */
-    } else
+    } else if (v.v.num > INT_MAX)
+	interval = INT_MAX;	/* don't truncate to a short interval */
+    else
 	interval = v.v.num;
 
     if (!first_time)

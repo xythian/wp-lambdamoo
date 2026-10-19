@@ -203,7 +203,7 @@ extern void free_waif(Waif *);
 extern Waif *dup_waif(Waif *);
 extern enum error waif_get_prop(Waif *, const char *, Var *, Objid progr);
 extern enum error waif_put_prop(Waif *, const char *, Var, Objid progr);
-extern  int waif_bytes(Waif *);
+extern  size_t waif_bytes(Waif *);
 extern void dbio_write_waif(Var);
 extern  int dbio_read_waif(Var *);
 extern void free_waif_propdefs(WaifPropdefs *);

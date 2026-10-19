@@ -197,6 +197,9 @@ utf_byte_index(const char *s0, Num ci)
 	--ci;
     } while (get_utf(&s) && ci > 1);
 
+    /* past the end; NUM_MAX is past the end of any string */
+    if (ci > NUM_MAX - (s - s0))
+	return NUM_MAX;
     return s - s0 + ci;
 }
 
@@ -228,8 +231,10 @@ utf_byte_range(const char *s0, Num cis[2])
 	cn++;
     } while (get_utf(&s));
 
+    /* the rest are past the end; NUM_MAX is past the end of any string */
+    Num extra = (s - s0) - cn + 1;
     do {
-	cis[o] += (s - s0) - cn + 1;
+	cis[o] = cis[o] > NUM_MAX - extra ? NUM_MAX : cis[o] + extra;
 	cis += step;
     } while (cis != cidone);
 }

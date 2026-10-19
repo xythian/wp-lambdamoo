@@ -265,7 +265,7 @@ parse_number(unsigned flags, int32_t c_first,
 	    goto range_error;
 	if (p != p0)
 	    goto parse_error;
-	ret.v.num = ((flags & PN_NONNEG) ? -i : i);
+	ret.v.num = ((flags & PN_NONNEG) ? (Num)-(uintmax_t)i : i);
     }
     else {
 	FlNum d = strtoflnum(stream_contents(ns)
@@ -599,6 +599,10 @@ numeric_lt_or_eq(int not, Var a, Var b)
 /*
  * All of the following implementations are strict, not performing any
  * coercions between integer and floating-point operands.
+ *
+ * Integer results wrap around on overflow.  The arithmetic is done in
+ * UNum so that wrapping is defined rather than signed-overflow UB the
+ * compiler may assume never happens.
  */
 
 #define SIMPLE_BINARY(name, op)					\
@@ -612,7 +616,8 @@ numeric_lt_or_eq(int not, Var a, Var b)
 			ans.v.err = E_TYPE;			\
 		    } else if (a.type == TYPE_INT) {		\
 			ans.type = TYPE_INT;			\
-			ans.v.num = a.v.num op b.v.num;		\
+			ans.v.num = (Num)((UNum)a.v.num		\
+					  op (UNum)b.v.num);	\
 		    } else {					\
 			FlNum d =				\
 			    fl_unbox(a.v.fnum)			\
@@ -680,7 +685,7 @@ do_power(Var lhs, Var rhs)
     Var ans;
 
     if (lhs.type == TYPE_INT) {	/* integer exponentiation */
-	Num a = lhs.v.num, b, r;
+	Num a = lhs.v.num, b;
 
 	if (rhs.type != TYPE_INT)
 	    goto type_error;
@@ -690,7 +695,7 @@ do_power(Var lhs, Var rhs)
 	if (b < 0) {
 	    switch (a) {
 	    case -1:
-		ans.v.num = (b & 1) ? 1 : -1;
+		ans.v.num = (b & 1) ? -1 : 1;
 		break;
 	    case 0:
 		ans.type = TYPE_ERR;
@@ -704,14 +709,14 @@ do_power(Var lhs, Var rhs)
 		break;
 	    }
 	} else {
-	    r = 1;
+	    UNum ua = a, ur = 1;
 	    while (b != 0) {
 		if (b & 1)
-		    r *= a;
-		a *= a;
+		    ur *= ua;
+		ua *= ua;
 		b >>= 1;
 	    }
-	    ans.v.num = r;
+	    ans.v.num = (Num)ur;
 	}
     } else if (lhs.type == TYPE_FLOAT) {	/* floating-point exponentiation */
 	FlNum d;
@@ -843,7 +848,8 @@ bf_abs(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
     package p;
 
     if (r.type == TYPE_INT)
-	p = make_int_pack(r.v.num < 0 ? - r.v.num : r.v.num);
+	/* abs(NUM_MIN) wraps to NUM_MIN, as negating it does */
+	p = make_int_pack(r.v.num < 0 ? (Num)-(UNum)r.v.num : r.v.num);
     else
 	p = make_float_pack(FLOAT_FN(fabs)(fl_unbox(r.v.fnum)));
 
@@ -935,6 +941,11 @@ bf_j(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 {
     Num n = arglist.v.list[1].v.num;
     FlNum d = fl_unbox(arglist.v.list[2].v.fnum);
+    /* jn() takes an int; don't let a larger order truncate */
+    if (n < -INT_MAX || n > INT_MAX) {
+	free_var(arglist);
+	return make_error_pack(E_INVARG);
+    }
     errno = 0;
     switch (n) {
     case 0:
@@ -961,6 +972,11 @@ bf_y(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 {
     Num n = arglist.v.list[1].v.num;
     FlNum d = fl_unbox(arglist.v.list[2].v.fnum);
+    /* yn() takes an int; don't let a larger order truncate */
+    if (n < -INT_MAX || n > INT_MAX) {
+	free_var(arglist);
+	return make_error_pack(E_INVARG);
+    }
     errno = 0;
     switch (n) {
     case 0:

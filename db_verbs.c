@@ -158,13 +158,14 @@ db_match_prep(const char *prepname)
     first = s[0];
     if (first == '#')
         first = (++s1)[0];
-    prep = strtol(s1, &ptr, 10);
+    /* range-check the long before narrowing it to the enum */
+    long n = strtol(s1, &ptr, 10);
     if (*ptr == '\0') {
 	free_str(s);
-	if (!isdigit(first) || prep >= NPREPS)
+	if (!isdigit(first) || n < 0 || n >= NPREPS)
 	    return PREP_NONE;
 	else
-	    return prep;
+	    return (db_prep_spec) n;
     }
     if (NULL != (ptr = strchr(s, '/')))
 	*ptr = '\0';

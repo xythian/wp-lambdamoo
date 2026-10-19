@@ -59,7 +59,7 @@ typedef struct {
 extern Program *new_program(void);
 extern Program *null_program(void);
 extern Program *program_ref(Program *);
-extern int program_bytes(Program *);
+extern size_t program_bytes(Program *);
 extern void free_program(Program *);
 
 #endif		/* !Program_H */

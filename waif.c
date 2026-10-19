@@ -38,8 +38,8 @@
 
 static waif_count_type waif_count = 0;
 
-#define PROP_MAPPED(Mmap, Mbit)	((Mmap)[(Mbit) / 32] & (1 << ((Mbit) % 32)))
-#define MAP_PROP(Mmap, Mbit) (Mmap)[(Mbit) / 32] |= 1 << ((Mbit) % 32)
+#define PROP_MAPPED(Mmap, Mbit)	((Mmap)[(Mbit) / 32] & (1u << ((Mbit) % 32)))
+#define MAP_PROP(Mmap, Mbit) (Mmap)[(Mbit) / 32] |= 1u << ((Mbit) % 32)
 #define N_MAPPABLE_PROPS (WAIF_MAPSZ * 32)
 
 static int
@@ -857,10 +857,10 @@ waif_put_prop(Waif *w, const char *name, Var val, Objid progr)
 
 /* Called from value_bytes()
  */
-int
+size_t
 waif_bytes(Waif *w)
 {
-    int len;
+    size_t len;
     int cnt;
 
     update_waif_propdefs(w);
