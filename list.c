@@ -208,8 +208,10 @@ listrangeset(Var base, Num from, Num after, Var value)
 
     Var ans = new_list(newsize);
     memcpy(ans.v.list + 1, base.v.list + 1, lenleft * sizeof(Var));
-    memcpy(ans.v.list + 1 + lenleft + val_len, base.v.list + after,
-	   lenright * sizeof(Var));
+    /* after may be far past the end when lenright is 0 */
+    if (lenright)
+	memcpy(ans.v.list + 1 + lenleft + val_len, base.v.list + after,
+	       lenright * sizeof(Var));
 
     memcpy(ans.v.list + 1 + lenleft, value.v.list + 1,
 	   val_len * sizeof(Var));
@@ -361,7 +363,9 @@ strrangeset(Var base, Num from, Num after, Var value)
     size_t newlen   = lenleft + val_len + lenright;
 
     char *s = mymalloc(sizeof(char) * (newlen + 1), M_STRING);
-    memcpy(s + lenleft + val_len, base.v.str + after - 1, lenright);
+    /* after may be far past the end when lenright is 0 */
+    if (lenright)
+	memcpy(s + lenleft + val_len, base.v.str + after - 1, lenright);
     s[newlen] = '\0';
 
     memcpy(s, base.v.str, lenleft);
@@ -381,12 +385,15 @@ substr(Var str, Num first, Num after)
 {
     /* first and after are byte-indices. */
     /* str is free'd. */
-    Num len = after - first;
+    Num len;
     char *s;
 
-    if (len <= 0)
+    /* compare before subtracting: an empty range like [NUM_MAX..-1]
+     * would overflow after - first */
+    if (after <= first)
 	s = str_dup("");
     else {
+	len = after - first;
 	s = mymalloc(len + 1, M_STRING);
 	memcpy(s, str.v.str + first - 1, len);
 	s[len] = '\0';
@@ -466,11 +473,16 @@ insert_or_append(Var arglist, int append1)
     if (arglist.v.list[0].v.num == 2)
 	pos = append1 ? lst.v.list[0].v.num + 1 : 1;
     else {
-	pos = arglist.v.list[3].v.num + append1;
-	if (pos <= 0)
+	/* clamp as Num: adding append1 or narrowing to int first would
+	 * overflow or truncate a large index */
+	Num p = arglist.v.list[3].v.num;
+	Num len = lst.v.list[0].v.num;
+	if (p > len)
+	    pos = len + 1;
+	else if (p + append1 <= 0)
 	    pos = 1;
-	else if (pos > lst.v.list[0].v.num + 1)
-	    pos = lst.v.list[0].v.num + 1;
+	else
+	    pos = p + append1;
     }
     free_var(arglist);
     return make_var_pack(doinsert(lst, elt, pos));
@@ -839,7 +851,7 @@ bf_rmatch(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSE
 }
 
 static int
-invalid_pair(int num1, int num2, int max)
+invalid_pair(Num num1, Num num2, Num max)
 {
     if ((num1 == 0 && num2 == -1)
 	|| (num1 > 0 && num2 >= num1 - 1 && num2 <= max))
@@ -910,7 +922,7 @@ bf_substitute(volatile Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Obji
 	    else if ((c = *(template++)) == '%')
 		stream_add_char(s, '%');
 	    else {
-		int start = 0, end = 0;
+		Num start = 0, end = 0;
 		if (c >= '1' && c <= '9') {
 		    Var pair = subs.v.list[3].v.list[c - '0'];
 		    start = pair.v.list[1].v.num;
@@ -922,6 +934,8 @@ bf_substitute(volatile Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Obji
 		    p = make_error_pack(E_INVARG);
 		    goto oops;
 		}
+		if (start == 0)
+		    continue;	/* {0, -1}: group didn't match */
 		Num bstartafter[2] = { start, end + 1 };
 		utf_byte_range(subject, bstartafter);
 		stream_add_bytes(s, subject + bstartafter[0] - 1,
@@ -1148,7 +1162,7 @@ bf_tochar(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSE
 
     switch (v.type) {
     case TYPE_INT:
-	ucs = (v.v.num <= 0x10ffff ? v.v.num : 0);
+	ucs = (0 <= v.v.num && v.v.num <= 0x10ffff ? v.v.num : 0);
 	break;
     case TYPE_STR:
 	ucs = my_char_lookup(v.v.str);
@@ -1254,7 +1268,9 @@ encode_chars(Stream *s, Var v)
 
     switch (v.type) {
     case TYPE_INT:
-	if (stream_add_char_for_ec(s, v.v.num) == -1)
+	/* check before narrowing to uint32_t, which would wrap */
+	if (v.v.num < 0 || v.v.num > 0x10ffff
+	    || stream_add_char_for_ec(s, v.v.num) == -1)
 	    return 0;
 	break;
 

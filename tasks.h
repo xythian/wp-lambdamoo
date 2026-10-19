@@ -39,9 +39,9 @@ extern int tasks_set_connection_option(task_queue, const char *,
 extern void new_input_task(task_queue, const char *, int);
 extern void task_suspend_input(task_queue);
 extern enum error enqueue_forked_task2(activation a, int f_index,
-			       unsigned after_seconds, int vid);
+			       Num after_seconds, int vid);
 extern enum error enqueue_suspended_task(vm the_vm, void *data);
-				/* data == &(int after_seconds) */
+				/* data == &(Num after_seconds) */
 extern enum error make_reading_task(vm the_vm, void *data);
 				/* data == &(Objid connection) */
 extern void resume_task(vm the_vm, Var value);

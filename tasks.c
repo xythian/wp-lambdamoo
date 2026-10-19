@@ -15,6 +15,8 @@
     Pavel@Xerox.Com
  *****************************************************************************/
 
+#include <limits.h>
+
 #include "tasks.h"
 #include "bf_register.h"
 
@@ -142,7 +144,7 @@ typedef struct tqueue {
      * For tasks not at the end of a sequence,
      *   the next_itail field is ignored and may be garbage.
      */
-    int total_input_length;
+    size_t total_input_length;
     TaskID last_input_task_id;
     int input_suspended;
 
@@ -1057,7 +1059,7 @@ static int
 check_user_task_limit(Objid user)
 {
     tqueue *tq = find_tqueue(user, 0);
-    int limit = -1;
+    Num limit = -1;
     Var v;
 
     if (valid(user)
@@ -1076,8 +1078,24 @@ check_user_task_limit(Objid user)
 	return 1;
 }
 
+/* When a task delayed by after_seconds should start.  A negative delay
+ * is suspend() with no argument, `forever', which is INT32_MAX; a delay
+ * that would land past that is clamped to it.  Comparing before adding
+ * keeps the sum from overflowing.
+ */
+static time_t
+start_time_after(Num after_seconds)
+{
+    time_t now = time(0);
+    time_t limit = now < INT32_MAX ? INT32_MAX : NUM_MAX;
+
+    if (after_seconds < 0 || after_seconds > limit - now)
+	return limit;
+    return now + after_seconds;
+}
+
 enum error
-enqueue_forked_task2(activation a, int f_index, unsigned after_seconds, int vid)
+enqueue_forked_task2(activation a, int f_index, Num after_seconds, int vid)
 {
     TaskID id;
     Var *rt_env;
@@ -1098,7 +1116,7 @@ enqueue_forked_task2(activation a, int f_index, unsigned after_seconds, int vid)
 	a.rt_env[vid].v.num = num_from_task_id(id);
     }
     rt_env = copy_rt_env(a.rt_env, a.prog->num_var_names);
-    enqueue_ft(a.prog, a, rt_env, f_index, time(0) + after_seconds, id);
+    enqueue_ft(a.prog, a, rt_env, f_index, start_time_after(after_seconds), id);
 
     return E_NONE;
 }
@@ -1106,21 +1124,14 @@ enqueue_forked_task2(activation a, int f_index, unsigned after_seconds, int vid)
 enum error
 enqueue_suspended_task(vm the_vm, void *data)
 {
-    int after_seconds = *((int *) data);
-    int now = time(0);
-    int when;
+    Num after_seconds = *((Num *) data);
     task *t;
 
     if (check_user_task_limit(progr_of_cur_verb(the_vm))) {
 	t = mymalloc(sizeof(task), M_TASK);
 	t->kind = TASK_SUSPENDED;
 	t->t.suspended.the_vm = the_vm;
-	if (now + after_seconds < now)
-	    /* overflow or suspend `forever' code */
-	    when = INT32_MAX;
-	else
-	    when = now + after_seconds;
-	t->t.suspended.start_time = when;
+	t->t.suspended.start_time = start_time_after(after_seconds);
 	t->t.suspended.value = zero;
 
 	enqueue_waiting(t);
@@ -1202,10 +1213,12 @@ next_task_start(void)
 	    return 0;
 
     if (waiting_tasks != 0) {
-	int wait = (waiting_tasks->kind == TASK_FORKED
-		    ? waiting_tasks->t.forked.start_time
-		    : waiting_tasks->t.suspended.start_time) - time(0);
-	return (wait >= 0) ? wait : 0;
+	time_t wait = (waiting_tasks->kind == TASK_FORKED
+		       ? waiting_tasks->t.forked.start_time
+		       : waiting_tasks->t.suspended.start_time) - time(0);
+	/* in time_t: narrowing a far-off start to int could make it look
+	 * overdue and spin the main loop */
+	return wait < 0 ? 0 : wait > INT_MAX ? INT_MAX : (int) wait;
     }
     return -1;
 }
@@ -1661,10 +1674,10 @@ bf_task_id(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUS
     return make_var_pack(r);
 }
 
-static int
+static size_t
 activation_bytes(activation * ap)
 {
-    int total = BQM_SIZEOF(activation);
+    size_t total = BQM_SIZEOF(activation);
     Var *v;
     unsigned i;
 
@@ -1686,10 +1699,10 @@ activation_bytes(activation * ap)
     return total;
 }
 
-static int
+static size_t
 forked_task_bytes(forked_task ft)
 {
-    int total = BQM_SIZEOF(forked_task);
+    size_t total = BQM_SIZEOF(forked_task);
 
     /* ft.program is duplicated in ft.a */
     total += activation_bytes(&ft.a) - BQM_SIZEOF(activation);
@@ -1728,10 +1741,10 @@ list_for_forked_task(forked_task ft)
     return list;
 }
 
-static int
+static size_t
 suspended_task_bytes(vm the_vm)
 {
-    int total = BQM_SIZEOF(vmstruct);
+    size_t total = BQM_SIZEOF(vmstruct);
     unsigned i;
 
     for (i = 0; i <= the_vm->top_activ_stack; i++)

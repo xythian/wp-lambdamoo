@@ -15,6 +15,8 @@
     Pavel@Xerox.Com
  *****************************************************************************/
 
+#include <limits.h>
+
 #include "execute.h"
 #include "bf_register.h"
 
@@ -769,10 +771,23 @@ list_or_string(Var v)
     return v.type == TYPE_LIST || v.type == TYPE_STR;
 }
 
-static int
-rangeref_fails(Num length, Num from, Num after)
+/* One past the end of a range ending at to.  NUM_MAX stays NUM_MAX: no
+ * list or string is that long, so the clamped value is past the end of
+ * every one just as to + 1 would be, without overflowing.
+ */
+static inline Num
+range_after(Num to)
 {
-    return !(from >= after
+    return to < NUM_MAX ? to + 1 : NUM_MAX;
+}
+
+/* empty must come from the original indices (from > to), because a
+ * clamped after can equal from on a range that is not empty.
+ */
+static int
+rangeref_fails(Num length, int empty, Num from, Num after)
+{
+    return !(empty
 	     || (1 <= from && after <= length + 1));
 }
 
@@ -1149,7 +1164,7 @@ do {								\
 		    }
 		}
 		else {  /* list.type == TYPE_STR */
-		    Num bfromafter[] = { index.v.num, index.v.num + 1 };
+		    Num bfromafter[] = { index.v.num, range_after(index.v.num) };
 		    utf_byte_range(list.v.str, bfromafter);
 		    if (value.type != TYPE_STR)
 			e = E_TYPE;
@@ -1339,11 +1354,13 @@ do {								\
 		    ans = do_add(lhs, rhs);
 		else if (lhs.type == TYPE_STR && rhs.type == TYPE_STR) {
 		    char *str;
-		    int llen = memo_strlen(lhs.v.str);
-		    int flen = llen + memo_strlen(rhs.v.str);
+		    size_t llen = memo_strlen(lhs.v.str);
+		    size_t rlen = memo_strlen(rhs.v.str);
+		    size_t flen = llen + rlen;
+		    UNum max = server_int_option_cached(SVO_MAX_STRING_CONCAT);
 
-		    if (server_int_option_cached(SVO_MAX_STRING_CONCAT)
-			< flen) {
+		    /* compare before adding so the sum can't wrap */
+		    if (llen > max || rlen > max - llen) {
 			ans.type = TYPE_ERR;
 			ans.v.err = E_QUOTA;
 		    } else {
@@ -1402,7 +1419,7 @@ do {								\
 		arg = POP();
 		if (arg.type == TYPE_INT) {
 		    ans.type = TYPE_INT;
-		    ans.v.num = -arg.v.num;
+		    ans.v.num = (Num)-(UNum)arg.v.num;	/* -NUM_MIN wraps */
 		} else if (arg.type == TYPE_FLOAT) {
 		    ans.type = TYPE_FLOAT;
 		    ans.v.fnum = box_fl(-fl_unbox(arg.v.fnum));
@@ -1465,11 +1482,15 @@ do {								\
 		    Num bindex = utf_byte_index(list.v.str, index.v.num);
 		    if ((UNum)bindex > memo_strlen(list.v.str))
 			e = E_RANGE;
-		    else
+		    else {
+			/* a truncated sequence at the end of a malformed
+			 * string must not take substr past the NUL */
+			Num after = bindex + clearance_utf(list.v.str[bindex - 1]);
+			if ((UNum)after > memo_strlen(list.v.str) + 1)
+			    after = memo_strlen(list.v.str) + 1;
 			/* substr frees list */
-			PUSH(substr(list, bindex,
-				    bindex +
-				      clearance_utf(list.v.str[bindex - 1])));
+			PUSH(substr(list, bindex, after));
+		    }
 		}
 		free_var(index);
 		if (e != E_NONE) {
@@ -1509,15 +1530,17 @@ do {								\
 		    e = E_TYPE;
 		else if (base.type == TYPE_LIST) {
 		    if (rangeref_fails(base.v.list[0].v.num,
-				       from.v.num, to.v.num + 1))
+				       from.v.num > to.v.num,
+				       from.v.num, range_after(to.v.num)))
 			e = E_RANGE;
 		    else
-			PUSH(sublist(base, from.v.num, to.v.num + 1));
+			PUSH(sublist(base, from.v.num, range_after(to.v.num)));
 		}
 		else {  /* base.type == TYPE_STR */
-		    Num bfromafter[] = { from.v.num, to.v.num + 1 };
+		    Num bfromafter[] = { from.v.num, range_after(to.v.num) };
 		    utf_byte_range(base.v.str, bfromafter);
 		    if (rangeref_fails(memo_strlen(base.v.str),
+				       from.v.num > to.v.num,
 				       bfromafter[0], bfromafter[1]))
 			e = E_RANGE;
 		    else
@@ -1956,13 +1979,13 @@ do {								\
 			    e = rangeset_error(server_int_option_cached(SVO_MAX_LIST_CONCAT),
 					       base.v.list[0].v.num,
 					       value.v.list[0].v.num,
-					       from.v.num, to.v.num + 1);
+					       from.v.num, range_after(to.v.num));
 			    if (e == E_NONE)
 				PUSH(listrangeset(base, from.v.num,
-						  to.v.num + 1, value));
+						  range_after(to.v.num), value));
 			}
 			else {  /* base.type == TYPE_STR */
-			    Num bfromafter[] = { from.v.num, to.v.num + 1 };
+			    Num bfromafter[] = { from.v.num, range_after(to.v.num) };
 			    utf_byte_range(base.v.str, bfromafter);
 			    e = rangeset_error(server_int_option_cached(SVO_MAX_STRING_CONCAT),
 					       memo_strlen(base.v.str),
@@ -2464,8 +2487,8 @@ task_timeout(Timer_ID id UNUSED_, Timer_Data data UNUSED_)
 static Timer_ID
 setup_task_execution_limits(int is_fg)
 {
-    int seconds;
-    int ticks;
+    Num seconds;
+    Num ticks;
 
     if (is_fg) {
 	seconds = server_int_option("fg_seconds", DEFAULT_FG_SECONDS);
@@ -2476,10 +2499,12 @@ setup_task_execution_limits(int is_fg)
 	ticks   = server_int_option("bg_ticks",   DEFAULT_BG_TICKS);
     }
 
-    task_alarm_id = set_virtual_timer(seconds < 1 ? 1 : seconds,
+    /* clamp as Num; narrowing to int first could wrap to a tiny limit */
+    task_alarm_id = set_virtual_timer(seconds < 1 ? 1
+				      : seconds > INT_MAX ? INT_MAX : seconds,
 				      task_timeout, 0);
     task_timed_out = 0;
-    ticks_remaining = (ticks < 100 ? 100 : ticks);
+    ticks_remaining = (ticks < 100 ? 100 : ticks > INT_MAX ? INT_MAX : ticks);
     return task_alarm_id;
 }
 
@@ -2558,10 +2583,14 @@ check_activ_stack_size(UNum max)
 static UNum
 current_max_stack_size(void)
 {
-    UNum max = server_int_option("max_stack_depth", DEFAULT_MAX_STACK_DEPTH);
+    Num max = server_int_option("max_stack_depth", DEFAULT_MAX_STACK_DEPTH);
 
+    /* compare as Num: a negative setting must not become a huge UNum,
+     * and the activation stack size must not overflow */
     if (max < DEFAULT_MAX_STACK_DEPTH)
 	max = DEFAULT_MAX_STACK_DEPTH;
+    else if ((UNum)max > INT_MAX / sizeof(activation))
+	max = INT_MAX / sizeof(activation);
 
     return max;
 }
@@ -2865,7 +2894,7 @@ bf_raise(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED
 static package
 bf_suspend(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 {
-    static int seconds;
+    static Num seconds;
     int nargs = arglist.v.list[0].v.num;
 
     if (nargs >= 1)
