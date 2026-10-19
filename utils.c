@@ -142,24 +142,115 @@ str_hash(const char *s)
     return ans;
 }
 
+/* Freeing, comparing and sizing values recurse while that is safe, and
+ * switch to walking with an explicit stack once a value turns out to hold
+ * more lists, or deeper ones, than these.
+ */
+#define SMALL_WALK_LISTS 256
+#define SMALL_WALK_DEPTH 32
+
+static void *
+walk_grow(void *p, size_t size)
+{
+    return p ? myrealloc(p, size, M_WALK) : mymalloc(size, M_WALK);
+}
+
+/* Lists and waifs whose last reference is gone but whose contents have
+ * not all been freed yet.  Freeing them from here, rather than recursing
+ * into each element, keeps a deeply nested list from overflowing the C
+ * stack.  A pending list's length counts down as its elements are freed.
+ */
+static Var *free_pending;
+static size_t free_pending_count, free_pending_max;
+static int freeing;
+
+static void
+free_pending_push(Var v)
+{
+    if (free_pending_count == free_pending_max) {
+	free_pending_max = free_pending_max ? 2 * free_pending_max : 64;
+	free_pending = walk_grow(free_pending,
+				 free_pending_max * sizeof(Var));
+    }
+    free_pending[free_pending_count++] = v;
+}
+
+static void
+free_contents_now(Var v)
+{
+    if (v.type == TYPE_LIST) {
+	Var *list = v.v.list;
+	Num i;
+
+	for (i = list[0].v.num; i > 0; i--)
+	    free_var(list[i]);
+	myfree(list, M_LIST);
+    }
+#ifdef WAIF_CORE
+    else
+	free_waif(v.v.waif);
+#endif
+}
+
+static void
+free_contents(Var v)
+{
+    static int depth;
+
+    if (freeing) {
+	free_pending_push(v);
+	return;
+    }
+    /* Recursion is quicker for the shallow lists most values are. */
+    if (depth < SMALL_WALK_DEPTH) {
+	depth++;
+	free_contents_now(v);
+	depth--;
+	return;
+    }
+    /* Lists and waifs inside V are only pushed, then freed below. */
+    freeing = 1;
+    free_contents_now(v);
+    while (free_pending_count > 0) {
+	Var top = free_pending[free_pending_count - 1];
+	size_t mark = free_pending_count;
+
+	if (top.type == TYPE_LIST) {
+	    Var *list = top.v.list;
+
+	    while (list[0].v.num > 0 && free_pending_count == mark)
+		free_var(list[list[0].v.num--]);
+	    if (free_pending_count != mark)
+		continue;
+	}
+	/* Freeing a waif pushes its values, so pop it first. */
+	free_pending_count--;
+#ifdef WAIF_CORE
+	if (top.type == TYPE_WAIF)
+	    free_waif(top.v.waif);
+	else
+#endif
+	    myfree(top.v.list, M_LIST);
+    }
+    freeing = 0;
+    if (free_pending_max > 4096) {
+	myfree(free_pending, M_WALK);
+	free_pending = 0;
+	free_pending_max = 0;
+    }
+}
+
 void
 complex_free_var(Var v)
 {
-    int i;
-
     switch (v.type) {
     case TYPE_STR:
 	if (v.v.str)
 	    free_str(v.v.str);
 	break;
     case TYPE_LIST:
-	if (delref(v.v.list) == 0) {
-	    Var *pv;
-
-	    for (i = v.v.list[0].v.num, pv = v.v.list + 1; i > 0; i--, pv++)
-		free_var(*pv);
-	    myfree(v.v.list, M_LIST);
-	}
+	if (delref(v.v.list) == 0)
+	    free_contents(v);
 	break;
 #if FLOATS_ARE_BOXED
     case TYPE_FLOAT:
@@ -173,7 +264,7 @@ complex_free_var(Var v)
 #ifdef WAIF_CORE
     case TYPE_WAIF:
 	if (delref(v.v.waif) == 0)
-	    free_waif(v.v.waif);
+	    free_contents(v);
 	break;
 #endif
 
@@ -271,6 +362,8 @@ is_true(Var v)
 	    || (v.type == TYPE_LIST && v.v.list[0].v.num != 0));
 }
 
+static int list_equality(Var lhs, Var rhs, int case_matters);
+
 int
 equality(Var lhs, Var rhs, int case_matters)
 {
@@ -296,18 +389,10 @@ equality(Var lhs, Var rhs, int case_matters)
 	case TYPE_LIST:
 	    if (lhs.v.list[0].v.num != rhs.v.list[0].v.num)
 		return 0;
-	    else {
-		int i;
-
-		if (lhs.v.list == rhs.v.list) {
-		    return 1;
-		}
-		for (i = 1; i <= lhs.v.list[0].v.num; i++) {
-		    if (!equality(lhs.v.list[i], rhs.v.list[i], case_matters))
-			return 0;
-		}
+	    else if (lhs.v.list == rhs.v.list)
 		return 1;
-	    }
+	    else
+		return list_equality(lhs, rhs, case_matters);
 
 #ifdef WAIF_CORE
 	case TYPE_WAIF:
@@ -320,6 +405,85 @@ equality(Var lhs, Var rhs, int case_matters)
 	}
     }
     return 0;
+}
+
+/* Returns 1 or 0, or -1 if LHS and RHS are too big to compare this way. */
+static int
+small_list_equality(Var lhs, Var rhs, int case_matters, int depth,
+		    int *budget)
+{
+    Num i, len = lhs.v.list[0].v.num;
+
+    if (--*budget < 0 || depth > SMALL_WALK_DEPTH)
+	return -1;
+    for (i = 1; i <= len; i++) {
+	Var l = lhs.v.list[i], r = rhs.v.list[i];
+
+	if (l.type == TYPE_LIST && r.type == TYPE_LIST) {
+	    int result;
+
+	    if (l.v.list[0].v.num != r.v.list[0].v.num)
+		return 0;
+	    if (l.v.list == r.v.list)
+		continue;
+	    result = small_list_equality(l, r, case_matters, depth + 1,
+					 budget);
+	    if (result != 1)
+		return result;
+	} else if (!equality(l, r, case_matters))
+	    return 0;
+    }
+    return 1;
+}
+
+/* Compares two distinct lists of the same length, element by element.
+ * Pairs of sublists already found equal are remembered, so lists that
+ * share sublists are compared in time proportional to the number of
+ * distinct pairs rather than the number of paths.
+ */
+static int
+list_equality(Var lhs, Var rhs, int case_matters)
+{
+    static Walk_Stack ws;
+    Visit_Set equal = {0, 0, 0};
+    size_t walked = 0;
+    int budget = SMALL_WALK_LISTS;
+    int result = small_list_equality(lhs, rhs, case_matters, 0, &budget);
+
+    if (result >= 0)
+	return result;
+    result = 1;
+    walk_push(&ws, lhs, rhs, 0);
+    while (ws.depth > 0) {
+	Walk_Frame *f = &ws.frames[ws.depth - 1];
+	Var l, r;
+
+	if (f->i == f->a.v.list[0].v.num) {
+	    if (++walked > WALK_MEMO_AFTER)
+		visit_add(&equal, f->a.v.list, f->b.v.list, 0);
+	    ws.depth--;
+	    continue;
+	}
+	f->i++;
+	l = f->a.v.list[f->i];
+	r = f->b.v.list[f->i];
+	if (l.type == TYPE_LIST && r.type == TYPE_LIST) {
+	    if (l.v.list[0].v.num != r.v.list[0].v.num) {
+		result = 0;
+		break;
+	    }
+	    if (l.v.list == r.v.list
+		|| (equal.count && visit_find(&equal, l.v.list, r.v.list)))
+		continue;
+	    walk_push(&ws, l, r, 0);
+	} else if (!equality(l, r, case_matters)) {
+	    result = 0;
+	    break;
+	}
+    }
+    walk_release(&ws);
+    visit_set_free(&equal);
+    return result;
 }
 
 void
@@ -403,10 +567,12 @@ get_system_object(const char *name)
 	return value.v.obj;
 }
 
-size_t
-value_bytes(Var v)
+/* Bytes for V itself, not counting the elements of a list or the
+ * property values of a waif.
+ */
+static size_t
+own_bytes(Var v)
 {
-    Num i, len;
     size_t size = BQM_SIZEOF(Var);
 
     switch (v.type) {
@@ -419,10 +585,7 @@ value_bytes(Var v)
 	break;
 #endif
     case TYPE_LIST:
-	len = v.v.list[0].v.num;
 	size += BQM_SIZEOF(Var);   /* for the `length' element */
-	for (i = 1; i <= len; i++)
-	    size += value_bytes(v.v.list[i]);
 	break;
 
 #ifdef WAIF_CORE
@@ -436,6 +599,204 @@ value_bytes(Var v)
     }
 
     return size;
+}
+
+/* Returns the size of list V, or 0 if V is too big to size this way. */
+static size_t
+small_list_bytes(Var v, int depth, int *budget)
+{
+    Num i, len = v.v.list[0].v.num;
+    size_t size = own_bytes(v);
+
+    if (--*budget < 0 || depth > SMALL_WALK_DEPTH)
+	return 0;
+    for (i = 1; i <= len; i++) {
+	Var c = v.v.list[i];
+
+	if (c.type == TYPE_LIST) {
+	    size_t n = small_list_bytes(c, depth + 1, budget);
+
+	    if (n == 0)
+		return 0;
+	    size += n;
+	} else if (walk_has_children(c))
+	    return 0;
+	else
+	    size += own_bytes(c);
+    }
+    return size;
+}
+
+/* A list or waif that appears several times inside V is counted each
+ * time, as if V were written out in full; the total sticks at SIZE_MAX.
+ */
+size_t
+value_bytes(Var v)
+{
+    static Walk_Stack ws;
+    Visit_Set sizes = {0, 0, 0};
+    size_t walked = 0, size = 0;
+    int budget = SMALL_WALK_LISTS;
+
+    if (!walk_has_children(v))
+	return own_bytes(v);
+    if (v.type == TYPE_LIST && (size = small_list_bytes(v, 0, &budget)))
+	return size;
+
+    walk_push(&ws, v, zero, own_bytes(v));
+    while (ws.depth > 0) {
+	Walk_Frame *f = &ws.frames[ws.depth - 1];
+	Num count;
+	Var *children = walk_children(f->a, &count);
+	Var c;
+	Visit *seen;
+
+	if (f->i == count) {
+	    size = f->aux;
+	    if (++walked > WALK_MEMO_AFTER)
+		visit_add(&sizes, walk_id(f->a), 0, 0)->x = size;
+	    if (--ws.depth > 0)
+		f[-1].aux = size_add(f[-1].aux, size);
+	    continue;
+	}
+	c = children[f->i++];
+	if (!walk_has_children(c))
+	    f->aux = size_add(f->aux, own_bytes(c));
+	else if (sizes.count && (seen = visit_find(&sizes, walk_id(c), 0)))
+	    f->aux = size_add(f->aux, seen->x);
+	else
+	    walk_push(&ws, c, zero, own_bytes(c));
+    }
+    walk_release(&ws);
+    visit_set_free(&sizes);
+    return size;
+}
+
+Walk_Frame *
+walk_push(Walk_Stack *ws, Var a, Var b, size_t aux)
+{
+    Walk_Frame *f;
+
+    if (ws->depth == ws->max) {
+	ws->max = ws->max ? 2 * ws->max : 64;
+	ws->frames = walk_grow(ws->frames, ws->max * sizeof(Walk_Frame));
+    }
+    f = &ws->frames[ws->depth++];
+    f->a = a;
+    f->b = b;
+    f->i = 0;
+    f->aux = aux;
+    return f;
+}
+
+void
+walk_release(Walk_Stack *ws)
+{
+    ws->depth = 0;
+    if (ws->max > 4096) {
+	myfree(ws->frames, M_WALK);
+	ws->frames = 0;
+	ws->max = 0;
+    }
+}
+
+void
+walk_free(Walk_Stack *ws)
+{
+    if (ws->frames)
+	myfree(ws->frames, M_WALK);
+    ws->frames = 0;
+    ws->depth = ws->max = 0;
+}
+
+Var *
+walk_children(Var v, Num *count)
+{
+#ifdef WAIF_CORE
+    if (v.type == TYPE_WAIF) {
+	int n;
+	Var *values = waif_propvals(v.v.waif, &n);
+
+	*count = n;
+	return values;
+    }
+#endif
+    *count = v.v.list[0].v.num;
+    return v.v.list + 1;
+}
+
+static size_t
+visit_hash(const void *a, const void *b, size_t size)
+{
+    uint64_t h = (uintptr_t) a ^ ((uint64_t) (uintptr_t) b * 0xC2B2AE3D27D4EB4FULL);
+
+    h ^= h >> 17;
+    h *= 0x9E3779B97F4A7C15ULL;
+    return (size_t) (h ^ (h >> 29)) & (size - 1);
+}
+
+Visit *
+visit_find(const Visit_Set *set, const void *a, const void *b)
+{
+    size_t i;
+
+    if (!set->size)
+	return 0;
+    for (i = visit_hash(a, b, set->size); set->slots[i].a;
+	 i = (i + 1) & (set->size - 1))
+	if (set->slots[i].a == a && set->slots[i].b == b)
+	    return &set->slots[i];
+    return 0;
+}
+
+Visit *
+visit_add(Visit_Set *set, const void *a, const void *b, int *added)
+{
+    Visit *v;
+    size_t i;
+
+    if ((v = visit_find(set, a, b))) {
+	if (added)
+	    *added = 0;
+	return v;
+    }
+    if (2 * (set->count + 1) > set->size) {
+	Visit *old = set->slots;
+	size_t old_size = set->size, j;
+
+	set->size = old_size ? 2 * old_size : 64;
+	set->slots = mymalloc(set->size * sizeof(Visit), M_WALK);
+	memset(set->slots, 0, set->size * sizeof(Visit));
+	for (j = 0; j < old_size; j++)
+	    if (old[j].a) {
+		for (i = visit_hash(old[j].a, old[j].b, set->size);
+		     set->slots[i].a; i = (i + 1) & (set->size - 1))
+		    ;
+		set->slots[i] = old[j];
+	    }
+	if (old)
+	    myfree(old, M_WALK);
+    }
+    for (i = visit_hash(a, b, set->size); set->slots[i].a;
+	 i = (i + 1) & (set->size - 1))
+	;
+    v = &set->slots[i];
+    v->a = a;
+    v->b = b;
+    v->x = v->y = 0;
+    set->count++;
+    if (added)
+	*added = 1;
+    return v;
+}
+
+void
+visit_set_free(Visit_Set *set)
+{
+    if (set->slots)
+	myfree(set->slots, M_WALK);
+    set->slots = 0;
+    set->size = set->count = 0;
 }
 
 void

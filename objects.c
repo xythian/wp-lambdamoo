@@ -591,7 +591,7 @@ bf_object_bytes(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr
 	return make_error_pack(E_INVIND);
 
     v.type = TYPE_INT;
-    v.v.num = db_object_bytes(oid);
+    v.v.num = size_to_num(db_object_bytes(oid));
 
     return make_var_pack(v);
 }
