@@ -934,6 +934,8 @@ bf_substitute(volatile Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Obji
 		    p = make_error_pack(E_INVARG);
 		    goto oops;
 		}
+		if (start == 0)
+		    continue;	/* {0, -1}: group didn't match */
 		Num bstartafter[2] = { start, end + 1 };
 		utf_byte_range(subject, bstartafter);
 		stream_add_bytes(s, subject + bstartafter[0] - 1,
