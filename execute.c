@@ -1419,7 +1419,7 @@ do {								\
 		arg = POP();
 		if (arg.type == TYPE_INT) {
 		    ans.type = TYPE_INT;
-		    ans.v.num = (Num)-(UNum)arg.v.num;	/* -NUM_MIN wraps */
+		    ans.v.num = num_negate(arg.v.num);	/* -NUM_MIN wraps */
 		} else if (arg.type == TYPE_FLOAT) {
 		    ans.type = TYPE_FLOAT;
 		    ans.v.fnum = box_fl(-fl_unbox(arg.v.fnum));
