@@ -936,13 +936,19 @@ bf_atan(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_
 	return make_float_pack(d);
 }
 
+/* {j,y}n() take time proportional to the order and cannot be interrupted,
+ * so an order near INT_MAX keeps the whole server busy for 15+ seconds
+ * past any tick or seconds limit.  This bound keeps one call to a few
+ * milliseconds.
+ */
+#define BESSEL_MAX_ORDER 1000000
+
 static package
 bf_j(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 {
     Num n = arglist.v.list[1].v.num;
     FlNum d = fl_unbox(arglist.v.list[2].v.fnum);
-    /* jn() takes an int; don't let a larger order truncate */
-    if (n < -INT_MAX || n > INT_MAX) {
+    if (n < -BESSEL_MAX_ORDER || n > BESSEL_MAX_ORDER) {
 	free_var(arglist);
 	return make_error_pack(E_INVARG);
     }
@@ -972,8 +978,7 @@ bf_y(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 {
     Num n = arglist.v.list[1].v.num;
     FlNum d = fl_unbox(arglist.v.list[2].v.fnum);
-    /* yn() takes an int; don't let a larger order truncate */
-    if (n < -INT_MAX || n > INT_MAX) {
+    if (n < -BESSEL_MAX_ORDER || n > BESSEL_MAX_ORDER) {
 	free_var(arglist);
 	return make_error_pack(E_INVARG);
     }
