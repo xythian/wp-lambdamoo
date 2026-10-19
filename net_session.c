@@ -85,8 +85,9 @@ typedef struct session_listener {
     uint16_t port;		/* the edge port, or 0 for the Unix socket */
     int active;
     int tls;
-    char *certificate;		/* null for the edge's own */
+    char *certificate;		/* null for the edge's own or ACME */
     char *key;
+    char *acme;			/* comma-separated ACME names, or null */
     server_listener slistener;
     char *path;
     char *name;
@@ -756,6 +757,7 @@ free_port_listener(session_listener *l)
     free(l->name);
     free(l->certificate);
     free(l->key);
+    free(l->acme);
     free(l);
 }
 
@@ -807,11 +809,11 @@ make_port_listener(server_listener sl, Var desc, network_listener *nl,
 
 int
 network_set_listener_tls(network_listener nl, const char *certificate,
-                         const char *key)
+                         const char *key, const char *acme)
 {
     session_listener *l = nl.ptr;
 
-    if (l->fd >= 0 || !certificate != !key)
+    if (l->fd >= 0 || !certificate != !key || (acme && certificate))
         return 0;
     l->tls = 1;
     if (certificate) {
@@ -820,6 +822,8 @@ network_set_listener_tls(network_listener nl, const char *certificate,
         if (!l->certificate || !l->key)
             return 0;
     }
+    if (acme && !(l->acme = strdup(acme)))
+        return 0;
     return 1;
 }
 
@@ -902,9 +906,11 @@ send_listeners(void)
     for (l = port_listeners; l && count < SP_MAX_LISTENERS; l = l->next)
         if (l->active) {
             listens[count].port = l->port;
-            listens[count].flags = l->tls ? SP_LISTEN_TLS : 0;
+            listens[count].flags = (l->tls ? SP_LISTEN_TLS : 0)
+                | (l->acme ? SP_LISTEN_ACME : 0);
             listens[count].certificate = l->certificate;
             listens[count].key = l->key;
+            listens[count].acme = l->acme;
             count++;
         }
     if (sp_encode_listeners(listens, count, &payload, &length) < 0) {

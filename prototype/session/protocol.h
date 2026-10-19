@@ -20,7 +20,7 @@
 #define SP_CONNECT_FIXED_SIZE 16u
 #define SP_CONNECT_FAILED_FIXED_SIZE 8u
 #define SP_MAX_LISTENERS 1024u
-#define SP_LISTEN_FIXED_SIZE 8u
+#define SP_LISTEN_FIXED_SIZE 10u
 
 enum sp_type {
     SP_HELLO = 1,
@@ -48,7 +48,8 @@ enum sp_connect_flag {
 };
 
 enum sp_listen_flag {
-    SP_LISTEN_TLS = 1
+    SP_LISTEN_TLS = 1,
+    SP_LISTEN_ACME = 2
 };
 
 enum sp_connect_failure {
@@ -93,8 +94,9 @@ struct sp_hello {
 struct sp_listen {
     uint16_t port;
     uint16_t flags;
-    const char *certificate;	/* null for the edge's own */
+    const char *certificate;	/* null for the edge's own or ACME */
     const char *key;
+    const char *acme;		/* comma-separated names, or null */
 };
 
 struct sp_connect {

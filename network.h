@@ -106,10 +106,13 @@ extern int network_listen(network_listener nl);
 #if NETWORK_PROTOCOL == NP_SESSION
 extern int network_set_listener_tls(network_listener nl,
 				    const char *certificate,
-				    const char *key);
+				    const char *key,
+				    const char *acme);
 				/* Make the listener accept TLS, with the
-				 * given certificate and key files or, when
-				 * they are null, the edge's own.  Called
+				 * given certificate and key files, with a
+				 * certificate the edge gets by ACME for the
+				 * comma-separated names in ACME, or, when
+				 * all are null, with the edge's own.  Called
 				 * before network_listen(); false on failure.
 				 */
 #endif

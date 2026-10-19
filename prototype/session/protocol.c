@@ -384,10 +384,11 @@ sp_encode_listeners(const struct sp_listen *listens, unsigned count,
         size_t certificate = listens[i].certificate
             ? strlen(listens[i].certificate) : 0;
         size_t key = listens[i].key ? strlen(listens[i].key) : 0;
+        size_t acme = listens[i].acme ? strlen(listens[i].acme) : 0;
 
-        if (certificate > 0xffff || key > 0xffff)
+        if (certificate > 0xffff || key > 0xffff || acme > 0xffff)
             return -1;
-        total += SP_LISTEN_FIXED_SIZE + (uint32_t) (certificate + key);
+        total += SP_LISTEN_FIXED_SIZE + (uint32_t) (certificate + key + acme);
         if (total > SP_MAX_CONTROL)
             return -1;
     }
@@ -399,11 +400,14 @@ sp_encode_listeners(const struct sp_listen *listens, unsigned count,
             ? strlen(listens[i].certificate) : 0);
         uint16_t key = (uint16_t) (listens[i].key
             ? strlen(listens[i].key) : 0);
+        uint16_t acme = (uint16_t) (listens[i].acme
+            ? strlen(listens[i].acme) : 0);
 
         put_u16(q, listens[i].port);
         put_u16(q + 2, listens[i].flags);
         put_u16(q + 4, certificate);
         put_u16(q + 6, key);
+        put_u16(q + 8, acme);
         q += SP_LISTEN_FIXED_SIZE;
         if (certificate)
             memcpy(q, listens[i].certificate, certificate);
@@ -411,6 +415,9 @@ sp_encode_listeners(const struct sp_listen *listens, unsigned count,
         if (key)
             memcpy(q, listens[i].key, key);
         q += key;
+        if (acme)
+            memcpy(q, listens[i].acme, acme);
+        q += acme;
     }
     *payload = p;
     *length = total;

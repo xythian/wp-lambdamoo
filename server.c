@@ -31,6 +31,7 @@
 #include "server.h"
 #include "bf_register.h"
 
+#include "my-ctype.h"
 #include "my-signal.h"
 #include "my-stdarg.h"
 #include "my-stdio.h"
@@ -1596,6 +1597,7 @@ struct network_options {
     int print_messages;		/* "print-messages" (listen); -1 if absent */
     const char *certificate;	/* "certificate" (listen): a PEM file */
     const char *key;		/* "key" (listen): its private key */
+    Var acme;			/* "acme" (listen): a name or list of names */
     int has_listener;		/* "listener" (open_network_connection) */
     Objid listener;
 };
@@ -1606,9 +1608,74 @@ default_network_options(struct network_options *o)
     o->tls = 0;
     o->print_messages = -1;
     o->certificate = o->key = 0;
+    o->acme.type = TYPE_NONE;
     o->has_listener = 0;
     o->listener = NOTHING;
 }
+
+/* An ACME name is a DNS name, or a wildcard one: letters, digits, '-',
+ * '.' and '*', which keeps the names safe to join with commas.
+ */
+static int
+acme_name_ok(const char *name)
+{
+    size_t length = strlen(name);
+    const char *p;
+
+    if (length < 1 || length > 253)
+	return 0;
+    for (p = name; *p; p++)
+	if (!isalnum((unsigned char) *p) && !strchr("-.*", *p))
+	    return 0;
+    return 1;
+}
+
+#define MAX_ACME_NAMES 100
+
+static enum error
+check_acme_names(Var value)
+{
+    int i;
+
+    if (value.type == TYPE_STR)
+	return acme_name_ok(value.v.str) ? E_NONE : E_INVARG;
+    if (value.type != TYPE_LIST)
+	return E_TYPE;
+    if (value.v.list[0].v.num < 1 || value.v.list[0].v.num > MAX_ACME_NAMES)
+	return E_INVARG;
+    for (i = 1; i <= value.v.list[0].v.num; i++) {
+	if (value.v.list[i].type != TYPE_STR)
+	    return E_TYPE;
+	if (!acme_name_ok(value.v.list[i].v.str))
+	    return E_INVARG;
+    }
+    return E_NONE;
+}
+
+#if NETWORK_PROTOCOL == NP_SESSION
+/* The comma-separated names an "acme" option gives, or null for none. */
+static char *
+acme_names(Var acme)
+{
+    Stream *s;
+    char *names;
+    int i;
+
+    if (acme.type == TYPE_NONE)
+	return 0;
+    if (acme.type == TYPE_STR)
+	return str_dup(acme.v.str);
+    s = new_stream(100);
+    for (i = 1; i <= acme.v.list[0].v.num; i++) {
+	if (i > 1)
+	    stream_add_char(s, ',');
+	stream_add_string(s, acme.v.list[i].v.str);
+    }
+    names = str_dup(stream_contents(s));
+    free_stream(s);
+    return names;
+}
+#endif
 
 static enum error
 parse_network_options(Var options, int for_listen, struct network_options *o)
@@ -1640,6 +1707,12 @@ parse_network_options(Var options, int for_listen, struct network_options *o)
 		o->key = value.v.str;
 	    else
 		o->certificate = value.v.str;
+	} else if (for_listen && !mystrcasecmp(name, "acme")) {
+	    enum error e = check_acme_names(value);
+
+	    if (e != E_NONE)
+		return e;
+	    o->acme = value;
 	} else if (!for_listen && !mystrcasecmp(name, "listener")) {
 	    if (value.type != TYPE_OBJ)
 		return E_TYPE;
@@ -1648,7 +1721,9 @@ parse_network_options(Var options, int for_listen, struct network_options *o)
 	} else
 	    return E_INVARG;
     }
-    if ((o->certificate || o->key) && !o->tls)
+    if ((o->certificate || o->key || o->acme.type != TYPE_NONE) && !o->tls)
+	return E_INVARG;
+    if (o->acme.type != TYPE_NONE && (o->certificate || o->key))
 	return E_INVARG;
 #if NETWORK_PROTOCOL != NP_SESSION
     /* Only the session backend's edge does TLS so far. */
@@ -2039,6 +2114,9 @@ bf_listen(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
     struct network_options o;
     enum error e = E_NONE;
     slistener *l = 0;
+#if NETWORK_PROTOCOL == NP_SESSION
+    char *acme = 0;
+#endif
 
     default_network_options(&o);
     if (nargs == 3 && arglist.v.list[3].type == TYPE_LIST)
@@ -2050,6 +2128,10 @@ bf_listen(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
     }
     if (o.print_messages >= 0)
 	print_messages = o.print_messages;
+#if NETWORK_PROTOCOL == NP_SESSION
+    if (e == E_NONE)
+	acme = acme_names(o.acme);
+#endif
 
     if (e != E_NONE);
     else if (!is_wizard(progr))
@@ -2059,7 +2141,7 @@ bf_listen(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
     else if (!(l = new_slistener(oid, desc, print_messages, &e)));	/* Do nothing; e is already set */
 #if NETWORK_PROTOCOL == NP_SESSION
     else if (o.tls && !network_set_listener_tls(l->nlistener, o.certificate,
-					       o.key)) {
+					       o.key, acme)) {
 	free_slistener(l);
 	e = E_INVARG;
     }
@@ -2067,6 +2149,10 @@ bf_listen(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
     else if (!start_listener(l))
 	e = E_QUOTA;
 
+#if NETWORK_PROTOCOL == NP_SESSION
+    if (acme)
+	free_str(acme);
+#endif
     free_var(arglist);
     if (e == E_NONE)
 	return make_var_pack(var_ref(l->desc));

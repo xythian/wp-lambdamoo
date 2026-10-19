@@ -43,7 +43,8 @@ leaving both out removes `open_network_connection()`, as with the TCP backend.
 The socket is the listener for connections the edge accepts on its own port,
 and is the listener object `#0`'s initial listening point, as `-p` gives the TCP
 backend. `-t tls-port` also has the edge accept TLS clients for `#0` on that
-port, with the edge's own certificate. Everything else the database does with
+port, with the edge's own certificate (which the edge may itself get by ACME,
+as its own configuration says). Everything else the database does with
 the network goes through the edge:
 
 - **`listen(object, port [, print-messages] [, options])`** asks the edge to
@@ -75,14 +76,24 @@ case-insensitive.
 | `listen()` | `print-messages` | the same as the `print-messages` argument, which it overrides |
 | `listen()` | `certificate` | path of the certificate chain file to accept TLS with |
 | `listen()` | `key` | path of the private key file for `certificate` |
+| `listen()` | `acme` | a host name, or a list of them, to get a certificate for by ACME |
 | `open_network_connection()` | `listener` | the same as the `listener` argument |
 
 An option name the builtin doesn't know, an entry that isn't a
 `{string, value}` pair, `certificate` or `key` without the other or without
-`tls`, or `listener` given twice raises `E_INVARG`; an options argument that
-isn't a list, or a value of the wrong type, raises `E_TYPE`. Without
-`certificate` and `key`, a TLS port uses the edge's own certificate. Paths are
-the edge's: it reads the files, and the server never does.
+`tls`, `acme` without `tls` or with `certificate` and `key`, or `listener`
+given twice raises `E_INVARG`; an options argument that isn't a list, or a
+value of the wrong type, raises `E_TYPE`. Without `certificate` and `key`, a
+TLS port uses the edge's own certificate. Paths are the edge's: it reads the
+files, and the server never does.
+
+With `acme`, the edge gets and renews a certificate covering the names from an
+ACME certificate authority (such as Let's Encrypt), and accepts TLS on the port
+with it. Each name is a DNS name or a wildcard one: 1 to 253 letters, digits,
+`-`, `.` and `*`; an empty list, more than 100 names, or any other character
+raises `E_INVARG`. Which authority, account and challenge the edge uses are its
+own configuration, not the database's. An edge without an ACME client treats
+the port as one whose certificate it can't load.
 
 A backend that can't do TLS raises `E_INVARG` for a true `tls` rather than
 making a plain connection; today that is every backend but this one. A TCP
@@ -302,14 +313,18 @@ server listens on through the edge, at most 1024 of them, each as one entry:
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 2 | port, 1 to 65535 |
-| 2 | 2 | flags: 1 TLS; other bits 0 |
+| 2 | 2 | flags: 1 TLS, 2 ACME; other bits 0 |
 | 4 | 2 | certificate path length |
 | 6 | 2 | key path length |
-| 8 | n | certificate path, UTF-8 |
-| 8+n | m | key path, UTF-8 |
+| 8 | 2 | ACME names length |
+| 10 | n | certificate path, UTF-8 |
+| 10+n | m | key path, UTF-8 |
+| 10+n+m | a | ACME names, comma-separated |
 
-The paths are both empty, meaning the edge's own certificate, or both
-non-empty, and only with the TLS flag. A port appears at most once. The edge's
+The paths are both empty or both non-empty, and only with the TLS flag. The
+ACME flag needs the TLS flag, non-empty names and empty paths; the names are
+empty without it. A TLS port with neither paths nor ACME uses the edge's own
+certificate. A port appears at most once. The edge's
 own port is not included; a `-t` port is, with the TLS flag and no paths.
 
 ### CONNECT
@@ -381,9 +396,9 @@ session. A client's `HELLO` carries the port it arrived on. The server refuses
 a new session for a port it isn't listening on; a resumed session is checked
 against its binding instead, so it survives the port going away.
 
-If the edge cannot listen on a port, or cannot load a TLS port's certificate,
-or has none of its own for a TLS port that names none, it says so in its own
-log; the server is not told.
+If the edge cannot listen on a port, cannot load or get a TLS port's
+certificate, or has none of its own for a TLS port that names none, it says so
+in its own log; the server is not told.
 
 ### Outbound connections
 
@@ -520,8 +535,9 @@ An edge implementing this protocol must:
   `CONNECT_FAILED`;
 - verify the certificate of a TLS outbound connection against the host name
   in `CONNECT`;
-- terminate TLS on ports `LISTENERS` flags as TLS, with the paths it names or
-  the edge's own certificate;
+- terminate TLS on ports `LISTENERS` flags as TLS, with the paths it names, a
+  certificate it gets and renews by ACME for the names given, or the edge's
+  own certificate;
 - bound every buffer, and pause reading the client when its input allowance is
   exhausted.
 
