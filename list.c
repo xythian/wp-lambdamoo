@@ -285,8 +285,8 @@ value2str(Var value)
     }
 }
 
-void
-unparse_value(Stream * s, Var v)
+static void
+unparse_scalar(Stream * s, Var v)
 {
     switch (v.type) {
     case TYPE_INT:
@@ -319,21 +319,6 @@ unparse_value(Stream * s, Var v)
 	    stream_add_char(s, '"');
 	}
 	break;
-    case TYPE_LIST:
-	{
-	    const char *sep = "";
-	    int len, i;
-
-	    stream_add_char(s, '{');
-	    len = v.v.list[0].v.num;
-	    for (i = 1; i <= len; i++) {
-		stream_add_string(s, sep);
-		sep = ", ";
-		unparse_value(s, v.v.list[i]);
-	    }
-	    stream_add_char(s, '}');
-	}
-	break;
 
 #ifdef WAIF_CORE
     case TYPE_WAIF:
@@ -346,6 +331,43 @@ unparse_value(Stream * s, Var v)
 	errlog("UNPARSE_VALUE: Unknown Var type = %d\n", v.type);
 	stream_add_string(s, ">>Unknown value<<");
     }
+}
+
+/* Every list visited adds at least "{}" to S, so the work done is
+ * bounded by the length of the result even when lists share sublists.
+ */
+void
+unparse_value(Stream * s, Var v)
+{
+    static Walk_Stack ws;
+
+    if (v.type != TYPE_LIST) {
+	unparse_scalar(s, v);
+	return;
+    }
+    /* A stream_too_big exception can leave frames from an earlier call. */
+    ws.depth = 0;
+    stream_add_char(s, '{');
+    walk_push(&ws, v, zero, 0);
+    while (ws.depth > 0) {
+	Walk_Frame *f = &ws.frames[ws.depth - 1];
+	Var c;
+
+	if (f->i == f->a.v.list[0].v.num) {
+	    stream_add_char(s, '}');
+	    ws.depth--;
+	    continue;
+	}
+	if (f->i > 0)
+	    stream_add_string(s, ", ");
+	c = f->a.v.list[++f->i];
+	if (c.type == TYPE_LIST) {
+	    stream_add_char(s, '{');
+	    walk_push(&ws, c, zero, 0);
+	} else
+	    unparse_scalar(s, c);
+    }
+    walk_release(&ws);
 }
 
 Var
@@ -960,7 +982,7 @@ bf_value_bytes(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr 
     Var r;
 
     r.type = TYPE_INT;
-    r.v.num = value_bytes(arglist.v.list[1]);
+    r.v.num = size_to_num(value_bytes(arglist.v.list[1]));
     free_var(arglist);
     return make_var_pack(r);
 }
@@ -1101,11 +1123,61 @@ bf_decode_binary(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid prog
     return make_var_pack(r);
 }
 
+/* Calls ENCODE_SCALAR on each non-list inside V, in order, stopping at
+ * the first one it rejects.  A list that appears several times inside V
+ * is encoded once and then copied from what it wrote the first time, so
+ * lists that share sublists (even empty ones, which write nothing) take
+ * time proportional to the result rather than to the number of paths.
+ */
 static int
-encode_binary(Stream * s, Var v)
+encode_list(Stream * s, Var v, int (*encode_scalar)(Stream *, Var))
 {
-    int i;
+    static Walk_Stack ws;
+    static Visit_Set written;
+    size_t walked = 0;
+    int ok = 1;
 
+    if (v.type != TYPE_LIST)
+	return encode_scalar(s, v);
+
+    /* A stream_too_big exception can leave these from an earlier call. */
+    ws.depth = 0;
+    visit_set_free(&written);
+
+    walk_push(&ws, v, zero, stream_length(s));
+    while (ws.depth > 0) {
+	Walk_Frame *f = &ws.frames[ws.depth - 1];
+	Var c;
+	Visit *seen;
+
+	if (f->i == f->a.v.list[0].v.num) {
+	    if (++walked > WALK_MEMO_AFTER) {
+		seen = visit_add(&written, f->a.v.list, 0, 0);
+		seen->x = f->aux;
+		seen->y = stream_length(s) - f->aux;
+	    }
+	    ws.depth--;
+	    continue;
+	}
+	c = f->a.v.list[++f->i];
+	if (c.type != TYPE_LIST) {
+	    if (!encode_scalar(s, c)) {
+		ok = 0;
+		break;
+	    }
+	} else if (written.count && (seen = visit_find(&written, c.v.list, 0)))
+	    stream_add_copy(s, seen->x, seen->y);
+	else
+	    walk_push(&ws, c, zero, stream_length(s));
+    }
+    walk_release(&ws);
+    visit_set_free(&written);
+    return ok;
+}
+
+static int
+encode_binary_scalar(Stream * s, Var v)
+{
     switch (v.type) {
     case TYPE_INT:
 	if (v.v.num < 0 || v.v.num >= 256)
@@ -1115,16 +1187,17 @@ encode_binary(Stream * s, Var v)
     case TYPE_STR:
 	stream_add_string(s, v.v.str);
 	break;
-    case TYPE_LIST:
-	for (i = 1; i <= v.v.list[0].v.num; i++)
-	    if (!encode_binary(s, v.v.list[i]))
-		return 0;
-	break;
     default:
 	return 0;
     }
 
     return 1;
+}
+
+static int
+encode_binary(Stream * s, Var v)
+{
+    return encode_list(s, v, encode_binary_scalar);
 }
 
 static package
@@ -1262,10 +1335,8 @@ stream_add_string_for_ec(Stream *s, const char *str)
 #endif
 
 static int
-encode_chars(Stream *s, Var v)
+encode_chars_scalar(Stream *s, Var v)
 {
-    int i;
-
     switch (v.type) {
     case TYPE_INT:
 	/* check before narrowing to uint32_t, which would wrap */
@@ -1278,18 +1349,17 @@ encode_chars(Stream *s, Var v)
 	stream_add_string_for_ec(s, v.v.str);
 	break;
 
-    case TYPE_LIST:
-	for (i = 1; i <= v.v.list[0].v.num; ++i) {
-	    if (!encode_chars(s, v.v.list[i]))
-		return 0;
-	}
-	break;
-
     default:
 	return 0;
     }
 
     return 1;
+}
+
+static int
+encode_chars(Stream *s, Var v)
+{
+    return encode_list(s, v, encode_chars_scalar);
 }
 
 static package

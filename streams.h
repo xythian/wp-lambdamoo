@@ -63,6 +63,8 @@ extern int  stream_add_utf(Stream *, uint32_t);
 #endif
 
 extern void stream_add_bytes(Stream *, const char *, size_t);
+/* Appends a copy of LEN bytes already in the stream, starting at START. */
+extern void stream_add_copy(Stream *, size_t start, size_t len);
 inline void stream_add_string(Stream * s, const char *string)
 { stream_add_bytes(s, string, strlen(string)); }
 extern void stream_printf(Stream *, const char *,...) FORMAT(printf,2,3);

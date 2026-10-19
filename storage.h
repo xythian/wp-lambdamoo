@@ -38,6 +38,7 @@ typedef enum Memory_Type {
 
     M_XML_DATA,
     M_WAIF, M_WAIF_XTRA,
+    M_WALK,
 
     Sizeof_Memory_Type
 

@@ -310,7 +310,7 @@ db_object_bytes(Objid oid)
     len = dbpriv_count_properties(oid);
     count += (BQM_SIZEOF(Pval) - BQM_SIZEOF(Var)) * len;
     for (i = 0; i < len; i++)
-	count += value_bytes(o->propval[i].var);
+	count = size_add(count, value_bytes(o->propval[i].var));
 
     return count;
 }
