@@ -1507,6 +1507,8 @@ do {								\
 		if (to.type != TYPE_INT || from.type != TYPE_INT
 		    || !list_or_string(base))
 		    e = E_TYPE;
+		else if (to.v.num == NUM_MAX)
+		    e = E_RANGE;
 		else if (base.type == TYPE_LIST) {
 		    if (rangeref_fails(base.v.list[0].v.num,
 				       from.v.num, to.v.num + 1))
@@ -1515,13 +1517,22 @@ do {								\
 			PUSH(sublist(base, from.v.num, to.v.num + 1));
 		}
 		else {  /* base.type == TYPE_STR */
-		    Num bfromafter[] = { from.v.num, to.v.num + 1 };
-		    utf_byte_range(base.v.str, bfromafter);
-		    if (rangeref_fails(memo_strlen(base.v.str),
-				       bfromafter[0], bfromafter[1]))
+		    Num after = to.v.num + 1;
+
+		    if (rangeref_fails(memo_strlen_utf(base.v.str),
+				       from.v.num, after))
 			e = E_RANGE;
-		    else
+		    else {
+			/* Normalize empty ranges before translating large indices. */
+			Num bfromafter[] = {1, 1};
+
+			if (from.v.num < after) {
+			    bfromafter[0] = from.v.num;
+			    bfromafter[1] = after;
+			    utf_byte_range(base.v.str, bfromafter);
+			}
 			PUSH(substr(base, bfromafter[0], bfromafter[1]));
+		    }
 		}
 		free_var(to);
 		free_var(from);
@@ -1953,24 +1964,35 @@ do {								\
 			    || value.type != base.type)
 			    e = E_TYPE;
 			else if (base.type == TYPE_LIST) {
+			    /* Clip before adding one or forming a source pointer. */
+			    Num length = base.v.list[0].v.num;
+			    Num after = to.v.num >= length ? length + 1 : to.v.num + 1;
+
 			    e = rangeset_error(server_int_option_cached(SVO_MAX_LIST_CONCAT),
-					       base.v.list[0].v.num,
+					       length,
 					       value.v.list[0].v.num,
-					       from.v.num, to.v.num + 1);
+					       from.v.num, after);
 			    if (e == E_NONE)
-				PUSH(listrangeset(base, from.v.num,
-						  to.v.num + 1, value));
+				PUSH(listrangeset(base, from.v.num, after, value));
 			}
 			else {  /* base.type == TYPE_STR */
-			    Num bfromafter[] = { from.v.num, to.v.num + 1 };
-			    utf_byte_range(base.v.str, bfromafter);
-			    e = rangeset_error(server_int_option_cached(SVO_MAX_STRING_CONCAT),
-					       memo_strlen(base.v.str),
-					       memo_strlen(value.v.str),
-					       bfromafter[0], bfromafter[1]);
-			    if (e == E_NONE)
-				PUSH(strrangeset(base, bfromafter[0],
-						 bfromafter[1], value));
+			    Num length = memo_strlen_utf(base.v.str);
+
+			    if (from.v.num > length + 1)
+				e = E_RANGE;
+			    else {
+				Num bfromafter[] = {from.v.num,
+				    to.v.num >= length ? length + 1 : to.v.num + 1};
+
+				utf_byte_range(base.v.str, bfromafter);
+				e = rangeset_error(server_int_option_cached(SVO_MAX_STRING_CONCAT),
+						   memo_strlen(base.v.str),
+						   memo_strlen(value.v.str),
+						   bfromafter[0], bfromafter[1]);
+				if (e == E_NONE)
+				    PUSH(strrangeset(base, bfromafter[0],
+						     bfromafter[1], value));
+			    }
 			}
 			/* listrangeset/strrangeset free base and value */
 			free_var(to);
