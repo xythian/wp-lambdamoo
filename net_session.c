@@ -19,6 +19,7 @@
 #include "my-time.h"
 #include "my-unistd.h"
 
+#include "db.h"
 #include "log.h"
 #include "net_mplex.h"
 #include "network.h"
@@ -466,6 +467,18 @@ attach_outbound(session_handle *h, const struct sp_hello *hello)
     return 1;
 }
 
+/* Whether DATABASE names the database this server loaded, which is the
+ * only one whose list of connections matches the sessions an edge holds.
+ */
+static int
+loaded_from(const unsigned char database[SP_DATABASE_ID_SIZE])
+{
+    unsigned char digest[DB_DIGEST_SIZE];
+
+    return db_input_digest(digest)
+        && !memcmp(digest, database, SP_DATABASE_ID_SIZE);
+}
+
 static int
 handle_hello(session_handle *h, struct sp_frame *frame)
 {
@@ -478,6 +491,8 @@ handle_hello(session_handle *h, struct sp_frame *frame)
         return 0;
     bound = hello.player != INT64_MIN;
     if (bound && hello.mode == SP_MODE_INITIAL)
+        return 0;
+    if (bound && !loaded_from(hello.database))
         return 0;
 
     h->kind = hello.kind;
@@ -1276,15 +1291,25 @@ network_close_listener(network_listener nl)
     the_listener = NULL;
 }
 
-void
-network_shutdown(void)
+/* Send every session DETACH naming the dump just written, so that a
+ * server loading exactly that dump can resume them.  Without a dump
+ * there is nothing to resume from, so nothing is sent and the edge sees
+ * a crash.  Returns false in that case.
+ */
+static int
+detach_sessions(uint8_t mode)
 {
+    struct sp_detach detach;
     session_handle *h;
 
+    memset(&detach, 0, sizeof(detach));
+    if (!db_dump_digest(detach.database)) {
+        errlog("SESSION DETACH: no database was written, so sessions "
+               "can't be resumed\n");
+        return 0;
+    }
+    detach.mode = mode;
     for (h = all_handles; h; h = h->next) {
-        struct sp_detach detach = {
-            SP_MODE_GRACEFUL, h->input_position, h->output_position
-        };
         unsigned char payload[SP_DETACH_SIZE];
 
         if (h == control) {
@@ -1292,11 +1317,31 @@ network_shutdown(void)
             (void) drain_output(h);
             continue;
         }
+        detach.input_position = h->input_position;
+        detach.output_position = h->output_position;
         sp_encode_detach(&detach, payload);
         if (!queue_frame(h, SP_DETACH, payload, sizeof(payload), 0)
             || !drain_output(h) || !finish_detach(h))
-            errlog("SESSION DETACH: graceful completion failed\n");
+            errlog("SESSION DETACH: completion failed\n");
     }
+    return 1;
+}
+
+void
+network_detach_after_panic(void)
+{
+    (void) detach_sessions(SP_MODE_CRASH);
+}
+
+void
+network_shutdown(void)
+{
+    session_handle *h;
+
+    if (!detach_sessions(SP_MODE_GRACEFUL))
+        for (h = all_handles; h; h = h->next)
+            if (h == control)
+                (void) drain_output(h);
     while (all_handles)
         remove_handle(all_handles, 0);
     if (the_listener) {

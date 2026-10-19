@@ -38,6 +38,7 @@ test_hello(void)
     source.output_position = 5678;
     source.player = 3;
     source.listener = 0;
+    memset(source.database, 0x33, sizeof(source.database));
     source.origin = origin;
     source.origin_length = (uint16_t) (sizeof(origin) - 1);
 
@@ -57,6 +58,16 @@ test_hello(void)
     assert(decoded.listener == source.listener);
     assert(decoded.origin_length == source.origin_length);
     assert(memcmp(decoded.origin, origin, source.origin_length) == 0);
+    assert(memcmp(decoded.database, source.database, SP_DATABASE_ID_SIZE) == 0);
+    free(payload);
+
+    /* An initial HELLO names no database. */
+    source.mode = SP_MODE_INITIAL;
+    source.player = source.listener = INT64_MIN;
+    assert(sp_encode_hello(&source, &payload, &length) == 0);
+    frame.length = length;
+    frame.payload = payload;
+    assert(sp_decode_hello(&frame, &decoded) < 0);
     free(payload);
 }
 
@@ -114,7 +125,7 @@ test_codecs(void)
     struct sp_welcome decoded_welcome;
     struct sp_ack ack = {SP_DIR_OUTPUT, 99};
     struct sp_ack decoded_ack;
-    struct sp_detach detach = {SP_MODE_CRASH, 7, 8};
+    struct sp_detach detach = {SP_MODE_CRASH, 7, 8, "database digest"};
     struct sp_detach decoded_detach;
     unsigned char welcome_bytes[SP_WELCOME_SIZE];
     unsigned char ack_bytes[SP_ACK_SIZE];
@@ -148,6 +159,8 @@ test_codecs(void)
     assert(decoded_detach.mode == SP_MODE_CRASH);
     assert(decoded_detach.input_position == 7);
     assert(decoded_detach.output_position == 8);
+    assert(memcmp(decoded_detach.database, detach.database,
+                  SP_DATABASE_ID_SIZE) == 0);
     sp_encode_bind(&bind, bind_bytes);
     frame = (struct sp_frame) {SP_BIND, 0, SP_BIND_SIZE, bind_bytes};
     assert(sp_decode_bind(&frame, &decoded_bind) == 0);

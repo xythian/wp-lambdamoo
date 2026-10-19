@@ -20,7 +20,10 @@ carries each one to the server as a *session* over a private Unix-domain
 socket. When the server process is replaced, the edge keeps the client
 connection open and attaches the session to the replacement process. A player
 who was logged in is resumed as the same player without logging in again, and
-the database code that handles logins is not involved.
+the database code that handles logins is not involved. That happens only when
+the replacement loads exactly the database the old process wrote as it let go
+of the session: its shutdown dump, or its PANIC dump after a panic. After a
+crash with no such dump, logged-in players are disconnected as before.
 
 A session survives replacement of the server. It does not survive loss of the
 edge that owns it.
@@ -180,12 +183,12 @@ of reads.
 
 | Type | Name | Sent by | Payload length |
 | ---: | --- | --- | --- |
-| 1 | `HELLO` | edge | 82 to 65536 |
+| 1 | `HELLO` | edge | 98 to 65536 |
 | 2 | `WELCOME` | server | 32 |
 | 3 | `INPUT` | edge | 8 to 1048584 |
 | 4 | `OUTPUT` | server | 8 to 1048584 |
 | 5 | `ACK` | both | 16 |
-| 6 | `DETACH` | server | 24 |
+| 6 | `DETACH` | server | 40 |
 | 7 | `CLOSE` | both | 0 to 65536 |
 | 8 | `ERROR` | either | 0 to 65536 |
 | 9 | `BIND` | server | 16 |
@@ -213,8 +216,9 @@ ends the attachment.
 | 56 | 8 | next output position |
 | 64 | 8 | bound player (signed), or `INT64_MIN` if not logged in |
 | 72 | 8 | bound listener (signed), meaningful only with a player |
-| 80 | 2 | origin length |
-| 82 | origin length | origin |
+| 80 | 16 | database: the digest from the session's last `DETACH`, or zeros |
+| 96 | 2 | origin length |
+| 98 | origin length | origin |
 
 The origin is text the edge asserts about the client, such as its address. The
 server uses it as the connection's name, so `connection_name()` returns it.
@@ -233,10 +237,17 @@ A server refuses a `HELLO` whose fields don't fit its kind.
 
 Recovery mode tells the server why this attachment exists:
 
-- **initial**: a new session. Positions are 0 and there is no binding.
+- **initial**: a new session. Positions are 0, there is no binding, and the
+  database is zeros.
 - **graceful**: the previous server detached the session cleanly with
   `DETACH`, at the positions given.
-- **crash**: the previous attachment ended without a valid `DETACH`.
+- **crash**: the previous server detached the session with a crash-mode
+  `DETACH` after a panic, or the previous attachment ended without a valid
+  `DETACH`.
+
+The database field is the digest a valid `DETACH` gave the session since its
+last `WELCOME`, and zeros if none did. A bound session is resumed only when it
+names the database the server loaded ([Resuming a session](#resuming-a-session)).
 
 ### WELCOME
 
@@ -293,16 +304,24 @@ server checks it against its own database when the session is resumed.
 
 | Offset | Size | Field |
 | ---: | ---: | --- |
-| 0 | 1 | mode: 2 graceful |
+| 0 | 1 | mode: 2 graceful, 3 crash |
 | 1 | 7 | reserved |
 | 8 | 8 | next input position |
 | 16 | 8 | next output position |
+| 24 | 16 | database: MD5 digest of the database file just written |
 
-Sent by the server during an orderly shutdown, after it has flushed all output
-for the session. The server then shuts down its side of the carrier. The edge
-accepts the detach only if both positions match its own. It then attaches to
-the next server in graceful mode at those positions. Any other detach is
-treated as a crash.
+Sent by the server after it has written its shutdown dump (graceful) or its
+PANIC dump (crash), and flushed all output for the session. The digest
+identifies that file exactly; it is not a security measure. The server then
+shuts down its side of the carrier. A server that couldn't write a dump sends
+no `DETACH`.
+
+The edge accepts a graceful detach only if both positions match its own, and
+a crash detach only if the output position matches its own and the input
+position is at most its own (input the server never read is lost, as in any
+crash). It then attaches to the next server in that mode, at its own
+positions, naming the digest. Any other detach is treated as a crash without
+one.
 
 ### LISTENERS
 
@@ -457,8 +476,8 @@ an edge that has died takes its sessions with it.
 A server shutting down in an orderly way (the `shutdown()` builtin, `SIGINT`,
 `SIGTERM` or `SIGUSR1`) sends every player the usual `*** Shutting down ***` line and
 writes its final database, which records every logged-in player and listener
-pair. It then sends each session `DETACH` with
-its current positions and closes the carrier. Each edge keeps its clients
+pair. Only then does it send each session `DETACH` with its current positions
+and the digest of that database, and close the carrier. Each edge keeps its clients
 connected and retries the socket until a replacement server is listening, then
 attaches each session in graceful mode with the binding it holds.
 
@@ -475,17 +494,21 @@ For each session it:
    was acknowledged;
 3. may still deliver output it had already received to the client;
 4. retries the socket, and when a replacement is listening, attaches in crash
-   mode with the positions it holds and the binding, if any.
+   mode with the positions it holds, the binding, if any, and no database.
 
-The replacement server may have loaded a database older than the crash, so
-anything the dead server did after its last checkpoint may be lost. Tasks that
-were waiting in `read()` may not exist.
+With no database named, the replacement resumes no logged-in player: whatever
+database it loaded, a checkpoint included, may disagree with the sessions
+about who is connected. Their carriers are refused, and the edge closes those
+clients. Sessions that weren't logged in carry on as new connections.
 
 ### Resuming a session
 
 When a `HELLO` carries a binding (graceful or crash mode), the server resumes
 the session only if:
 
+- its database field is the MD5 digest of the database file the server
+  loaded, so that file is exactly the dump written as the session was
+  detached, and
 - the player is a valid object that isn't already connected, and
 - the player and listener pair is in the list of formerly active connections
   recorded in the database the server loaded, and
@@ -495,9 +518,16 @@ If those hold, the server takes that pair out of the list, creates the
 connection already logged in as the player, logs `SESSION REATTACHED` or
 `SESSION RECOVERED`, and sends `WELCOME`. It does not call
 `$do_login_command`, `user_connected` or `user_reconnected`, and it doesn't
-send a welcome message. After a crash it sends the player the line
+send a welcome message. After a panic it sends the player the line
 `*** Session recovered from a server crash ***`. If any check fails, the
 server closes the carrier without `WELCOME`.
+
+The digest check is what makes resuming safe: only the dump the old server
+wrote at the moment it detached the session records the connection as it
+stood. Any other database, older or newer, could name the player as connected
+when they weren't, or the reverse, and could hold different state for them.
+After resuming, a session names no database until its next `DETACH`, so a dump
+resumes each session at most once.
 
 A `HELLO` in initial mode that carries a binding is refused. A `HELLO` in
 graceful or crash mode without a binding is accepted as a new, not yet logged in
@@ -510,11 +540,12 @@ since those players are expected to resume.
 ### Panics
 
 When the server panics, it writes a PANIC database (`output.db.PANIC`), which
-includes the formerly active connections, and exits without detaching sessions
-or sending them a shutdown message. Edges see a crash. Restarting the server
-from the PANIC database resumes the sessions in crash mode with all state up to
-the panic, except the task that was running. Restarting it from an older
-checkpoint resumes only the players recorded in that checkpoint.
+includes the formerly active connections. If that succeeds, it sends each
+session a crash-mode `DETACH` naming the PANIC database, without a shutdown
+message, and exits. Restarting the server from the PANIC database resumes the
+sessions in crash mode with all state up to the panic, except the task that
+was running. Restarting it from anything else, such as the last checkpoint,
+resumes nobody, as after a crash without `DETACH`.
 
 ## Edge obligations
 
@@ -524,6 +555,8 @@ An edge implementing this protocol must:
   edge instance ID for each process;
 - increase a session's generation on every new attachment;
 - send `HELLO` first and wait for `WELCOME` before sending input;
+- name in `HELLO` the database from a `DETACH` it accepted since the session's
+  last `WELCOME`, and otherwise zeros;
 - keep its input and output positions, and the binding from the most recent
   `BIND`;
 - stop reading client input while a session is unattached;

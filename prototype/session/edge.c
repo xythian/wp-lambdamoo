@@ -37,6 +37,7 @@ struct client {
     uint64_t input_acked;
     uint64_t output_position;
     uint8_t next_mode;
+    unsigned char database[SP_DATABASE_ID_SIZE];	/* from the last DETACH */
     int64_t player;
     int64_t listener;
 };
@@ -139,6 +140,8 @@ send_hello(struct client *client, int backend)
     hello.output_position = client->output_position;
     hello.player = client->player;
     hello.listener = client->listener;
+    if (hello.mode != SP_MODE_INITIAL)
+        memcpy(hello.database, client->database, SP_DATABASE_ID_SIZE);
     hello.origin = (const unsigned char *) client->origin;
     hello.origin_length = (uint16_t) strlen(client->origin);
     if (sp_encode_hello(&hello, &payload, &length) < 0)
@@ -154,6 +157,8 @@ send_hello(struct client *client, int backend)
             || welcome.input_position != client->input_position
             || welcome.output_position != client->output_position))
         result = -1;
+    if (result == 0)
+        memset(client->database, 0, SP_DATABASE_ID_SIZE);
     sp_frame_clear(&frame);
     return result;
 }
@@ -248,6 +253,7 @@ handle_backend(struct client *client, int backend)
             && detach.input_position == client->input_position
             && detach.output_position == client->output_position) {
             client->next_mode = SP_MODE_GRACEFUL;
+            memcpy(client->database, detach.database, SP_DATABASE_ID_SIZE);
             result = 2;
         } else {
             fprintf(stderr,

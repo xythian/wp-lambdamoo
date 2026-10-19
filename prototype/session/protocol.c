@@ -229,7 +229,8 @@ sp_encode_hello(const struct sp_hello *hello, unsigned char **payload,
     sp_put_u64(p + 56, hello->output_position);
     sp_put_u64(p + 64, (uint64_t) hello->player);
     sp_put_u64(p + 72, (uint64_t) hello->listener);
-    put_u16(p + 80, hello->origin_length);
+    memcpy(p + 80, hello->database, SP_DATABASE_ID_SIZE);
+    put_u16(p + 96, hello->origin_length);
     if (hello->origin_length)
         memcpy(p + SP_HELLO_FIXED_SIZE, hello->origin, hello->origin_length);
     *payload = p;
@@ -244,7 +245,7 @@ sp_decode_hello(const struct sp_frame *frame, struct sp_hello *hello)
 
     if (frame->type != SP_HELLO || frame->length < SP_HELLO_FIXED_SIZE)
         return -1;
-    origin_length = get_u16(frame->payload + 80);
+    origin_length = get_u16(frame->payload + 96);
     if ((uint32_t) SP_HELLO_FIXED_SIZE + origin_length != frame->length)
         return -1;
 
@@ -255,6 +256,10 @@ sp_decode_hello(const struct sp_frame *frame, struct sp_hello *hello)
     hello->mode = frame->payload[40];
     if (hello->mode < SP_MODE_INITIAL || hello->mode > SP_MODE_CRASH)
         return -1;
+    if (hello->mode == SP_MODE_INITIAL
+        && !all_zero(frame->payload + 80, SP_DATABASE_ID_SIZE))
+        return -1;
+    memcpy(hello->database, frame->payload + 80, SP_DATABASE_ID_SIZE);
     hello->kind = frame->payload[41];
     hello->listen_port = get_u16(frame->payload + 42);
     hello->request = get_u32(frame->payload + 44);
@@ -338,6 +343,7 @@ sp_encode_detach(const struct sp_detach *detach,
     payload[0] = detach->mode;
     sp_put_u64(payload + 8, detach->input_position);
     sp_put_u64(payload + 16, detach->output_position);
+    memcpy(payload + 24, detach->database, SP_DATABASE_ID_SIZE);
 }
 
 int
@@ -349,6 +355,7 @@ sp_decode_detach(const struct sp_frame *frame, struct sp_detach *detach)
     detach->mode = frame->payload[0];
     detach->input_position = sp_get_u64(frame->payload + 8);
     detach->output_position = sp_get_u64(frame->payload + 16);
+    memcpy(detach->database, frame->payload + 24, SP_DATABASE_ID_SIZE);
     return detach->mode == SP_MODE_GRACEFUL || detach->mode == SP_MODE_CRASH
         ? 0 : -1;
 }

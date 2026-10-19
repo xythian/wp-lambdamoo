@@ -155,6 +155,11 @@ semantics:
 - the replacement may restore the session from an older checkpoint, including
   one without tasks that had been waiting in `read()`.
 
+Protocol 1.0 settles the last point conservatively: a logged-in session is
+resumed only from the exact dump the old server wrote while detaching it (its
+shutdown or PANIC dump), identified by the file's digest. A checkpoint can
+disagree with the edge about who is connected, so it resumes nobody.
+
 The protocol must distinguish graceful replacement from crash recovery. The
 edge or a higher-level gateway can translate that event into appropriate user
 messaging, suppress it where policy permits, or expose it to in-database resume

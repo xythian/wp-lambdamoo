@@ -228,15 +228,17 @@ panic(const char *message)
     }
     print_error_backtrace("server panic", output_to_log);
 #if NETWORK_PROTOCOL == NP_SESSION
-    /* Leave sessions attached so the edge sees this process die and holds
-     * them for crash recovery; a graceful detach would let the replacement
-     * resume them as if nothing had been lost.
+    /* Sessions stay with the edge.  Once the panic dump is written, they
+     * are detached in crash mode naming it, so a server that loads that
+     * dump, and no other, resumes them.
      */
+    if (db_flush(FLUSH_PANIC))
+	network_detach_after_panic();
 #else
     send_shutdown_message("server panic");
     network_shutdown();
-#endif
     db_flush(FLUSH_PANIC);
+#endif
 
     abort_server();
 }
@@ -1463,9 +1465,16 @@ main(int argc, char **argv)
 	    exit(1);
 
 	main_loop();
+#if NETWORK_PROTOCOL == NP_SESSION
+	/* Sessions are detached naming the final dump, so it comes first. */
+	db_shutdown();
 	network_shutdown();
-    }
-    db_shutdown();
+#else
+	network_shutdown();
+	db_shutdown();
+#endif
+    } else
+	db_shutdown();
     free_str(this_program);
 
     return 0;

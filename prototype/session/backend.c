@@ -167,7 +167,8 @@ serve_session(void *argument)
             }
             if (is_exact(data, length, "GRACEFUL\n")) {
                 struct sp_detach detach = {
-                    SP_MODE_GRACEFUL, input_position, output_position
+                    SP_MODE_GRACEFUL, input_position, output_position,
+                    "prototype dump"
                 };
                 unsigned char payload[SP_DETACH_SIZE];
                 sp_encode_detach(&detach, payload);

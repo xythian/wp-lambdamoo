@@ -115,6 +115,12 @@ extern int network_set_listener_tls(network_listener nl,
 				 * all are null, with the edge's own.  Called
 				 * before network_listen(); false on failure.
 				 */
+
+extern void network_detach_after_panic(void);
+				/* Detach every session in crash mode, naming
+				 * the panic dump just written so that a server
+				 * loading it can resume them.
+				 */
 #endif
 
 extern int network_send_line(network_handle nh, const char *line,

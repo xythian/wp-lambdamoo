@@ -12,11 +12,12 @@
 #define SP_MAX_DATA (1024u * 1024u)
 #define SP_MAX_PAYLOAD (SP_MAX_DATA + 8u)
 #define SP_ID_SIZE 16u
-#define SP_HELLO_FIXED_SIZE 82u
+#define SP_DATABASE_ID_SIZE 16u
+#define SP_HELLO_FIXED_SIZE 98u
 #define SP_BIND_SIZE 16u
 #define SP_WELCOME_SIZE 32u
 #define SP_ACK_SIZE 16u
-#define SP_DETACH_SIZE 24u
+#define SP_DETACH_SIZE 40u
 #define SP_CONNECT_FIXED_SIZE 16u
 #define SP_CONNECT_FAILED_FIXED_SIZE 8u
 #define SP_MAX_LISTENERS 1024u
@@ -87,6 +88,7 @@ struct sp_hello {
     uint64_t output_position;
     int64_t player;
     int64_t listener;
+    unsigned char database[SP_DATABASE_ID_SIZE];
     uint16_t origin_length;
     const unsigned char *origin;
 };
@@ -131,6 +133,7 @@ struct sp_detach {
     uint8_t mode;
     uint64_t input_position;
     uint64_t output_position;
+    unsigned char database[SP_DATABASE_ID_SIZE];
 };
 
 uint64_t sp_get_u64(const unsigned char *p);
