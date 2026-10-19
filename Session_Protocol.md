@@ -28,26 +28,51 @@ edge that owns it.
 ## Building and running the server
 
 ```sh
-./configure --enable-net=session,poll,require
+./configure --enable-net=session,poll,outoff,require
 make
-./moo [options] input.db output.db [session-socket-path]
+./moo [options] input.db output.db [+O|-O] [session-socket-path]
 ```
 
 The optional last argument is the path of the Unix socket the server listens
 on. It defaults to `DEFAULT_CONNECT_FILE` in `options.h`. The server removes
 any existing file at that path, binds the socket, and sets its mode to `0600`.
+`outoff` compiles in outbound connections, disabled unless the server is
+started with `+O`; `out` enables them unless it is started with `-O`, and
+leaving both out removes `open_network_connection()`, as with the TCP backend.
+
+The socket is the listener for connections the edge accepts on its own port,
+and is the listener object `#0`'s initial listening point, as `-p` gives the TCP
+backend. Everything else the database does with the network goes through the
+edge:
+
+- **`listen(object, port)`** asks the edge to accept clients on that TCP port
+  for the server ([Listening ports](#listening-ports)). It returns the port.
+  The port must be given (1 to 65535); the edge doesn't choose one, so
+  `listen(object, 0)` raises `E_INVARG`, and a point that isn't an integer
+  raises `E_TYPE`. `unlisten(port)` asks the edge to stop.
+- **`open_network_connection(host, port [, listener] [, options])`** asks the
+  edge to make the connection ([Outbound connections](#outbound-connections)).
+  The calling task is suspended while the edge connects, and other tasks run
+  in the meantime. *Options* is a list of `{name, value}` pairs; the only
+  option is `{"tls", 1}`, which has the edge connect with TLS, verifying the
+  host's certificate against the name given. Failures raise what the TCP
+  backend raises: `E_INVARG` for a host or port that can't be reached
+  (including a failed TLS handshake), `E_QUOTA` for the edge running out of
+  resources or losing its control attachment, and `E_PERM` when outbound
+  connections are disabled.
 
 Limits of this backend, compared to the TCP backend:
 
-- **One listener.** The server listens on exactly one socket. Calling
-  `listen()` from the database to open another listening point fails with
-  `E_INVARG`.
-- **No outbound connections.** `OUTBOUND_NETWORK` cannot be defined with this
-  backend, so `open_network_connection()` is unavailable. A database that
-  makes outbound connections cannot run on it yet.
+- **Connections that aren't logged in end with the server.** An outbound
+  connection, or a client on any port, that is not logged in as a player when
+  the server is replaced is closed (outbound) or offered a fresh login
+  (inbound), as described under [Resuming a session](#resuming-a-session).
 - **No connection options specific to the carrier.** The options that don't
   depend on the network, such as `binary`, `hold-input` and
   `flush-command`, behave as usual.
+- **A task waiting in `open_network_connection()` is not checkpointed** with
+  that wait; if the server is replaced while the edge is connecting, the task
+  is gone and the edge's connection is refused and closed.
 
 ## Concepts
 
@@ -72,6 +97,14 @@ independent of how bytes are split into frames.
 **Binding.** The player object and listener object a session is logged in as.
 The server reports the binding to the edge when a player logs in, and the edge
 presents it when attaching to a replacement.
+
+**Kind.** Each attachment says what it carries: a *client* session the edge
+accepted, an *outbound* session the edge opened because the server asked, or
+the edge's *control* attachment.
+
+**Control attachment.** Each edge keeps one attachment that carries no session.
+The server uses it to tell the edge which ports to listen on and which
+outbound connections to make. The edge reopens it whenever it ends.
 
 ## Carrier
 
@@ -117,6 +150,9 @@ of reads.
 | 7 | `CLOSE` | both | 0 to 65536 |
 | 8 | `ERROR` | either | 0 to 65536 |
 | 9 | `BIND` | server | 16 |
+| 10 | `LISTENERS` | server, control only | 0 to 2048, even |
+| 11 | `CONNECT` | server, control only | 17 to 65536 |
+| 12 | `CONNECT_FAILED` | edge, control only | 8 to 65536 |
 
 Reserved bytes inside payloads must be zero and are checked by receivers.
 
@@ -131,7 +167,9 @@ ends the attachment.
 | 16 | 16 | edge instance ID, fresh for each edge process |
 | 32 | 8 | attachment generation |
 | 40 | 1 | recovery mode: 1 initial, 2 graceful, 3 crash |
-| 41 | 7 | reserved |
+| 41 | 1 | kind: 0 client, 1 outbound, 2 control |
+| 42 | 2 | listen port: the edge port a client arrived on, or 0 for the edge's own |
+| 44 | 4 | request: the `CONNECT` an outbound session answers, or 0 |
 | 48 | 8 | next input position |
 | 56 | 8 | next output position |
 | 64 | 8 | bound player (signed), or `INT64_MIN` if not logged in |
@@ -142,6 +180,17 @@ ends the attachment.
 The origin is text the edge asserts about the client, such as its address. The
 server uses it as the connection's name, so `connection_name()` returns it.
 The protocol doesn't define its format.
+
+The kind constrains the other fields:
+
+- **client**: request is 0.
+- **outbound**: listen port is 0. In initial mode the request names the
+  `CONNECT` being answered and there is no binding; in graceful and crash mode
+  the request is 0.
+- **control**: initial mode, positions 0, no binding, listen port and request
+  0. Only one control attachment is accepted at a time.
+
+A server refuses a `HELLO` whose fields don't fit its kind.
 
 Recovery mode tells the server why this attachment exists:
 
@@ -216,6 +265,40 @@ accepts the detach only if both positions match its own. It then attaches to
 the next server in graceful mode at those positions. Any other detach is
 treated as a crash.
 
+### LISTENERS
+
+Sent by the server on the control attachment, right after `WELCOME` and
+whenever the set changes. The payload is the complete set of TCP ports the
+server listens on through the edge, as 2-byte port numbers, at most 1024 of
+them. The edge's own port is not included.
+
+### CONNECT
+
+Sent by the server on the control attachment to ask for an outbound
+connection.
+
+| Offset | Size | Field |
+| ---: | ---: | --- |
+| 0 | 4 | request ID, not 0 |
+| 4 | 2 | port |
+| 6 | 2 | flags: 1 TLS; other bits 0 |
+| 8 | 4 | timeout in seconds, 0 for the edge's default |
+| 12 | 2 | host length |
+| 14 | 2 | reserved |
+| 16 | host length | host name or address, UTF-8 |
+
+### CONNECT_FAILED
+
+Sent by the edge on the control attachment when it cannot make a requested
+connection.
+
+| Offset | Size | Field |
+| ---: | ---: | --- |
+| 0 | 4 | request ID |
+| 4 | 1 | reason: 1 the destination (lookup, refusal, timeout, TLS), 2 the edge's resources |
+| 5 | 3 | reserved |
+| 8 | rest | UTF-8 diagnostic, which the server logs |
+
 ### CLOSE and ERROR
 
 `CLOSE` ends the session permanently. The server sends it when the database
@@ -237,6 +320,50 @@ diagnostic, which is not trusted application data.
    prints the welcome message and waits for a login command, exactly as for a
    new TCP connection.
 4. When a login succeeds, the server sends `BIND`.
+
+### Listening ports
+
+A server builds its set of ports from `listen()` calls; it doesn't persist
+them, so a database that wants a port opens it again in `#0:server_started`,
+as with the TCP backend. Whenever an edge's control attachment begins, and
+whenever the set changes afterwards, the server sends `LISTENERS`. The edge
+listens on every port named and stops listening on any other it had opened for
+a server. Sessions already accepted on a port the edge stops listening on carry
+on.
+
+While no server is attached, the edge keeps listening on the ports the last
+server asked for, and holds clients that arrive as it holds any unattached
+session. A client's `HELLO` carries the port it arrived on. The server refuses
+a new session for a port it isn't listening on; a resumed session is checked
+against its binding instead, so it survives the port going away.
+
+If the edge cannot listen on a port, it says so in its own log; the server is
+not told.
+
+### Outbound connections
+
+1. A task calls `open_network_connection()`. The server allocates a request ID,
+   suspends the task, and sends `CONNECT` on the control attachment. If there
+   is no control attachment, the request waits for one.
+2. The edge connects, with TLS if asked. If it fails, it sends
+   `CONNECT_FAILED`, and the server resumes the task with the error.
+3. If it succeeds, the edge opens an attachment for the new connection: `HELLO`
+   in initial mode, kind outbound, carrying the request ID and an origin such
+   as `tcp:host:port` or `tls:host:port`.
+4. The server accepts it as an outbound connection, sends `WELCOME`, and
+   resumes the task with the new connection object.
+
+The server gives up on a request it hasn't heard back about within its timeout
+plus ten seconds, resuming the task with `E_INVARG`, and it fails every
+request it has sent when the control attachment ends. It refuses an outbound
+`HELLO` for a request it is no longer waiting for, and if the task that asked
+has gone by the time the connection arrives, it accepts the attachment and
+immediately sends `CLOSE`.
+
+From then on an outbound session is like any other. If the database logs it
+in as a player, the server sends `BIND`, and the session is resumed when the
+server is replaced. One that isn't logged in is refused by the replacement,
+and the edge then closes the remote connection.
 
 ### Input
 
@@ -342,6 +469,12 @@ An edge implementing this protocol must:
 - stop reading client input while a session is unattached;
 - never replay input after a crash;
 - send `CLOSE` when the client goes away, and close the client on `CLOSE`;
+- keep a control attachment open while it can reach a server, listen on the
+  ports the latest `LISTENERS` names, keep listening on them while no server
+  is attached, and answer every `CONNECT` with a connection or with
+  `CONNECT_FAILED`;
+- verify the certificate of a TLS outbound connection against the host name
+  in `CONNECT`;
 - bound every buffer, and pause reading the client when its input allowance is
   exhausted.
 
@@ -360,5 +493,8 @@ version and must be zero in 1.0.
 - `net_session.c`: the server.
 - `prototype/session/edge.c`: a C reference edge that terminates TLS, with a
   standalone backend harness, codec tests and a full-server integration test.
+  It carries client sessions on its own port only, without a control
+  attachment.
 - The lambdamoo-tests suite contains a Python implementation of the edge side,
-  used to test the server.
+  including the control attachment, listening ports and outbound TLS, used to
+  test the server.

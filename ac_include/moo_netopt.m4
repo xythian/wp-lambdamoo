@@ -55,8 +55,7 @@ for moo_kwd in ,x $enableval ; do
     local]],  [[moo_d=NETWORK_PROTOCOL; moo_v=NP_LOCAL
               moo_d_OUTBOUND_NETWORK=no]], [[
     session]],[[moo_d=NETWORK_PROTOCOL; moo_v=NP_SESSION
-              moo_d_NETWORK_STYLE=NS_BSD
-              moo_d_OUTBOUND_NETWORK=no]], [[
+              moo_d_NETWORK_STYLE=NS_BSD]], [[
     bsd]],    [[moo_d=NETWORK_STYLE;    moo_v=NS_BSD]],   [[
     sysv]],   [[moo_d=NETWORK_STYLE;    moo_v=NS_SYSV]],  [[
     select]], [[moo_d=MPLEX_STYLE;      moo_v=MP_SELECT]],[[
@@ -104,8 +103,8 @@ m4_define([_MOO_NET_VIABLE_ADD],
 [[moo_net_cv_configs="${moo_net_cv_configs}]$2[,"
 moo_net_uconfigs="$moo_net_uconfigs]
 AS_HELP_STRING([[--]m4_ifval([$1],[[enable-net=]$1],[[disable-net]])dnl
-m4_if(m4_index([$1],[tcp]),[-1],[],[[[,out]]])],
-  $2[]m4_if(m4_index([$2],[TCP]),[-1],[],[[ [+ OUTBOUND_NETWORK]]]),[35])"])dnl
+m4_if(m4_index([$1],[tcp])m4_index([$1],[session]),[-1-1],[],[[[,out]]])],
+  $2[]m4_if(m4_index([$2],[TCP])m4_index([$2],[SESSION]),[-1-1],[],[[ [+ OUTBOUND_NETWORK]]]),[35])"])dnl
 
 # ----------------------------------------------------------
 #   viability test logic
@@ -168,7 +167,7 @@ if $moo_net_do_check ; then
     *,$_moo_config,*]],[
       AS_IF([[test $enable_def_OUTBOUND_NETWORK != no]],[
         AS_CASE([[$_moo_config]],[[
-	  *TCP*]],[],
+	  *TCP*|*SESSION*]],[],
           [[_moo_fail="OUTBOUND_NETWORK not allowed for $_moo_config"]])
     ])],[[
       _moo_fail="$_moo_config is not viable"

@@ -17,6 +17,9 @@
 #define SP_WELCOME_SIZE 32u
 #define SP_ACK_SIZE 16u
 #define SP_DETACH_SIZE 24u
+#define SP_CONNECT_FIXED_SIZE 16u
+#define SP_CONNECT_FAILED_FIXED_SIZE 8u
+#define SP_MAX_LISTENERS 1024u
 
 enum sp_type {
     SP_HELLO = 1,
@@ -27,7 +30,25 @@ enum sp_type {
     SP_DETACH = 6,
     SP_CLOSE = 7,
     SP_ERROR = 8,
-    SP_BIND = 9
+    SP_BIND = 9,
+    SP_LISTENERS = 10,
+    SP_CONNECT = 11,
+    SP_CONNECT_FAILED = 12
+};
+
+enum sp_kind {
+    SP_KIND_CLIENT = 0,
+    SP_KIND_OUTBOUND = 1,
+    SP_KIND_CONTROL = 2
+};
+
+enum sp_connect_flag {
+    SP_CONNECT_TLS = 1
+};
+
+enum sp_connect_failure {
+    SP_FAILED_DESTINATION = 1,
+    SP_FAILED_RESOURCES = 2
 };
 
 enum sp_mode {
@@ -53,12 +74,31 @@ struct sp_hello {
     unsigned char edge_id[SP_ID_SIZE];
     uint64_t generation;
     uint8_t mode;
+    uint8_t kind;
+    uint16_t listen_port;
+    uint32_t request;
     uint64_t input_position;
     uint64_t output_position;
     int64_t player;
     int64_t listener;
     uint16_t origin_length;
     const unsigned char *origin;
+};
+
+struct sp_connect {
+    uint32_t request;
+    uint16_t port;
+    uint16_t flags;
+    uint32_t timeout;
+    uint16_t host_length;
+    const unsigned char *host;
+};
+
+struct sp_connect_failed {
+    uint32_t request;
+    uint8_t code;
+    uint32_t reason_length;
+    const unsigned char *reason;
 };
 
 struct sp_welcome {
@@ -107,5 +147,14 @@ int sp_decode_detach(const struct sp_frame *frame, struct sp_detach *detach);
 void sp_encode_bind(const struct sp_bind *bind,
                     unsigned char payload[SP_BIND_SIZE]);
 int sp_decode_bind(const struct sp_frame *frame, struct sp_bind *bind);
+int sp_encode_listeners(const uint16_t *ports, unsigned count,
+                        unsigned char **payload, uint32_t *length);
+int sp_encode_connect(const struct sp_connect *connect,
+                      unsigned char **payload, uint32_t *length);
+int sp_decode_connect(const struct sp_frame *frame, struct sp_connect *connect);
+int sp_encode_connect_failed(const struct sp_connect_failed *failed,
+                             unsigned char **payload, uint32_t *length);
+int sp_decode_connect_failed(const struct sp_frame *frame,
+                             struct sp_connect_failed *failed);
 
 #endif

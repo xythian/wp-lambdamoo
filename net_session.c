@@ -55,6 +55,7 @@ typedef struct session_handle {
     int input_suspended;
     int binary;
     int last_input_was_CR;
+    uint8_t kind;		/* enum sp_kind, once attached */
     unsigned char excess_utf[4];
     int excess_utf_count;
     Stream *input;
@@ -75,15 +76,48 @@ typedef struct session_handle {
     uint64_t output_acked;
 } session_handle;
 
+/* The listener named on the command line is the server's Unix socket; every
+ * other listener is a TCP port the edge listens on for the server.
+ */
 typedef struct session_listener {
-    int fd;
+    struct session_listener *next;
+    int fd;			/* the Unix socket, or -1 for an edge port */
+    uint16_t port;		/* the edge port, or 0 for the Unix socket */
+    int active;
     server_listener slistener;
     char *path;
-    const char *name;
+    char *name;
 } session_listener;
 
+/* An open_network_connection() waiting for the edge. */
+typedef struct connect_request {
+    struct connect_request *next;
+    uint32_t id;
+    TaskID task;
+    Objid listener;
+    char *host;
+    uint16_t port;
+    uint16_t flags;
+    uint32_t timeout;
+    time_t deadline;
+    int sent;
+} connect_request;
+
+#define CONNECT_GRACE 10	/* seconds the edge gets beyond the timeout */
+
 static session_listener *the_listener;
+static session_listener *port_listeners;
 static session_handle *all_handles;
+static session_handle *control;
+static connect_request *requests;
+static uint32_t last_request_id;
+#ifdef OUTBOUND_NETWORK
+static int outbound_enabled = OUTBOUND_NETWORK;
+#endif
+
+static void send_listeners(void);
+static void send_requests(void);
+static void fail_request(connect_request *r, enum error e);
 
 static int
 set_nonblocking(int fd)
@@ -238,7 +272,16 @@ free_output(session_handle *h)
 static void
 remove_handle(session_handle *h, int notify_server)
 {
-    if (notify_server && h->attached)
+    if (h == control) {
+        connect_request *r, *next;
+
+        control = NULL;
+        for (r = requests; r; r = next) {
+            next = r->next;
+            if (r->sent)
+                fail_request(r, E_QUOTA);
+        }
+    } else if (notify_server && h->attached)
         server_close(h->shandle);
     *h->prev = h->next;
     if (h->next)
@@ -328,19 +371,111 @@ consume_input(session_handle *h, const unsigned char *buffer, size_t count)
     return 1;
 }
 
+static session_listener *
+find_port_listener(uint16_t port)
+{
+    session_listener *l;
+
+    for (l = port_listeners; l; l = l->next)
+        if (l->port == port && l->active)
+            return l;
+    return NULL;
+}
+
+static connect_request *
+find_request(uint32_t id)
+{
+    connect_request *r;
+
+    for (r = requests; r; r = r->next)
+        if (r->id == id)
+            return r;
+    return NULL;
+}
+
+static void
+free_request(connect_request *r)
+{
+    connect_request **rr;
+
+    for (rr = &requests; *rr; rr = &(*rr)->next)
+        if (*rr == r) {
+            *rr = r->next;
+            break;
+        }
+    free(r->host);
+    free(r);
+}
+
+static void
+fail_request(connect_request *r, enum error e)
+{
+    Var v;
+
+    v.type = TYPE_ERR;
+    v.v.err = e;
+    if (r->task)
+        (void) server_resume_connecting_task(r->task, v);
+    free_request(r);
+}
+
+static int
+attach_control(session_handle *h, const struct sp_hello *hello)
+{
+    if (control || !queue_welcome(h, hello))
+        return 0;
+    h->attached = 1;
+    control = h;
+    oklog("SESSION CONTROL: attached on %s\n", h->name);
+    send_listeners();
+    send_requests();
+    return 1;
+}
+
+static int
+attach_outbound(session_handle *h, const struct sp_hello *hello)
+{
+    connect_request *r = find_request(hello->request);
+    network_handle nh;
+    Objid connection;
+    Var v;
+
+    if (!r || !r->sent || !r->task || !queue_welcome(h, hello))
+        return 0;
+    nh.ptr = h;
+    h->shandle = server_open_connection(r->listener, nh, &connection);
+    if (!h->shandle.ptr)
+        return 0;
+    h->attached = 1;
+
+    v.type = TYPE_OBJ;
+    v.v.obj = connection;
+    if (!server_resume_connecting_task(r->task, v)) {
+        /* The task that asked for this connection is gone. */
+        free_request(r);
+        (void) queue_frame(h, SP_CLOSE, NULL, 0, 0);
+        (void) push_output(h);
+        return 0;
+    }
+    free_request(r);
+    return 1;
+}
+
 static int
 handle_hello(session_handle *h, struct sp_frame *frame)
 {
     struct sp_hello hello;
     network_handle nh;
     server_listener sl;
+    int bound;
 
     if (h->attached || sp_decode_hello(frame, &hello) < 0)
         return 0;
-    if (hello.player != INT64_MIN
-        && hello.mode == SP_MODE_INITIAL)
+    bound = hello.player != INT64_MIN;
+    if (bound && hello.mode == SP_MODE_INITIAL)
         return 0;
 
+    h->kind = hello.kind;
     h->input_position = hello.input_position;
     h->output_position = hello.output_position;
     h->output_acked = hello.output_position;
@@ -351,25 +486,70 @@ handle_hello(session_handle *h, struct sp_frame *frame)
     memcpy(h->name, hello.origin, hello.origin_length);
     h->name[hello.origin_length] = '\0';
 
+    if (hello.kind == SP_KIND_CONTROL)
+        return attach_control(h, &hello);
+    if (hello.kind == SP_KIND_OUTBOUND && !bound)
+        return hello.mode == SP_MODE_INITIAL && attach_outbound(h, &hello);
+
+    /* A new session needs the port it arrived on to be listening; a
+     * resumed one is checked against its binding's listener instead.
+     */
+    sl = the_listener->slistener;
+    if (hello.listen_port != 0) {
+        session_listener *l = find_port_listener(hello.listen_port);
+        if (l)
+            sl = l->slistener;
+        else if (!bound)
+            return 0;
+    }
+
     if (!queue_welcome(h, &hello))
         return 0;
 
     nh.ptr = h;
-    sl = the_listener->slistener;
-    if (hello.player == INT64_MIN)
+    if (!bound)
         h->shandle = server_new_connection(sl, nh, 0);
     else
         h->shandle = server_resume_connection(
             sl, nh, (Objid) hello.player, (Objid) hello.listener,
-            hello.mode == SP_MODE_CRASH);
+            hello.mode == SP_MODE_CRASH, hello.kind == SP_KIND_OUTBOUND);
     if (!h->shandle.ptr)
         return 0;
     h->attached = 1;
 
-    if (hello.player != INT64_MIN && hello.mode == SP_MODE_CRASH)
+    if (bound && hello.mode == SP_MODE_CRASH)
         (void) network_send_line(nh,
             "*** Session recovered from a server crash ***", 1);
     return 1;
+}
+
+static int
+handle_control_frame(session_handle *h)
+{
+    struct sp_frame frame = {
+        h->frame_type, 0, h->payload_length, h->payload
+    };
+    struct sp_connect_failed failed;
+    connect_request *r;
+
+    switch (h->frame_type) {
+    case SP_CONNECT_FAILED:
+        if (sp_decode_connect_failed(&frame, &failed) < 0)
+            return 0;
+        r = find_request(failed.request);
+        if (r && r->sent) {
+            errlog("SESSION CONNECT: %s port %u failed: %.*s\n",
+                   r->host, (unsigned) r->port,
+                   (int) failed.reason_length, failed.reason);
+            fail_request(r, failed.code == SP_FAILED_DESTINATION
+                         ? E_INVARG : E_QUOTA);
+        }
+        return 1;
+    case SP_CLOSE:
+        return -1;
+    default:
+        return 0;
+    }
 }
 
 static int
@@ -381,6 +561,8 @@ handle_frame(session_handle *h)
 
     if (!h->attached)
         return h->frame_type == SP_HELLO && handle_hello(h, &frame);
+    if (h->kind == SP_KIND_CONTROL)
+        return handle_control_frame(h);
 
     switch (h->frame_type) {
     case SP_INPUT: {
@@ -516,18 +698,76 @@ network_protocol_name(void)
 const char *
 network_usage_string(void)
 {
-    return "[session-unix-socket]";
+    return "[+O|-O] [session-unix-socket]";
 }
 
 int
 network_initialize(int argc, char **argv, Var *desc)
 {
-    if (argc > 1)
-        return 0;
+    const char *path = DEFAULT_CONNECT_FILE;
+    int have_path = 0;
+
+    for (; argc > 0; argc--, argv++) {
+        if ((argv[0][0] == '+' || argv[0][0] == '-')
+            && argv[0][1] == 'O' && argv[0][2] == '\0') {
+#ifdef OUTBOUND_NETWORK
+            outbound_enabled = argv[0][0] == '+';
+#else
+            if (argv[0][0] == '+')
+                oklog("CMDLINE: *** Ignoring %s (outbound network not "
+                      "supported)\n", argv[0]);
+#endif
+        } else if (have_path)
+            return 0;
+        else {
+            path = argv[0];
+            have_path = 1;
+        }
+    }
+#ifdef OUTBOUND_NETWORK
+    oklog("CMDLINE: Outbound network connections %s.\n",
+          outbound_enabled ? "enabled" : "disabled");
+#endif
     desc->type = TYPE_STR;
-    desc->v.str = str_dup(argc == 1 ? argv[0] : DEFAULT_CONNECT_FILE);
+    desc->v.str = str_dup(path);
     signal(SIGPIPE, SIG_IGN);
     return 1;
+}
+
+static enum error
+make_port_listener(server_listener sl, Var desc, network_listener *nl,
+                   Var *canon, const char **name)
+{
+    session_listener *l;
+    char buffer[32];
+
+    if (desc.type != TYPE_INT)
+        return E_TYPE;
+    /* The edge chooses no ports, so the port must be given. */
+    if (desc.v.num < 1 || desc.v.num > 65535)
+        return E_INVARG;
+    for (l = port_listeners; l; l = l->next)
+        if (l->port == desc.v.num)
+            return E_INVARG;
+
+    l = calloc(1, sizeof(*l));
+    if (!l)
+        return E_QUOTA;
+    snprintf(buffer, sizeof(buffer), "port %d", (int) desc.v.num);
+    l->name = strdup(buffer);
+    if (!l->name) {
+        free(l);
+        return E_QUOTA;
+    }
+    l->fd = -1;
+    l->port = (uint16_t) desc.v.num;
+    l->slistener = sl;
+    l->next = port_listeners;
+    port_listeners = l;
+    nl->ptr = l;
+    *canon = var_ref(desc);
+    *name = l->name;
+    return E_NONE;
 }
 
 enum error
@@ -538,7 +778,9 @@ network_make_listener(server_listener sl, Var desc, network_listener *nl,
     session_listener *listener;
     int fd;
 
-    if (the_listener || desc.type != TYPE_STR
+    if (the_listener)
+        return make_port_listener(sl, desc, nl, canon, name);
+    if (desc.type != TYPE_STR
         || strlen(desc.v.str) >= sizeof(address.sun_path))
         return E_INVARG;
     fd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -576,7 +818,126 @@ int
 network_listen(network_listener nl)
 {
     session_listener *listener = nl.ptr;
+
+    if (listener->fd < 0) {
+        listener->active = 1;
+        send_listeners();
+        return 1;
+    }
     return listen(listener->fd, 128) == 0;
+}
+
+static void
+send_listeners(void)
+{
+    uint16_t ports[SP_MAX_LISTENERS];
+    unsigned count = 0;
+    session_listener *l;
+    unsigned char *payload;
+    uint32_t length;
+
+    if (!control)
+        return;
+    for (l = port_listeners; l && count < SP_MAX_LISTENERS; l = l->next)
+        if (l->active)
+            ports[count++] = l->port;
+    if (sp_encode_listeners(ports, count, &payload, &length) < 0)
+        return;
+    (void) queue_frame(control, SP_LISTENERS, payload, length, 0);
+    free(payload);
+}
+
+static void
+send_requests(void)
+{
+    connect_request *r;
+
+    if (!control)
+        return;
+    for (r = requests; r; r = r->next) {
+        struct sp_connect connect = {
+            r->id, r->port, r->flags, r->timeout,
+            (uint16_t) strlen(r->host), (const unsigned char *) r->host
+        };
+        unsigned char *payload;
+        uint32_t length;
+
+        if (r->sent || sp_encode_connect(&connect, &payload, &length) < 0)
+            continue;
+        if (queue_frame(control, SP_CONNECT, payload, length, 0))
+            r->sent = 1;
+        free(payload);
+    }
+}
+
+#ifdef OUTBOUND_NETWORK
+
+enum error
+network_request_connection(Var arglist, Objid listener, int tls,
+                           int timeout, uint32_t *id)
+{
+    connect_request *r;
+    const char *host;
+    Num port;
+
+    if (!outbound_enabled)
+        return E_PERM;
+    if (arglist.v.list[0].v.num != 2)
+        return E_ARGS;
+    if (arglist.v.list[1].type != TYPE_STR
+        || arglist.v.list[2].type != TYPE_INT)
+        return E_TYPE;
+    host = arglist.v.list[1].v.str;
+    port = arglist.v.list[2].v.num;
+    if (port < 1 || port > 65535 || host[0] == '\0'
+        || strlen(host) > SP_MAX_CONTROL - SP_CONNECT_FIXED_SIZE)
+        return E_INVARG;
+
+    r = calloc(1, sizeof(*r));
+    if (!r || !(r->host = strdup(host))) {
+        free(r);
+        return E_QUOTA;
+    }
+    do
+        r->id = ++last_request_id;
+    while (r->id == 0 || find_request(r->id));
+    r->listener = listener;
+    r->port = (uint16_t) port;
+    r->flags = tls ? SP_CONNECT_TLS : 0;
+    r->timeout = timeout > 0 ? (uint32_t) timeout : 0;
+    r->deadline = time(0) + r->timeout + CONNECT_GRACE;
+    r->next = requests;
+    requests = r;
+    send_requests();
+    *id = r->id;
+    return E_NONE;
+}
+
+void
+network_request_task(uint32_t id, TaskID task)
+{
+    connect_request *r = find_request(id);
+
+    if (r)
+        r->task = task;
+}
+
+#endif /* OUTBOUND_NETWORK */
+
+static void
+expire_requests(void)
+{
+    time_t now = time(0);
+    connect_request *r, *next;
+
+    for (r = requests; r; r = next) {
+        next = r->next;
+        if (now >= r->deadline) {
+            errlog("SESSION CONNECT: %s port %u timed out\n",
+                   r->host, (unsigned) r->port);
+            fail_request(r, E_INVARG);
+        }
+    }
 }
 
 static int
@@ -751,6 +1112,11 @@ network_process_io(int timeout)
 {
     session_handle *h, *next;
 
+    if (requests) {
+        expire_requests();
+        if (timeout > 1)
+            timeout = 1;
+    }
     mplex_clear();
     if (the_listener && the_listener->fd >= 0)
         mplex_add_reader(the_listener->fd);
@@ -816,6 +1182,20 @@ network_close_listener(network_listener nl)
 
     if (!listener)
         return;
+    if (listener != the_listener) {
+        session_listener **ll;
+
+        for (ll = &port_listeners; *ll; ll = &(*ll)->next)
+            if (*ll == listener) {
+                *ll = listener->next;
+                break;
+            }
+        if (listener->active)
+            send_listeners();
+        free(listener->name);
+        free(listener);
+        return;
+    }
     close(listener->fd);
     unlink(listener->path);
     free(listener->path);
@@ -834,6 +1214,11 @@ network_shutdown(void)
         };
         unsigned char payload[SP_DETACH_SIZE];
 
+        if (h == control) {
+            /* The edge keeps its ports open for the next server. */
+            (void) drain_output(h);
+            continue;
+        }
         sp_encode_detach(&detach, payload);
         if (!queue_frame(h, SP_DETACH, payload, sizeof(payload), 0)
             || !drain_output(h) || !finish_detach(h))

@@ -207,7 +207,22 @@ extern int network_set_connection_option(network_handle nh,
 #ifdef OUTBOUND_NETWORK
 #include "structures.h"
 
+#if NETWORK_PROTOCOL == NP_SESSION
+extern enum error network_request_connection(Var arglist, Objid listener,
+					     int tls, int timeout,
+					     uint32_t *id);
+				/* Ask the edge to connect to the host and
+				 * port in ARGLIST, setting ID.  The server
+				 * suspends the calling task and passes its ID
+				 * to network_request_task(); the network later
+				 * calls server_open_connection() and
+				 * server_resume_connecting_task().
+				 */
+
+extern void network_request_task(uint32_t id, TaskID task);
+#else
 extern enum error network_open_connection(Var arglist, server_listener sl);
+#endif
 				/* The given MOO arguments should be used as a
 				 * specification of a remote network connection
 				 * to be made.  If the arguments are OK and the

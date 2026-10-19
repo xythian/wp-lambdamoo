@@ -123,6 +123,13 @@ valid_type_and_length(uint8_t type, uint32_t length)
         return length <= SP_MAX_CONTROL;
     case SP_BIND:
         return length == SP_BIND_SIZE;
+    case SP_LISTENERS:
+        return length % 2 == 0 && length <= 2 * SP_MAX_LISTENERS;
+    case SP_CONNECT:
+        return length > SP_CONNECT_FIXED_SIZE && length <= SP_MAX_CONTROL;
+    case SP_CONNECT_FAILED:
+        return length >= SP_CONNECT_FAILED_FIXED_SIZE
+            && length <= SP_MAX_CONTROL;
     default:
         return 0;
     }
@@ -215,6 +222,9 @@ sp_encode_hello(const struct sp_hello *hello, unsigned char **payload,
     memcpy(p + 16, hello->edge_id, SP_ID_SIZE);
     sp_put_u64(p + 32, hello->generation);
     p[40] = hello->mode;
+    p[41] = hello->kind;
+    put_u16(p + 42, hello->listen_port);
+    put_u32(p + 44, hello->request);
     sp_put_u64(p + 48, hello->input_position);
     sp_put_u64(p + 56, hello->output_position);
     sp_put_u64(p + 64, (uint64_t) hello->player);
@@ -235,8 +245,7 @@ sp_decode_hello(const struct sp_frame *frame, struct sp_hello *hello)
     if (frame->type != SP_HELLO || frame->length < SP_HELLO_FIXED_SIZE)
         return -1;
     origin_length = get_u16(frame->payload + 80);
-    if ((uint32_t) SP_HELLO_FIXED_SIZE + origin_length != frame->length
-        || !all_zero(frame->payload + 41, 7))
+    if ((uint32_t) SP_HELLO_FIXED_SIZE + origin_length != frame->length)
         return -1;
 
     memset(hello, 0, sizeof(*hello));
@@ -246,6 +255,27 @@ sp_decode_hello(const struct sp_frame *frame, struct sp_hello *hello)
     hello->mode = frame->payload[40];
     if (hello->mode < SP_MODE_INITIAL || hello->mode > SP_MODE_CRASH)
         return -1;
+    hello->kind = frame->payload[41];
+    hello->listen_port = get_u16(frame->payload + 42);
+    hello->request = get_u32(frame->payload + 44);
+    switch (hello->kind) {
+    case SP_KIND_CLIENT:
+        if (hello->request != 0)
+            return -1;
+        break;
+    case SP_KIND_OUTBOUND:
+        if (hello->listen_port != 0
+            || (hello->mode == SP_MODE_INITIAL) != (hello->request != 0))
+            return -1;
+        break;
+    case SP_KIND_CONTROL:
+        if (hello->listen_port != 0 || hello->request != 0
+            || hello->mode != SP_MODE_INITIAL)
+            return -1;
+        break;
+    default:
+        return -1;
+    }
     hello->input_position = sp_get_u64(frame->payload + 48);
     hello->output_position = sp_get_u64(frame->payload + 56);
     hello->origin_length = origin_length;
@@ -337,5 +367,108 @@ sp_decode_bind(const struct sp_frame *frame, struct sp_bind *bind)
         return -1;
     bind->player = (int64_t) sp_get_u64(frame->payload);
     bind->listener = (int64_t) sp_get_u64(frame->payload + 8);
+    return 0;
+}
+
+int
+sp_encode_listeners(const uint16_t *ports, unsigned count,
+                    unsigned char **payload, uint32_t *length)
+{
+    unsigned i;
+    unsigned char *p;
+
+    if (count > SP_MAX_LISTENERS)
+        return -1;
+    p = malloc(count ? 2 * count : 1);
+    if (!p)
+        return -1;
+    for (i = 0; i < count; i++)
+        put_u16(p + 2 * i, ports[i]);
+    *payload = p;
+    *length = 2 * count;
+    return 0;
+}
+
+int
+sp_encode_connect(const struct sp_connect *connect,
+                  unsigned char **payload, uint32_t *length)
+{
+    uint32_t total = SP_CONNECT_FIXED_SIZE + connect->host_length;
+    unsigned char *p;
+
+    if (connect->host_length == 0 || total > SP_MAX_CONTROL)
+        return -1;
+    p = calloc(1, total);
+    if (!p)
+        return -1;
+    put_u32(p, connect->request);
+    put_u16(p + 4, connect->port);
+    put_u16(p + 6, connect->flags);
+    put_u32(p + 8, connect->timeout);
+    put_u16(p + 12, connect->host_length);
+    memcpy(p + SP_CONNECT_FIXED_SIZE, connect->host, connect->host_length);
+    *payload = p;
+    *length = total;
+    return 0;
+}
+
+int
+sp_decode_connect(const struct sp_frame *frame, struct sp_connect *connect)
+{
+    if (frame->type != SP_CONNECT || frame->length <= SP_CONNECT_FIXED_SIZE)
+        return -1;
+    memset(connect, 0, sizeof(*connect));
+    connect->request = get_u32(frame->payload);
+    connect->port = get_u16(frame->payload + 4);
+    connect->flags = get_u16(frame->payload + 6);
+    connect->timeout = get_u32(frame->payload + 8);
+    connect->host_length = get_u16(frame->payload + 12);
+    if (connect->request == 0 || (connect->flags & ~SP_CONNECT_TLS)
+        || !all_zero(frame->payload + 14, 2)
+        || (uint32_t) SP_CONNECT_FIXED_SIZE + connect->host_length
+           != frame->length)
+        return -1;
+    connect->host = frame->payload + SP_CONNECT_FIXED_SIZE;
+    return 0;
+}
+
+int
+sp_encode_connect_failed(const struct sp_connect_failed *failed,
+                         unsigned char **payload, uint32_t *length)
+{
+    uint32_t total = SP_CONNECT_FAILED_FIXED_SIZE + failed->reason_length;
+    unsigned char *p;
+
+    if (total > SP_MAX_CONTROL)
+        return -1;
+    p = calloc(1, total);
+    if (!p)
+        return -1;
+    put_u32(p, failed->request);
+    p[4] = failed->code;
+    if (failed->reason_length)
+        memcpy(p + SP_CONNECT_FAILED_FIXED_SIZE, failed->reason,
+               failed->reason_length);
+    *payload = p;
+    *length = total;
+    return 0;
+}
+
+int
+sp_decode_connect_failed(const struct sp_frame *frame,
+                         struct sp_connect_failed *failed)
+{
+    if (frame->type != SP_CONNECT_FAILED
+        || frame->length < SP_CONNECT_FAILED_FIXED_SIZE
+        || !all_zero(frame->payload + 5, 3))
+        return -1;
+    memset(failed, 0, sizeof(*failed));
+    failed->request = get_u32(frame->payload);
+    failed->code = frame->payload[4];
+    if (failed->request == 0 || failed->code < SP_FAILED_DESTINATION
+        || failed->code > SP_FAILED_RESOURCES)
+        return -1;
+    failed->reason_length = frame->length - SP_CONNECT_FAILED_FIXED_SIZE;
+    failed->reason = frame->payload + SP_CONNECT_FAILED_FIXED_SIZE;
     return 0;
 }

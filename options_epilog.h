@@ -106,8 +106,8 @@
 #  endif
 #endif
 
-#if (NETWORK_PROTOCOL == NP_LOCAL || NETWORK_PROTOCOL == NP_SINGLE \
-     || NETWORK_PROTOCOL == NP_SESSION) && defined(OUTBOUND_NETWORK)
+#if (NETWORK_PROTOCOL == NP_LOCAL || NETWORK_PROTOCOL == NP_SINGLE) \
+    && defined(OUTBOUND_NETWORK)
 #  error You cannot define "OUTBOUND_NETWORK" with that "NETWORK_PROTOCOL"
 #endif
 

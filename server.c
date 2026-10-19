@@ -1052,7 +1052,8 @@ server_new_connection(server_listener sl, network_handle nh, int outbound)
 
 server_handle
 server_resume_connection(server_listener sl, network_handle nh,
-                         Objid player, Objid listener, int crashed)
+                         Objid player, Objid listener, int crashed,
+                         int outbound)
 {
     server_handle result = {0};
     slistener *l = sl.ptr;
@@ -1097,7 +1098,7 @@ server_resume_connection(server_listener sl, network_handle nh,
     h->listener = listener;
     h->tasks = new_task_queue(player, listener);
     h->disconnect_me = 0;
-    h->outbound = 0;
+    h->outbound = outbound;
     h->binary = 0;
     h->print_messages = l->print_messages;
 
@@ -1107,6 +1108,40 @@ server_resume_connection(server_listener sl, network_handle nh,
     result.ptr = h;
     return result;
 }
+
+#if NETWORK_PROTOCOL == NP_SESSION && defined(OUTBOUND_NETWORK)
+static slistener *find_slistener_by_oid(Objid obj);
+
+server_handle
+server_open_connection(Objid listener, network_handle nh, Objid *connection)
+{
+    server_listener sl;
+    slistener l;
+    server_handle result;
+
+    sl.ptr = NULL;
+    if (listener != NOTHING) {
+	sl.ptr = find_slistener_by_oid(listener);
+	if (!sl.ptr) {
+	    /* A temporary, as open_network_connection() makes for TCP */
+	    l.print_messages = 0;
+	    l.name = "open_network_connection";
+	    l.desc = zero;
+	    l.oid = listener;
+	    sl.ptr = &l;
+	}
+    }
+    result = server_new_connection(sl, nh, 1);
+    *connection = ((shandle *) result.ptr)->player;
+    return result;
+}
+
+int
+server_resume_connecting_task(TaskID task, Var value)
+{
+    return resume_waiting_task(task, value) == E_NONE;
+}
+#endif
 
 void
 server_refuse_connection(server_listener sl, network_handle nh)
@@ -1553,6 +1588,96 @@ find_slistener_by_oid(Objid obj)
 }
 #endif /* OUTBOUND_NETWORK */
 
+#if NETWORK_PROTOCOL == NP_SESSION && defined(OUTBOUND_NETWORK)
+
+static uint32_t connect_request_id;
+
+static enum error
+wait_for_connection(vm the_vm, void *data UNUSED_)
+{
+    Num forever = -1;
+    enum error e = enqueue_suspended_task(the_vm, &forever);
+
+    if (e == E_NONE)
+	network_request_task(connect_request_id, the_vm->task_id);
+    return e;
+}
+
+/* open_network_connection(HOST, PORT [, LISTENER] [, OPTIONS]): the edge
+ * makes the connection while the calling task is suspended.  OPTIONS is a
+ * list of {NAME, VALUE} pairs; {"tls", 1} asks the edge for TLS.
+ */
+static package
+open_edge_connection(Var arglist, Objid progr)
+{
+    Objid listener = NOTHING;
+    int tls = 0, timeout;
+    Var options;
+    server_listener sl;
+    slistener l;
+    enum error e;
+    int i;
+
+    if (!is_wizard(progr)) {
+	free_var(arglist);
+	return make_error_pack(E_PERM);
+    }
+    if (arglist.v.list[0].v.num >= 3) {
+	Var third = arglist.v.list[3];
+	int max_args = 3, has_options = 1;
+
+	if (third.type == TYPE_OBJ) {
+	    listener = third.v.obj;
+	    max_args = 4;
+	    has_options = arglist.v.list[0].v.num == 4;
+	    if (has_options)
+		options = arglist.v.list[4];
+	} else
+	    options = third;
+	if (arglist.v.list[0].v.num > max_args) {
+	    free_var(arglist);
+	    return make_error_pack(E_ARGS);
+	}
+	if (has_options) {
+	    if (options.type != TYPE_LIST) {
+		free_var(arglist);
+		return make_error_pack(E_TYPE);
+	    }
+	    for (i = 1; i <= options.v.list[0].v.num; i++) {
+		Var pair = options.v.list[i];
+
+		if (pair.type != TYPE_LIST || pair.v.list[0].v.num != 2
+		    || pair.v.list[1].type != TYPE_STR
+		    || mystrcasecmp(pair.v.list[1].v.str, "tls")) {
+		    free_var(arglist);
+		    return make_error_pack(E_INVARG);
+		}
+		tls = is_true(pair.v.list[2]);
+	    }
+	}
+	while (arglist.v.list[0].v.num > 2)
+	    arglist = listdelete(arglist, 3);
+    }
+
+    sl.ptr = listener == NOTHING ? NULL : find_slistener_by_oid(listener);
+    if (listener != NOTHING && !sl.ptr) {
+	l.print_messages = 0;
+	l.name = "open_network_connection";
+	l.desc = zero;
+	l.oid = listener;
+	sl.ptr = &l;
+    }
+    timeout = server_listener_int_option(sl, "outbound_connect_timeout", 5);
+    e = network_request_connection(arglist, listener, tls, timeout,
+				   &connect_request_id);
+    free_var(arglist);
+    if (e != E_NONE)
+	return make_error_pack(e);
+    return make_suspend_pack(wait_for_connection, 0);
+}
+
+#endif
+
 static package
 bf_open_network_connection(
     Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr
@@ -1561,7 +1686,9 @@ bf_open_network_connection(
 #endif
 )
 {
-#ifdef OUTBOUND_NETWORK
+#if NETWORK_PROTOCOL == NP_SESSION && defined(OUTBOUND_NETWORK)
+    return open_edge_connection(arglist, progr);
+#elif defined(OUTBOUND_NETWORK)
 
     Var r;
     enum error e;

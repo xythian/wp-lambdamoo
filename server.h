@@ -78,9 +78,26 @@ extern server_handle server_resume_connection(server_listener l,
 					      network_handle h,
 					      Objid player,
 					      Objid listener,
-					      int crashed);
+					      int crashed,
+					      int outbound);
 				/* Attach a network connection to a connection
 				 * recorded in the loaded checkpoint.
+				 */
+
+extern server_handle server_open_connection(Objid listener,
+					    network_handle h,
+					    Objid *connection);
+				/* Called by the session network backend when
+				 * the edge has made a connection that
+				 * open_network_connection() asked for; sets
+				 * CONNECTION to the new connection's object.
+				 */
+
+extern int server_resume_connecting_task(TaskID task, Var value);
+				/* Resume the task waiting in
+				 * open_network_connection() with VALUE (an
+				 * object or an error to raise); false if that
+				 * task no longer exists.
 				 */
 
 extern void server_refuse_connection(server_listener l,
