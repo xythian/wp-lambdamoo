@@ -94,9 +94,9 @@ get_utf(const char **pp)
     do {		      \
 	c = c_getch(c_data);  \
 	cc = c;		      \
-	c -= 0x80;	      \
-	if ( c > 0x3f )	      \
+	if (c < 0x80 || c > 0xbf) \
 	    goto bad_cont;    \
+	c -= 0x80;	      \
 	v = (v << 6) + c;     \
     } while (0)
 
