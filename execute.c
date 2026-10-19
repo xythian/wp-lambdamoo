@@ -1478,11 +1478,15 @@ do {								\
 		    Num bindex = utf_byte_index(list.v.str, index.v.num);
 		    if ((UNum)bindex > memo_strlen(list.v.str))
 			e = E_RANGE;
-		    else
+		    else {
+			/* a truncated sequence at the end of a malformed
+			 * string must not take substr past the NUL */
+			Num after = bindex + clearance_utf(list.v.str[bindex - 1]);
+			if ((UNum)after > memo_strlen(list.v.str) + 1)
+			    after = memo_strlen(list.v.str) + 1;
 			/* substr frees list */
-			PUSH(substr(list, bindex,
-				    bindex +
-				      clearance_utf(list.v.str[bindex - 1])));
+			PUSH(substr(list, bindex, after));
+		    }
 		}
 		free_var(index);
 		if (e != E_NONE) {
