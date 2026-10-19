@@ -699,7 +699,7 @@ network_process_io(int timeout)
         if (mplex_is_readable(h->fd)) {
             int result = pull_input(h);
             if (result <= 0) {
-                remove_handle(h, result == 0);
+                remove_handle(h, 1);
                 continue;
             }
         }

@@ -301,6 +301,7 @@ int main(int argc, char **argv)
     SSL_free(client.ssl);
     close(client.fd);
     SSL_CTX_free(context);
+    wait_for_log(log4, "CLIENT DISCONNECTED: Wizard (#3)");
     stop(server, SIGUSR1);
     stop(edge_process, SIGTERM);
     puts("full MOO session integration passed");
