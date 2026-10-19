@@ -15,6 +15,9 @@
     Pavel@Xerox.Com
  *****************************************************************************/
 
+#include <limits.h>
+#include <stdint.h>
+
 #include "storage.h"
 
 #include "config.h"
@@ -64,7 +67,7 @@ refcount_overhead(Memory_Type type)
 }
 
 void *
-mymalloc(unsigned size, Memory_Type type)
+mymalloc(size_t size, Memory_Type type)
 {
     char *memptr;
     char msg[100];
@@ -74,9 +77,16 @@ mymalloc(unsigned size, Memory_Type type)
 	size = 1;
 
     offs = refcount_overhead(type);
-    memptr = (char *) malloc(size + offs);
+    /* a size that wraps here, or that the int length memo can't hold,
+     * is a length computation gone wrong; fail loudly rather than hand
+     * back a buffer smaller than the caller is about to fill */
+    if (size > SIZE_MAX - offs
+	|| (type == M_STRING && size - 1 > INT_MAX))
+	memptr = 0;
+    else
+	memptr = (char *) malloc(size + offs);
     if (!memptr) {
-	sprintf(msg, "memory allocation (size %u) failed!", size);
+	sprintf(msg, "memory allocation (size %zu) failed!", size);
 	panic(msg);
     }
     alloc_num[type]++;
@@ -121,14 +131,17 @@ str_dup(const char *s)
 }
 
 void *
-myrealloc(void *ptr, unsigned size, Memory_Type type)
+myrealloc(void *ptr, size_t size, Memory_Type type)
 {
     int offs = refcount_overhead(type);
     static char msg[100];
 
-    ptr = realloc((char *) ptr - offs, size + offs);
+    if (size > SIZE_MAX - offs)
+	ptr = 0;
+    else
+	ptr = realloc((char *) ptr - offs, size + offs);
     if (!ptr) {
-	sprintf(msg, "memory re-allocation (size %u) failed!", size);
+	sprintf(msg, "memory re-allocation (size %zu) failed!", size);
 	panic(msg);
     }
     return (char *) ptr + offs;
