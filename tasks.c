@@ -1059,7 +1059,7 @@ static int
 check_user_task_limit(Objid user)
 {
     tqueue *tq = find_tqueue(user, 0);
-    int limit = -1;
+    Num limit = -1;
     Var v;
 
     if (valid(user)

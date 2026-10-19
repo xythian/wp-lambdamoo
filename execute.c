@@ -15,6 +15,8 @@
     Pavel@Xerox.Com
  *****************************************************************************/
 
+#include <limits.h>
+
 #include "execute.h"
 #include "bf_register.h"
 
@@ -2485,8 +2487,8 @@ task_timeout(Timer_ID id UNUSED_, Timer_Data data UNUSED_)
 static Timer_ID
 setup_task_execution_limits(int is_fg)
 {
-    int seconds;
-    int ticks;
+    Num seconds;
+    Num ticks;
 
     if (is_fg) {
 	seconds = server_int_option("fg_seconds", DEFAULT_FG_SECONDS);
@@ -2497,10 +2499,12 @@ setup_task_execution_limits(int is_fg)
 	ticks   = server_int_option("bg_ticks",   DEFAULT_BG_TICKS);
     }
 
-    task_alarm_id = set_virtual_timer(seconds < 1 ? 1 : seconds,
+    /* clamp as Num; narrowing to int first could wrap to a tiny limit */
+    task_alarm_id = set_virtual_timer(seconds < 1 ? 1
+				      : seconds > INT_MAX ? INT_MAX : seconds,
 				      task_timeout, 0);
     task_timed_out = 0;
-    ticks_remaining = (ticks < 100 ? 100 : ticks);
+    ticks_remaining = (ticks < 100 ? 100 : ticks > INT_MAX ? INT_MAX : ticks);
     return task_alarm_id;
 }
 
@@ -2579,10 +2583,14 @@ check_activ_stack_size(UNum max)
 static UNum
 current_max_stack_size(void)
 {
-    UNum max = server_int_option("max_stack_depth", DEFAULT_MAX_STACK_DEPTH);
+    Num max = server_int_option("max_stack_depth", DEFAULT_MAX_STACK_DEPTH);
 
+    /* compare as Num: a negative setting must not become a huge UNum,
+     * and the activation stack size must not overflow */
     if (max < DEFAULT_MAX_STACK_DEPTH)
 	max = DEFAULT_MAX_STACK_DEPTH;
+    else if ((UNum)max > INT_MAX / sizeof(activation))
+	max = INT_MAX / sizeof(activation);
 
     return max;
 }
