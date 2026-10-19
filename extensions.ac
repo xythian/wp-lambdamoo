@@ -72,8 +72,10 @@ END_UCD_MAKE
     --with- relib = LIB,..
       %?  choose RE engine (ylo,pcre)
 
-    # yes, this is a hack:
-    %ac_yes AS_IF([[$moo_xt_do_unicode]], [%LIBS%[=pcre]], [%LIBS%[=ylo]])
+    # PCRE2 by default for every build, so match() and rmatch() behave
+    # the same with or without Unicode; --with-relib=ylo selects the old
+    # engine
+    %ac_yes pcre
 
     %lib ylo
       XT_CSRCS = regexpr.c pattern_ylo.c
