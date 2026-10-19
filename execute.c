@@ -2886,7 +2886,7 @@ bf_raise(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED
 static package
 bf_suspend(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 {
-    static int seconds;
+    static Num seconds;
     int nargs = arglist.v.list[0].v.num;
 
     if (nargs >= 1)
