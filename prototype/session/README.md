@@ -61,8 +61,11 @@ the loaded checkpoint. The ordinary `tcp` networking backend remains the
 default.
 
 The full-server integration test preserves one TLS object through a forced
-crash and a signal-driven graceful shutdown, checks the corresponding recovery
-mode in MOO logs, and submits commands after each replacement. The benchmark
+crash, a signal-driven graceful shutdown, and a server panic restarted from its
+PANIC database, checks the corresponding recovery mode in MOO logs, and submits
+commands after each replacement. A panic leaves its sessions attached rather
+than detaching them gracefully, so the replacement treats them as recovered
+from a crash. The benchmark
 retains 100 TLS sessions and reports small-message latency percentiles plus a
 4 MiB transfer rate; see [`EVALUATION.md`](EVALUATION.md).
 

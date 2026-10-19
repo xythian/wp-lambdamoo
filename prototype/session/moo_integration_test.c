@@ -230,7 +230,9 @@ int main(int argc, char **argv)
 {
     const char *moo, *edge, *fixture, *certificate, *key, *directory;
     char input[256], checkpoint1[256], checkpoint2[256], checkpoint3[256];
+    char panic_db[256], checkpoint4[256];
     char socket_path[256], ready[256], log1[256], log2[256], log3[256];
+    char log4[256];
     SSL_CTX *context;
     struct tls_client client;
     pid_t server, edge_process;
@@ -246,8 +248,11 @@ int main(int argc, char **argv)
     PATH(checkpoint2, "moo-checkpoint-2.db"); PATH(checkpoint3, "moo-checkpoint-3.db");
     PATH(socket_path, "moo-backend.sock"); PATH(ready, "moo-edge.ready");
     PATH(log1, "moo-1.log"); PATH(log2, "moo-2.log"); PATH(log3, "moo-3.log");
+    PATH(log4, "moo-4.log"); PATH(checkpoint4, "moo-checkpoint-4.db");
+    PATH(panic_db, "moo-checkpoint-3.db.PANIC");
 #undef PATH
     unlink(checkpoint1); unlink(checkpoint2); unlink(checkpoint3);
+    unlink(checkpoint4); unlink(panic_db);
     copy_file(fixture, input);
     signal(SIGPIPE, SIG_IGN);
     context = SSL_CTX_new(TLS_client_method());
@@ -281,6 +286,15 @@ int main(int argc, char **argv)
     server = start_moo(moo, log3, checkpoint2, checkpoint3, socket_path);
     wait_for_log(log3, "SESSION REATTACHED: #3");
     send_text(&client, "after graceful\n");
+    expect_text(&client, "I couldn't understand that.\r\n");
+
+    delay();
+    stop(server, SIGQUIT);
+    wait_for_file(panic_db);
+    server = start_moo(moo, log4, panic_db, checkpoint4, socket_path);
+    expect_text(&client, "*** Session recovered from a server crash ***\r\n");
+    wait_for_log(log4, "SESSION RECOVERED: #3");
+    send_text(&client, "after panic\n");
     expect_text(&client, "I couldn't understand that.\r\n");
 
     SSL_shutdown(client.ssl);

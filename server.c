@@ -226,8 +226,15 @@ panic(const char *message)
 	_exit(1);
     }
     print_error_backtrace("server panic", output_to_log);
+#if NETWORK_PROTOCOL == NP_SESSION
+    /* Leave sessions attached so the edge sees this process die and holds
+     * them for crash recovery; a graceful detach would let the replacement
+     * resume them as if nothing had been lost.
+     */
+#else
     send_shutdown_message("server panic");
     network_shutdown();
+#endif
     db_flush(FLUSH_PANIC);
 
     abort_server();
