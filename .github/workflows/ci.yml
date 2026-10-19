@@ -119,6 +119,55 @@ jobs:
         path: ${{ steps.package.outputs.name }}.tar.gz
         if-no-files-found: error
 
+  # The other supported configs, so a change can't quietly break a build
+  # Waterpoint doesn't run: i32 checks integer width, default has none of
+  # the optional features, and i64_unicode has Unicode without the rest.
+  config-matrix:
+    name: Build and test (Ubuntu 26.04, ${{ matrix.config }} config)
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [ i32, default, i64_unicode ]
+
+    steps:
+    - name: Checkout wp-lambdamoo
+      uses: actions/checkout@v4
+      with:
+        path: wp-lambdamoo
+        fetch-depth: 0
+
+    - name: Checkout lambdamoo-tests
+      uses: actions/checkout@v4
+      with:
+        repository: xythian/lambdamoo-tests
+        path: lambdamoo-tests
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y autoconf make gcc gperf bison \
+          libpcre2-dev libexpat1-dev libunistring-dev libcrypt-dev
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install test suite
+      working-directory: lambdamoo-tests
+      run: uv sync
+
+    - name: Build (lmt ${{ matrix.config }} config)
+      working-directory: lambdamoo-tests
+      run: uv run lmt build --no-cache --source ../wp-lambdamoo --config ${{ matrix.config }} --output ../dist
+
+    - name: Run lmt tests
+      working-directory: lambdamoo-tests
+      env:
+        MOO_MINIMAL_DB: ${{ github.workspace }}/wp-lambdamoo/Minimal.db
+      run: uv run lmt test --candidate ../dist/moo -m "not upgrade"
+
   release:
     name: Release
     if: github.ref_type == 'tag'
