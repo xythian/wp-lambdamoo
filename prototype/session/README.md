@@ -1,6 +1,7 @@
 # Connection-independent session prototype
 
-This directory implements the first carrier described in
+This directory implements the protocol specified in
+[`Session_Protocol.md`](../../Session_Protocol.md), whose design is explained in
 [`Connection_Session_Protocol.md`](../../Connection_Session_Protocol.md): one
 secured Unix-domain stream per session attachment, with a stable TLS edge
 retaining the external connection while backend processes are replaced.
@@ -21,7 +22,6 @@ preserved one TLS connection across a forced server crash and checkpoint resume.
   request graceful replacement.
 - `test_protocol.c`: codec, framing, truncation, and malformed-header tests.
 - `integration_test.c`: process-level TLS and replacement scenarios.
-- `PROTOCOL.md`: the prototype 1.0 wire contract.
 - `../../net_session.c`: LambdaMOO endpoint, line/binary adaptation, bounded
   output, and checkpoint-authorized session restoration.
 

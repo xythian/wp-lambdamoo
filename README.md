@@ -323,6 +323,11 @@ There are two classes of command-line arguments for `./configure`
     to get a server with TCP networking, default listener on port
     8888, and `open_network_connection()` enabled by default.
 
+    `--enable-net=session,poll,require` builds the experimental
+    session backend, which lets a separate edge process keep players
+    connected while the server is restarted or replaced; see
+    [Session_Protocol.md](./Session_Protocol.md).
+
   + `--enable-sz`
 
     manages all datatype size options (`INT_TYPE_BITSIZE`,

@@ -40,7 +40,7 @@ with AddressSanitizer and UndefinedBehaviorSanitizer enabled.
 on loopback. It retains 100 sessions, measures 500 sequential 32-byte echo round
 trips on one established session, and transfers five 4 MiB responses. This models
 the expected hundreds-of-connections scale, perceived command lag, and large
-Waterpoint extraction-style output. It is not a saturation benchmark.
+extraction-style output. It is not a saturation benchmark.
 
 On the 2026-08-26 development host (Linux 6.8, AMD Ryzen 9 9955HX), one run
 produced:
@@ -65,23 +65,17 @@ and open per-session streams to the same backend endpoint. A rendezvous service
 may still be useful for finding a replacement backend, but it does not need to
 carry session data.
 
-Harbor already supplies the broker layer above this boundary. Its `runtimeSession`
-owns one persistent MOO upstream and accepts multiple frontend attachments. A
-`connect` attachment mirrors session output, while `terminal` runs one scoped
-command by sending unique `PREFIX` and `SUFFIX` markers to MOO and routing the
-lines between them only to the requesting terminal. Harbor can therefore replace
-its ordinary upstream dial/redial loop with a Go implementation of this session
-carrier without moving multi-client semantics into the MOO protocol.
-
-That would make MOO replacement invisible to Harbor frontend attachments and
-avoid reconnecting and logging the player in again. It would not eliminate the
-terminal marker protocol: the carrier transports an ordered byte stream and does
-not identify which output belongs to a command. Recovery mode should be exposed
-to Harbor as an out-of-band event. Harbor can preserve an active terminal command
-across a coordinated graceful replacement, but after crash recovery it must fail
-the command explicitly because the checkpoint may predate its task or suffix. A
-client-visible recovery line is insufficient and could otherwise be mistaken for
-command output.
+A session manager that already multiplexes several frontends onto one MOO
+connection fits above this boundary without moving multi-client semantics into
+the MOO protocol: it replaces its own dial and redial loop with a session
+client, and MOO replacement then becomes invisible to its frontends without
+logging the player in again. The carrier transports an ordered byte stream and
+does not say which output belongs to which command, so such a manager keeps
+whatever command-scoping markers it uses today. Recovery mode should reach it
+as an out-of-band event rather than a client-visible line, which could be
+mistaken for command output. A command in flight can survive a coordinated
+graceful replacement, but after crash recovery it must be failed explicitly,
+because the loaded database may predate its task.
 
 At the anticipated scale, one backend descriptor and worker context per session
 is a reasonable first implementation. It removes outer stream IDs,
@@ -117,6 +111,6 @@ Production work still includes:
 - coordinated graceful quiescing across many sessions rather than bounded
   per-session shutdown waits;
 - a decision about partial TLS records waiting in the external kernel socket;
-- load tests on a realistic Waterpoint database and host; and
-- edge-process failover, if Waterpoint requires it in addition to backend
+- load tests on a realistic production database and host; and
+- edge-process failover, if a deployment requires it in addition to backend
   failover.

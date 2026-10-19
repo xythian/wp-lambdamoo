@@ -1,15 +1,16 @@
 # Connection-independent session protocol
 
-Status: working end-to-end prototype, 2026-08-26.
+Status: design rationale. The protocol itself is specified in
+[`Session_Protocol.md`](Session_Protocol.md).
 
 The C reference edge, backend harness, protocol implementation, tests, and
 scenario results are in [`prototype/session/`](prototype/session/README.md).
 The `session` configure option selects a LambdaMOO `network.h` backend using the
 same protocol. The complete path has retained a verified TLS connection across
-a forced server crash, restored its player/listener binding from a checkpoint,
-and processed subsequent input in the replacement process. Graceful quiescing,
-operational hardening, and an automated full-server scenario remain future
-work.
+a forced server crash, a graceful shutdown and a panic, restored its
+player/listener binding from the loaded database, and processed subsequent
+input in the replacement process. Coordinated graceful quiescing across many
+sessions and operational hardening remain future work.
 
 ## Objective
 
@@ -223,9 +224,9 @@ demonstrates that TLS state remains live across a backend crash. Its TLS
 configuration should be suitable for testing and reference deployment, while
 certificate provisioning remains an operator concern.
 
-Waterpoint may implement its production edge in Go against the same documented
-boundary. Harbor, the WebSocket gateway, and future frontends can either speak
-the session protocol directly or sit above another gateway. Extra copies in a
+A production edge may be written in any language against the same documented
+boundary. Session managers, WebSocket gateways, and future frontends can either
+speak the session protocol directly or sit above another gateway. Extra copies in a
 general gateway are an acceptable initial price for clean indirection; optimized
 carriers can be introduced where measurements justify them.
 
@@ -298,9 +299,9 @@ silently weaken the session contract.
    input rejection, backend death, replacement, and resumed traffic through
    one unchanged TLS client connection.
 5. Integrate the backend side with the server's existing network abstraction.
-6. Add a second independent implementation, likely the Waterpoint Go edge, to
-   validate that the written protocol rather than shared C code defines the
-   boundary.
+6. Add a second independent implementation, written from the specification
+   rather than the C code, to validate that the written protocol defines the
+   boundary. The Python edge in the lambdamoo-tests suite is the first.
 
 The prototype should measure perceived pause time, memory retained per idle and
 blocked session, large-response behavior, and copy counts. Peak message
