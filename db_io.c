@@ -280,6 +280,8 @@ dbio_read_var(Var *vp)
     return dbio_read_var_value(vtype, vp);
 }
 
+static int read_list(Var *vp);
+
 int
 dbio_read_var_value(intmax_t vtype, Var *vp)
 {
@@ -310,18 +312,9 @@ dbio_read_var_value(intmax_t vtype, Var *vp)
 	    goto bad_value;
 	vp->type = TYPE_FLOAT;
 	break;
-    case _TYPE_LIST: ;
-	UNum len;
-	if (!dbio_read_unum(&len))
+    case _TYPE_LIST:
+	if (!read_list(vp))
 	    goto bad_value;
-	*vp = new_list(len); /* overwrites vp->type */
-	UNum i;
-	for (i = 1; i <= len; ++i)
-	    if (!dbio_read_var(&vp->v.list[i])) {
-		vp->v.list[0].v.num = i-1;
-		free_var(*vp);
-		goto bad_value;
-	    }
 	break;
 
 #ifdef WAIF_CORE
@@ -340,6 +333,64 @@ dbio_read_var_value(intmax_t vtype, Var *vp)
 	return 0;
     }
     return 1;
+}
+
+/* Reads a list's length and elements into *VP.  Nested lists are read
+ * from an explicit stack, so a list nested a million deep cannot overflow
+ * the C stack while loading.  Each frame's count says how many of its
+ * elements have been read, so a list cut short by bad input is freed
+ * up to there.
+ */
+static int
+read_list(Var *vp)
+{
+    Walk_Stack ws = {0, 0, 0};
+    UNum len;
+    int ok = 1;
+
+    if (!dbio_read_unum(&len))
+	return 0;
+    *vp = new_list(len);
+    walk_push(&ws, *vp, zero, 0);
+    while (ws.depth > 0) {
+	Walk_Frame *f = &ws.frames[ws.depth - 1];
+	Var *slot;
+	intmax_t vtype;
+
+	if (f->i == f->a.v.list[0].v.num) {
+	    ws.depth--;
+	    continue;
+	}
+	slot = &f->a.v.list[f->i + 1];
+	if (!dbio_read_intmax(&vtype)) {
+	    ok = 0;
+	    break;
+	}
+	if (vtype == _TYPE_LIST) {
+	    if (!dbio_read_unum(&len)) {
+		ok = 0;
+		break;
+	    }
+	    *slot = new_list(len);
+	    f->i++;
+	    walk_push(&ws, *slot, zero, 0);
+	} else if (dbio_read_var_value(vtype, slot))
+	    f->i++;
+	else {
+	    ok = 0;
+	    break;
+	}
+    }
+    if (!ok) {
+	while (ws.depth > 0) {
+	    Walk_Frame *f = &ws.frames[--ws.depth];
+
+	    f->a.v.list[0].v.num = f->i;
+	}
+	free_var(*vp);
+    }
+    walk_free(&ws);
+    return ok;
 }
 
 /*---------------------*
@@ -659,11 +710,9 @@ dbio_write_string(const char *s)
     dbio_printf("%s\n", s ? s : "");
 }
 
-void
-dbio_write_var(Var v)
+static void
+write_scalar(Var v)
 {
-    int i;
-
     dbio_write_intmax((intmax_t) v.type & TYPE_DB_MASK);
     switch ((int) v.type) {
     case TYPE_CLEAR:
@@ -686,11 +735,6 @@ dbio_write_var(Var v)
     case TYPE_FLOAT:
 	dbio_write_float(fl_unbox(v.v.fnum));
 	break;
-    case TYPE_LIST:
-	dbio_write_intmax(v.v.list[0].v.num);
-	for (i = 0; i < v.v.list[0].v.num; i++)
-	    dbio_write_var(v.v.list[i + 1]);
-	break;
 
 #ifdef WAIF_CORE
     case TYPE_WAIF:
@@ -699,6 +743,45 @@ dbio_write_var(Var v)
 #endif
 
     }
+}
+
+static void
+write_list_header(Var v)
+{
+    dbio_write_intmax((intmax_t) v.type & TYPE_DB_MASK);
+    dbio_write_intmax(v.v.list[0].v.num);
+}
+
+/* Nested lists are written from an explicit stack, so a list nested a
+ * million deep cannot overflow the C stack during a checkpoint.
+ */
+void
+dbio_write_var(Var v)
+{
+    Walk_Stack ws = {0, 0, 0};
+
+    if (v.type != TYPE_LIST) {
+	write_scalar(v);
+	return;
+    }
+    write_list_header(v);
+    walk_push(&ws, v, zero, 0);
+    while (ws.depth > 0) {
+	Walk_Frame *f = &ws.frames[ws.depth - 1];
+	Var c;
+
+	if (f->i == f->a.v.list[0].v.num) {
+	    ws.depth--;
+	    continue;
+	}
+	c = f->a.v.list[++f->i];
+	if (c.type == TYPE_LIST) {
+	    write_list_header(c);
+	    walk_push(&ws, c, zero, 0);
+	} else
+	    write_scalar(c);
+    }
+    walk_free(&ws);
 }
 
 static void
