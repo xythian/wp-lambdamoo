@@ -38,8 +38,8 @@
 
 static waif_count_type waif_count = 0;
 
-#define PROP_MAPPED(Mmap, Mbit)	((Mmap)[(Mbit) / 32] & (1 << ((Mbit) % 32)))
-#define MAP_PROP(Mmap, Mbit) (Mmap)[(Mbit) / 32] |= 1 << ((Mbit) % 32)
+#define PROP_MAPPED(Mmap, Mbit)	((Mmap)[(Mbit) / 32] & (1u << ((Mbit) % 32)))
+#define MAP_PROP(Mmap, Mbit) (Mmap)[(Mbit) / 32] |= 1u << ((Mbit) % 32)
 #define N_MAPPABLE_PROPS (WAIF_MAPSZ * 32)
 
 static int
