@@ -1352,11 +1352,13 @@ do {								\
 		    ans = do_add(lhs, rhs);
 		else if (lhs.type == TYPE_STR && rhs.type == TYPE_STR) {
 		    char *str;
-		    int llen = memo_strlen(lhs.v.str);
-		    int flen = llen + memo_strlen(rhs.v.str);
+		    size_t llen = memo_strlen(lhs.v.str);
+		    size_t rlen = memo_strlen(rhs.v.str);
+		    size_t flen = llen + rlen;
+		    UNum max = server_int_option_cached(SVO_MAX_STRING_CONCAT);
 
-		    if (server_int_option_cached(SVO_MAX_STRING_CONCAT)
-			< flen) {
+		    /* compare before adding so the sum can't wrap */
+		    if (llen > max || rlen > max - llen) {
 			ans.type = TYPE_ERR;
 			ans.v.err = E_QUOTA;
 		    } else {
