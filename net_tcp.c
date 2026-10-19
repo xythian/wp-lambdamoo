@@ -162,6 +162,9 @@ open_connection_arguments(Var arglist,
 	     arglist.v.list[2].type != TYPE_INT)
 	return E_TYPE;
 
+    if (arglist.v.list[2].v.num < 0 || arglist.v.list[2].v.num > 65535)
+	return E_INVARG;	/* would wrap onto another port */
+
     *host_name = arglist.v.list[1].v.str;
     *port = arglist.v.list[2].v.num;
     return E_NONE;

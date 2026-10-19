@@ -935,6 +935,11 @@ bf_j(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 {
     Num n = arglist.v.list[1].v.num;
     FlNum d = fl_unbox(arglist.v.list[2].v.fnum);
+    /* jn() takes an int; don't let a larger order truncate */
+    if (n < -INT_MAX || n > INT_MAX) {
+	free_var(arglist);
+	return make_error_pack(E_INVARG);
+    }
     errno = 0;
     switch (n) {
     case 0:
@@ -961,6 +966,11 @@ bf_y(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 {
     Num n = arglist.v.list[1].v.num;
     FlNum d = fl_unbox(arglist.v.list[2].v.fnum);
+    /* yn() takes an int; don't let a larger order truncate */
+    if (n < -INT_MAX || n > INT_MAX) {
+	free_var(arglist);
+	return make_error_pack(E_INVARG);
+    }
     errno = 0;
     switch (n) {
     case 0:

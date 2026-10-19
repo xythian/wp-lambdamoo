@@ -851,7 +851,7 @@ bf_rmatch(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSE
 }
 
 static int
-invalid_pair(int num1, int num2, int max)
+invalid_pair(Num num1, Num num2, Num max)
 {
     if ((num1 == 0 && num2 == -1)
 	|| (num1 > 0 && num2 >= num1 - 1 && num2 <= max))
@@ -922,7 +922,7 @@ bf_substitute(volatile Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Obji
 	    else if ((c = *(template++)) == '%')
 		stream_add_char(s, '%');
 	    else {
-		int start = 0, end = 0;
+		Num start = 0, end = 0;
 		if (c >= '1' && c <= '9') {
 		    Var pair = subs.v.list[3].v.list[c - '0'];
 		    start = pair.v.list[1].v.num;
@@ -1160,7 +1160,7 @@ bf_tochar(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSE
 
     switch (v.type) {
     case TYPE_INT:
-	ucs = (v.v.num <= 0x10ffff ? v.v.num : 0);
+	ucs = (0 <= v.v.num && v.v.num <= 0x10ffff ? v.v.num : 0);
 	break;
     case TYPE_STR:
 	ucs = my_char_lookup(v.v.str);
@@ -1266,7 +1266,9 @@ encode_chars(Stream *s, Var v)
 
     switch (v.type) {
     case TYPE_INT:
-	if (stream_add_char_for_ec(s, v.v.num) == -1)
+	/* check before narrowing to uint32_t, which would wrap */
+	if (v.v.num < 0 || v.v.num > 0x10ffff
+	    || stream_add_char_for_ec(s, v.v.num) == -1)
 	    return 0;
 	break;
 

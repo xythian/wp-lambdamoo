@@ -65,6 +65,8 @@ proto_make_listener(Var desc, int *fd, Var * canon, const char **name)
 
     if (desc.type != TYPE_INT)
 	return E_TYPE;
+    if (desc.v.num < 0 || desc.v.num > 65535)
+	return E_INVARG;	/* would wrap onto another port */
 
     port = desc.v.num;
     s = socket(AF_INET, SOCK_STREAM, 0);

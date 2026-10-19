@@ -15,6 +15,8 @@
     Pavel@Xerox.Com
  *****************************************************************************/
 
+#include <limits.h>
+
 #include "verbs.h"
 #include "bf_register.h"
 
@@ -217,8 +219,8 @@ validate_verb_descriptor(Var desc)
 	return E_NONE;
     else if (desc.type != TYPE_INT)
 	return E_TYPE;
-    else if (desc.v.num <= 0)
-	return E_INVARG;
+    else if (desc.v.num <= 0 || desc.v.num > UINT_MAX)
+	return E_INVARG;	/* UINT_MAX: db_find_indexed_verb() takes unsigned */
     else
 	return E_NONE;
 }
