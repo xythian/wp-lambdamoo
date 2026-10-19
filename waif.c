@@ -241,107 +241,49 @@ alloc_waif_propvals(Waif *w, int clear)
  *  and the compiler is unhappy...
  *            --wrog.
  */
-/* Lists and waifs can share structure, so a value with only a handful of
- * distinct lists can have exponentially many paths through it (consider
- * x = {x, x} repeated 40 times).  Remember every list and waif already
- * searched so each is only searched once.
+/* Does TARGET contain the waif KEY anywhere inside it?  Each list and
+ * waif inside TARGET is searched once, however many times it appears.
  */
-typedef struct {
-    const void **slots;		/* open-addressed; 0 means empty */
-    size_t size;		/* always a power of 2 */
-    size_t count;
-} seen_set;
-
-static size_t
-seen_hash(const void *p, size_t size)
-{
-    uintptr_t h = (uintptr_t) p;
-
-    h ^= h >> 17;
-    h *= 0x9E3779B97F4A7C15ULL;
-    return (h ^ (h >> 29)) & (size - 1);
-}
-
-/* Returns 1 if P was newly added, 0 if it was already there. */
-static int
-seen_add(seen_set * set, const void *p)
-{
-    size_t i;
-
-    if (2 * (set->count + 1) > set->size) {
-	const void **old = set->slots;
-	size_t old_size = set->size, j;
-
-	set->size = old_size ? 2 * old_size : 64;
-	set->slots = mymalloc(set->size * sizeof(*set->slots), M_WAIF_XTRA);
-	memset(set->slots, 0, set->size * sizeof(*set->slots));
-	for (j = 0; j < old_size; j++)
-	    if (old[j]) {
-		for (i = seen_hash(old[j], set->size); set->slots[i];
-		     i = (i + 1) & (set->size - 1))
-		    ;
-		set->slots[i] = old[j];
-	    }
-	if (old)
-	    myfree(old, M_WAIF_XTRA);
-    }
-    for (i = seen_hash(p, set->size); set->slots[i];
-	 i = (i + 1) & (set->size - 1))
-	if (set->slots[i] == p)
-	    return 0;
-    set->slots[i] = p;
-    set->count++;
-    return 1;
-}
-
-static int
-refers_to_1(Var target, Var key, seen_set * seen)
-{
-    int i;
-    Var *p;
-
-    switch (target.type) {
-    default:
-	break;
-
-    case TYPE_LIST:
-	if (target.v.list[0].v.num == 0 || !seen_add(seen, target.v.list))
-	    return 0;
-	for (i = 1; i <= target.v.list[0].v.num; ++i)
-	    if (refers_to_1(target.v.list[i], key, seen))
-		return 1;
-	return 0;
-
-    case TYPE_WAIF:
-	if (target.v.waif == key.v.waif)
-	    return 1;
-	if (!seen_add(seen, target.v.waif))
-	    return 0;
-	p = target.v.waif->propvals;
-	i = count_waif_propvals(target.v.waif);
-	while (i-- > 0)
-	    if (refers_to_1(*p++, key, seen))
-		return 1;
-	return 0;
-    }
-    return 0;
-}
-
-/* Does TARGET contain the waif KEY anywhere inside it? */
 static int
 refers_to(Var target, Var key)
 {
-    seen_set seen = {0, 0, 0};
-    int result;
+    static Walk_Stack ws;
+    Visit_Set seen = {0, 0, 0};
+    int result = 0;
 
     if (key.type != TYPE_WAIF)
 	panic("refers_to: key is not a waif");
-    if (target.type != TYPE_LIST && target.type != TYPE_WAIF)
+    if (!walk_has_children(target))
 	return 0;
+    if (target.type == TYPE_WAIF && target.v.waif == key.v.waif)
+	return 1;
 
-    result = refers_to_1(target, key, &seen);
-    if (seen.slots)
-	myfree(seen.slots, M_WAIF_XTRA);
+    visit_add(&seen, walk_id(target), 0, 0);
+    walk_push(&ws, target, zero, 0);
+    while (ws.depth > 0) {
+	Walk_Frame *f = &ws.frames[ws.depth - 1];
+	Num count;
+	Var *children = walk_children(f->a, &count);
+	Var c;
+	int added;
+
+	if (f->i == count) {
+	    ws.depth--;
+	    continue;
+	}
+	c = children[f->i++];
+	if (!walk_has_children(c))
+	    continue;
+	if (c.type == TYPE_WAIF && c.v.waif == key.v.waif) {
+	    result = 1;
+	    break;
+	}
+	visit_add(&seen, walk_id(c), 0, &added);
+	if (added)
+	    walk_push(&ws, c, zero, 0);
+    }
+    walk_release(&ws);
+    visit_set_free(&seen);
     return result;
 }
 
@@ -855,25 +797,27 @@ waif_put_prop(Waif *w, const char *name, Var val, Objid progr)
     return E_NONE;
 }
 
-/* Called from value_bytes()
+/* Called from value_bytes(), which adds the sizes of W's property values
+ * itself.
  */
 size_t
 waif_bytes(Waif *w)
 {
-    size_t len;
-    int cnt;
-
     update_waif_propdefs(w);
 
     /* never need to count the propdefs becuase we're now guaranteed to
      * be sharing that with the class object which is billed for that
      * space
      */
-    len = sizeof(Waif);
-    cnt = count_waif_propvals(w);
-    while (cnt--)
-	len += value_bytes(w->propvals[cnt]);
-    return len;
+    return sizeof(Waif);
+}
+
+/* W's property values, for code that walks the values inside a value. */
+Var *
+waif_propvals(Waif *w, int *count)
+{
+    *count = count_waif_propvals(w);
+    return w->propvals;
 }
 
 static Waif **saved_waifs;

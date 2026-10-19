@@ -186,6 +186,14 @@ stream_add_bytes(Stream * s, const char *bytes, size_t len)
 }
 
 void
+stream_add_copy(Stream * s, size_t start, size_t len)
+{
+    (void)grew(s, len);
+    memcpy(s->buffer + s->current, s->buffer + start, len);
+    s->current += len;
+}
+
+void
 stream_printf(Stream * s, const char *fmt,...)
 {
     va_list args, pargs;

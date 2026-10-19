@@ -1687,13 +1687,13 @@ activation_bytes(activation * ap)
      */
     total += program_bytes(ap->prog);
     for (i = 0; i < ap->prog->num_var_names; ++i)
-	total += value_bytes(ap->rt_env[i]);
+	total = size_add(total, value_bytes(ap->rt_env[i]));
     if (ap->top_rt_stack) {
 	for (v = ap->top_rt_stack - 1; v >= ap->base_rt_stack; v--)
-	    total += value_bytes(*v);
+	    total = size_add(total, value_bytes(*v));
     }
     /* XXX ignore bi_func_data, it's an opaque type. */
-    total += value_bytes(ap->temp) - BQM_SIZEOF(Var);
+    total = size_add(total, value_bytes(ap->temp) - BQM_SIZEOF(Var));
     total += memo_strlen(ap->verb) + 1;
     total += memo_strlen(ap->verbname) + 1;
     return total;
@@ -1736,7 +1736,7 @@ list_for_forked_task(forked_task ft)
     list.v.list[9].type = TYPE_OBJ;
     list.v.list[9].v.obj = ft.a.this;
     list.v.list[10].type = TYPE_INT;
-    list.v.list[10].v.num = forked_task_bytes(ft);
+    list.v.list[10].v.num = size_to_num(forked_task_bytes(ft));
 
     return list;
 }
@@ -1748,7 +1748,7 @@ suspended_task_bytes(vm the_vm)
     unsigned i;
 
     for (i = 0; i <= the_vm->top_activ_stack; i++)
-	total += activation_bytes(the_vm->activ_stack + i);
+	total = size_add(total, activation_bytes(the_vm->activ_stack + i));
 
     return total;
 }
@@ -1778,7 +1778,7 @@ list_for_vm(vm the_vm)
     list.v.list[9].type = TYPE_OBJ;
     list.v.list[9].v.obj = top_activ(the_vm).this;
     list.v.list[10].type = TYPE_INT;
-    list.v.list[10].v.num = suspended_task_bytes(the_vm);
+    list.v.list[10].v.num = size_to_num(suspended_task_bytes(the_vm));
 
     return list;
 }

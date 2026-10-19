@@ -204,6 +204,7 @@ extern Waif *dup_waif(Waif *);
 extern enum error waif_get_prop(Waif *, const char *, Var *, Objid progr);
 extern enum error waif_put_prop(Waif *, const char *, Var, Objid progr);
 extern  size_t waif_bytes(Waif *);
+extern  Var *waif_propvals(Waif *, int *);
 extern void dbio_write_waif(Var);
 extern  int dbio_read_waif(Var *);
 extern void free_waif_propdefs(WaifPropdefs *);
