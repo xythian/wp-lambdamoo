@@ -20,6 +20,7 @@
 #define SP_CONNECT_FIXED_SIZE 16u
 #define SP_CONNECT_FAILED_FIXED_SIZE 8u
 #define SP_MAX_LISTENERS 1024u
+#define SP_LISTEN_FIXED_SIZE 8u
 
 enum sp_type {
     SP_HELLO = 1,
@@ -44,6 +45,10 @@ enum sp_kind {
 
 enum sp_connect_flag {
     SP_CONNECT_TLS = 1
+};
+
+enum sp_listen_flag {
+    SP_LISTEN_TLS = 1
 };
 
 enum sp_connect_failure {
@@ -83,6 +88,13 @@ struct sp_hello {
     int64_t listener;
     uint16_t origin_length;
     const unsigned char *origin;
+};
+
+struct sp_listen {
+    uint16_t port;
+    uint16_t flags;
+    const char *certificate;	/* null for the edge's own */
+    const char *key;
 };
 
 struct sp_connect {
@@ -147,7 +159,7 @@ int sp_decode_detach(const struct sp_frame *frame, struct sp_detach *detach);
 void sp_encode_bind(const struct sp_bind *bind,
                     unsigned char payload[SP_BIND_SIZE]);
 int sp_decode_bind(const struct sp_frame *frame, struct sp_bind *bind);
-int sp_encode_listeners(const uint16_t *ports, unsigned count,
+int sp_encode_listeners(const struct sp_listen *listens, unsigned count,
                         unsigned char **payload, uint32_t *length);
 int sp_encode_connect(const struct sp_connect *connect,
                       unsigned char **payload, uint32_t *length);

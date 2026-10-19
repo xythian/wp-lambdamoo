@@ -1588,6 +1588,132 @@ find_slistener_by_oid(Objid obj)
 }
 #endif /* OUTBOUND_NETWORK */
 
+/* The options listen() and open_network_connection() take, the same in
+ * every network backend: a list of {NAME, VALUE} pairs.
+ */
+struct network_options {
+    int tls;			/* "tls": use TLS */
+    int print_messages;		/* "print-messages" (listen); -1 if absent */
+    const char *certificate;	/* "certificate" (listen): a PEM file */
+    const char *key;		/* "key" (listen): its private key */
+    int has_listener;		/* "listener" (open_network_connection) */
+    Objid listener;
+};
+
+static void
+default_network_options(struct network_options *o)
+{
+    o->tls = 0;
+    o->print_messages = -1;
+    o->certificate = o->key = 0;
+    o->has_listener = 0;
+    o->listener = NOTHING;
+}
+
+static enum error
+parse_network_options(Var options, int for_listen, struct network_options *o)
+{
+    int i;
+
+    default_network_options(o);
+    if (options.type != TYPE_LIST)
+	return E_TYPE;
+    for (i = 1; i <= options.v.list[0].v.num; i++) {
+	Var pair = options.v.list[i];
+	const char *name;
+	Var value;
+
+	if (pair.type != TYPE_LIST || pair.v.list[0].v.num != 2
+	    || pair.v.list[1].type != TYPE_STR)
+	    return E_INVARG;
+	name = pair.v.list[1].v.str;
+	value = pair.v.list[2];
+	if (!mystrcasecmp(name, "tls"))
+	    o->tls = is_true(value);
+	else if (for_listen && !mystrcasecmp(name, "print-messages"))
+	    o->print_messages = is_true(value);
+	else if (for_listen && (!mystrcasecmp(name, "certificate")
+				|| !mystrcasecmp(name, "key"))) {
+	    if (value.type != TYPE_STR)
+		return E_TYPE;
+	    if (!mystrcasecmp(name, "key"))
+		o->key = value.v.str;
+	    else
+		o->certificate = value.v.str;
+	} else if (!for_listen && !mystrcasecmp(name, "listener")) {
+	    if (value.type != TYPE_OBJ)
+		return E_TYPE;
+	    o->has_listener = 1;
+	    o->listener = value.v.obj;
+	} else
+	    return E_INVARG;
+    }
+    if ((o->certificate || o->key) && !o->tls)
+	return E_INVARG;
+#if NETWORK_PROTOCOL != NP_SESSION
+    /* Only the session backend's edge does TLS so far. */
+    if (o->tls)
+	return E_INVARG;
+#endif
+    return E_NONE;
+}
+
+#ifdef OUTBOUND_NETWORK
+
+/* Strip open_network_connection(HOST, PORT [, LISTENER] [, OPTIONS]) to
+ * its first two arguments, returning the listener (NOTHING for none) and
+ * options.
+ */
+static enum error
+open_connection_options(Var *arglist, struct network_options *o)
+{
+    int nargs = arglist->v.list[0].v.num;
+    enum error e;
+
+    default_network_options(o);
+    if (nargs >= 3) {
+	Var third = arglist->v.list[3];
+	int max_args = third.type == TYPE_OBJ ? 4 : 3;
+
+	if (nargs > max_args)
+	    return E_ARGS;
+	if (third.type == TYPE_OBJ && nargs == 3) {
+	    o->listener = third.v.obj;
+	    o->has_listener = 1;
+	} else {
+	    Var options = arglist->v.list[nargs];
+
+	    if ((e = parse_network_options(options, 0, o)) != E_NONE)
+		return e;
+	    if (third.type == TYPE_OBJ) {
+		if (o->has_listener)
+		    return E_INVARG;
+		o->listener = third.v.obj;
+		o->has_listener = 1;
+	    }
+	}
+    }
+    return E_NONE;
+}
+
+static server_listener
+connection_listener(const struct network_options *o, slistener *temporary)
+{
+    server_listener sl;
+
+    sl.ptr = o->has_listener ? find_slistener_by_oid(o->listener) : 0;
+    if (o->has_listener && !sl.ptr) {
+	temporary->print_messages = 0;
+	temporary->name = "open_network_connection";
+	temporary->desc = zero;
+	temporary->oid = o->listener;
+	sl.ptr = temporary;
+    }
+    return sl;
+}
+
+#endif /* OUTBOUND_NETWORK */
+
 #if NETWORK_PROTOCOL == NP_SESSION && defined(OUTBOUND_NETWORK)
 
 static uint32_t connect_request_id;
@@ -1603,81 +1729,9 @@ wait_for_connection(vm the_vm, void *data UNUSED_)
     return e;
 }
 
-/* open_network_connection(HOST, PORT [, LISTENER] [, OPTIONS]): the edge
- * makes the connection while the calling task is suspended.  OPTIONS is a
- * list of {NAME, VALUE} pairs; {"tls", 1} asks the edge for TLS.
- */
-static package
-open_edge_connection(Var arglist, Objid progr)
-{
-    Objid listener = NOTHING;
-    int tls = 0, timeout;
-    Var options;
-    server_listener sl;
-    slistener l;
-    enum error e;
-    int i;
-
-    if (!is_wizard(progr)) {
-	free_var(arglist);
-	return make_error_pack(E_PERM);
-    }
-    if (arglist.v.list[0].v.num >= 3) {
-	Var third = arglist.v.list[3];
-	int max_args = 3, has_options = 1;
-
-	if (third.type == TYPE_OBJ) {
-	    listener = third.v.obj;
-	    max_args = 4;
-	    has_options = arglist.v.list[0].v.num == 4;
-	    if (has_options)
-		options = arglist.v.list[4];
-	} else
-	    options = third;
-	if (arglist.v.list[0].v.num > max_args) {
-	    free_var(arglist);
-	    return make_error_pack(E_ARGS);
-	}
-	if (has_options) {
-	    if (options.type != TYPE_LIST) {
-		free_var(arglist);
-		return make_error_pack(E_TYPE);
-	    }
-	    for (i = 1; i <= options.v.list[0].v.num; i++) {
-		Var pair = options.v.list[i];
-
-		if (pair.type != TYPE_LIST || pair.v.list[0].v.num != 2
-		    || pair.v.list[1].type != TYPE_STR
-		    || mystrcasecmp(pair.v.list[1].v.str, "tls")) {
-		    free_var(arglist);
-		    return make_error_pack(E_INVARG);
-		}
-		tls = is_true(pair.v.list[2]);
-	    }
-	}
-	while (arglist.v.list[0].v.num > 2)
-	    arglist = listdelete(arglist, 3);
-    }
-
-    sl.ptr = listener == NOTHING ? NULL : find_slistener_by_oid(listener);
-    if (listener != NOTHING && !sl.ptr) {
-	l.print_messages = 0;
-	l.name = "open_network_connection";
-	l.desc = zero;
-	l.oid = listener;
-	sl.ptr = &l;
-    }
-    timeout = server_listener_int_option(sl, "outbound_connect_timeout", 5);
-    e = network_request_connection(arglist, listener, tls, timeout,
-				   &connect_request_id);
-    free_var(arglist);
-    if (e != E_NONE)
-	return make_error_pack(e);
-    return make_suspend_pack(wait_for_connection, 0);
-}
-
 #endif
 
+/* open_network_connection(HOST, PORT [, LISTENER] [, OPTIONS]) */
 static package
 bf_open_network_connection(
     Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr
@@ -1686,42 +1740,35 @@ bf_open_network_connection(
 #endif
 )
 {
-#if NETWORK_PROTOCOL == NP_SESSION && defined(OUTBOUND_NETWORK)
-    return open_edge_connection(arglist, progr);
-#elif defined(OUTBOUND_NETWORK)
-
-    Var r;
-    enum error e;
+#ifdef OUTBOUND_NETWORK
+    struct network_options o;
     server_listener sl;
-    slistener l;
+    slistener temporary;
+    enum error e;
 
-    if (!is_wizard(progr)) {
-        free_var(arglist);
-        return make_error_pack(E_PERM);
+    if (!is_wizard(progr))
+	e = E_PERM;
+    else
+	e = open_connection_options(&arglist, &o);
+    if (e != E_NONE) {
+	free_var(arglist);
+	return make_error_pack(e);
     }
-
-    if (arglist.v.list[0].v.num == 3) {
-	Objid oid;
-
-	if (arglist.v.list[3].type != TYPE_OBJ) {
-	    return make_error_pack(E_TYPE);
-	}
-	oid = arglist.v.list[3].v.obj;
+    while (arglist.v.list[0].v.num > 2)
 	arglist = listdelete(arglist, 3);
+    sl = connection_listener(&o, &temporary);
 
-	sl.ptr = find_slistener_by_oid(oid);
-	if (!sl.ptr) {
-	    /* Create a temporary */
-	    l.print_messages = 0;
-	    l.name = "open_network_connection";
-	    l.desc = zero;
-	    l.oid = oid;
-	    sl.ptr = &l;
-	}
-    } else {
-	sl.ptr = NULL;
-    }
-
+#if NETWORK_PROTOCOL == NP_SESSION
+    /* The edge makes the connection while the task is suspended. */
+    e = network_request_connection(
+	arglist, o.has_listener ? o.listener : NOTHING, o.tls,
+	server_listener_int_option(sl, "outbound_connect_timeout", 5),
+	&connect_request_id);
+    free_var(arglist);
+    if (e != E_NONE)
+	return make_error_pack(e);
+    return make_suspend_pack(wait_for_connection, 0);
+#else
     e = network_open_connection(arglist, sl);
     free_var(arglist);
     if (e == E_NONE) {
@@ -1730,16 +1777,14 @@ bf_open_network_connection(
 	 * player number was allocated for the connection.  Thus, the old
 	 * value of next_unconnected_player is the number of our connection.
 	 */
+	Var r;
+
 	r.type = TYPE_OBJ;
 	r.v.obj = next_unconnected_player + 1;
-    } else {
-	r.type = TYPE_ERR;
-	r.v.err = e;
-    }
-    if (r.type == TYPE_ERR)
-	return make_error_pack(r.v.err);
-    else
 	return make_var_pack(r);
+    }
+    return make_error_pack(e);
+#endif
 
 #else				/* !OUTBOUND_NETWORK */
 
@@ -1983,21 +2028,42 @@ find_slistener(Var desc)
     return 0;
 }
 
+/* listen(OBJECT, POINT [, PRINT-MESSAGES] [, OPTIONS]) */
 static package
 bf_listen(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
-{				/* (oid, desc) */
+{
     Objid oid = arglist.v.list[1].v.obj;
     Var desc = arglist.v.list[2];
     int nargs = arglist.v.list[0].v.num;
-    int print_messages = nargs >= 3 && is_true(arglist.v.list[3]);
-    enum error e;
+    int print_messages = 0;
+    struct network_options o;
+    enum error e = E_NONE;
     slistener *l = 0;
 
-    if (!is_wizard(progr))
+    default_network_options(&o);
+    if (nargs == 3 && arglist.v.list[3].type == TYPE_LIST)
+	e = parse_network_options(arglist.v.list[3], 1, &o);
+    else {
+	print_messages = nargs >= 3 && is_true(arglist.v.list[3]);
+	if (nargs == 4)
+	    e = parse_network_options(arglist.v.list[4], 1, &o);
+    }
+    if (o.print_messages >= 0)
+	print_messages = o.print_messages;
+
+    if (e != E_NONE);
+    else if (!is_wizard(progr))
 	e = E_PERM;
     else if (!valid(oid) || find_slistener(desc))
 	e = E_INVARG;
     else if (!(l = new_slistener(oid, desc, print_messages, &e)));	/* Do nothing; e is already set */
+#if NETWORK_PROTOCOL == NP_SESSION
+    else if (o.tls && !network_set_listener_tls(l->nlistener, o.certificate,
+					       o.key)) {
+	free_slistener(l);
+	e = E_INVARG;
+    }
+#endif
     else if (!start_listener(l))
 	e = E_QUOTA;
 
@@ -2102,7 +2168,8 @@ register_server(void)
 		      TYPE_OBJ, TYPE_STR);
     register_function("connection_options", 1, 1, bf_connection_options,
 		      TYPE_OBJ);
-    register_function("listen", 2, 3, bf_listen, TYPE_OBJ, TYPE_ANY, TYPE_ANY);
+    register_function("listen", 2, 4, bf_listen, TYPE_OBJ, TYPE_ANY, TYPE_ANY,
+		      TYPE_ANY);
     register_function("unlisten", 1, 1, bf_unlisten, TYPE_ANY);
     register_function("listeners", 0, 0, bf_listeners);
     register_function("buffered_output_length", 0, 1,

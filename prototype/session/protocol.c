@@ -124,7 +124,7 @@ valid_type_and_length(uint8_t type, uint32_t length)
     case SP_BIND:
         return length == SP_BIND_SIZE;
     case SP_LISTENERS:
-        return length % 2 == 0 && length <= 2 * SP_MAX_LISTENERS;
+        return length <= SP_MAX_CONTROL;
     case SP_CONNECT:
         return length > SP_CONNECT_FIXED_SIZE && length <= SP_MAX_CONTROL;
     case SP_CONNECT_FAILED:
@@ -371,21 +371,49 @@ sp_decode_bind(const struct sp_frame *frame, struct sp_bind *bind)
 }
 
 int
-sp_encode_listeners(const uint16_t *ports, unsigned count,
+sp_encode_listeners(const struct sp_listen *listens, unsigned count,
                     unsigned char **payload, uint32_t *length)
 {
+    uint32_t total = 0;
+    unsigned char *p, *q;
     unsigned i;
-    unsigned char *p;
 
     if (count > SP_MAX_LISTENERS)
         return -1;
-    p = malloc(count ? 2 * count : 1);
+    for (i = 0; i < count; i++) {
+        size_t certificate = listens[i].certificate
+            ? strlen(listens[i].certificate) : 0;
+        size_t key = listens[i].key ? strlen(listens[i].key) : 0;
+
+        if (certificate > 0xffff || key > 0xffff)
+            return -1;
+        total += SP_LISTEN_FIXED_SIZE + (uint32_t) (certificate + key);
+        if (total > SP_MAX_CONTROL)
+            return -1;
+    }
+    p = malloc(total ? total : 1);
     if (!p)
         return -1;
-    for (i = 0; i < count; i++)
-        put_u16(p + 2 * i, ports[i]);
+    for (i = 0, q = p; i < count; i++) {
+        uint16_t certificate = (uint16_t) (listens[i].certificate
+            ? strlen(listens[i].certificate) : 0);
+        uint16_t key = (uint16_t) (listens[i].key
+            ? strlen(listens[i].key) : 0);
+
+        put_u16(q, listens[i].port);
+        put_u16(q + 2, listens[i].flags);
+        put_u16(q + 4, certificate);
+        put_u16(q + 6, key);
+        q += SP_LISTEN_FIXED_SIZE;
+        if (certificate)
+            memcpy(q, listens[i].certificate, certificate);
+        q += certificate;
+        if (key)
+            memcpy(q, listens[i].key, key);
+        q += key;
+    }
     *payload = p;
-    *length = 2 * count;
+    *length = total;
     return 0;
 }
 

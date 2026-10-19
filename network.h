@@ -103,6 +103,17 @@ extern int network_listen(network_listener nl);
 				 * returning true iff this is now possible.
 				 */
 
+#if NETWORK_PROTOCOL == NP_SESSION
+extern int network_set_listener_tls(network_listener nl,
+				    const char *certificate,
+				    const char *key);
+				/* Make the listener accept TLS, with the
+				 * given certificate and key files or, when
+				 * they are null, the edge's own.  Called
+				 * before network_listen(); false on failure.
+				 */
+#endif
+
 extern int network_send_line(network_handle nh, const char *line,
 			     int flush_ok);
 				/* The given line should be queued for output

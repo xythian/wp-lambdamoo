@@ -327,8 +327,9 @@ There are two classes of command-line arguments for `./configure`
     session backend, which lets a separate edge process keep players
     connected while the server is restarted or replaced. The edge also
     opens the ports `listen()` asks for and makes the connections
-    `open_network_connection()` asks for (with `+O`), optionally over
-    TLS; see [Session_Protocol.md](./Session_Protocol.md).
+    `open_network_connection()` asks for (with `+O`), either one
+    optionally over TLS, and `-t PORT` has it accept TLS clients for
+    `#0`; see [Session_Protocol.md](./Session_Protocol.md).
 
   + `--enable-sz`
 

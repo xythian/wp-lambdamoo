@@ -84,6 +84,9 @@ typedef struct session_listener {
     int fd;			/* the Unix socket, or -1 for an edge port */
     uint16_t port;		/* the edge port, or 0 for the Unix socket */
     int active;
+    int tls;
+    char *certificate;		/* null for the edge's own */
+    char *key;
     server_listener slistener;
     char *path;
     char *name;
@@ -111,6 +114,7 @@ static session_handle *all_handles;
 static session_handle *control;
 static connect_request *requests;
 static uint32_t last_request_id;
+static uint16_t tls_port;	/* -t: the edge's TLS port for #0 */
 #ifdef OUTBOUND_NETWORK
 static int outbound_enabled = OUTBOUND_NETWORK;
 #endif
@@ -698,7 +702,7 @@ network_protocol_name(void)
 const char *
 network_usage_string(void)
 {
-    return "[+O|-O] [session-unix-socket]";
+    return "[+O|-O] [-t tls-port] [session-unix-socket]";
 }
 
 int
@@ -708,7 +712,19 @@ network_initialize(int argc, char **argv, Var *desc)
     int have_path = 0;
 
     for (; argc > 0; argc--, argv++) {
-        if ((argv[0][0] == '+' || argv[0][0] == '-')
+        if (!strcmp(argv[0], "-t")) {
+            char *end;
+            unsigned long port;
+
+            if (argc < 2)
+                return 0;
+            port = strtoul(argv[1], &end, 10);
+            if (*end || port < 1 || port > 65535)
+                return 0;
+            tls_port = (uint16_t) port;
+            oklog("CMDLINE: Edge TLS port = %lu\n", port);
+            argc--, argv++;
+        } else if ((argv[0][0] == '+' || argv[0][0] == '-')
             && argv[0][1] == 'O' && argv[0][2] == '\0') {
 #ifdef OUTBOUND_NETWORK
             outbound_enabled = argv[0][0] == '+';
@@ -734,12 +750,42 @@ network_initialize(int argc, char **argv, Var *desc)
     return 1;
 }
 
+static void
+free_port_listener(session_listener *l)
+{
+    free(l->name);
+    free(l->certificate);
+    free(l->key);
+    free(l);
+}
+
+static session_listener *
+new_port_listener(server_listener sl, uint16_t port)
+{
+    session_listener *l = calloc(1, sizeof(*l));
+    char buffer[32];
+
+    if (!l)
+        return NULL;
+    snprintf(buffer, sizeof(buffer), "port %u", (unsigned) port);
+    l->name = strdup(buffer);
+    if (!l->name) {
+        free(l);
+        return NULL;
+    }
+    l->fd = -1;
+    l->port = port;
+    l->slistener = sl;
+    l->next = port_listeners;
+    port_listeners = l;
+    return l;
+}
+
 static enum error
 make_port_listener(server_listener sl, Var desc, network_listener *nl,
                    Var *canon, const char **name)
 {
     session_listener *l;
-    char buffer[32];
 
     if (desc.type != TYPE_INT)
         return E_TYPE;
@@ -750,24 +796,31 @@ make_port_listener(server_listener sl, Var desc, network_listener *nl,
         if (l->port == desc.v.num)
             return E_INVARG;
 
-    l = calloc(1, sizeof(*l));
+    l = new_port_listener(sl, (uint16_t) desc.v.num);
     if (!l)
         return E_QUOTA;
-    snprintf(buffer, sizeof(buffer), "port %d", (int) desc.v.num);
-    l->name = strdup(buffer);
-    if (!l->name) {
-        free(l);
-        return E_QUOTA;
-    }
-    l->fd = -1;
-    l->port = (uint16_t) desc.v.num;
-    l->slistener = sl;
-    l->next = port_listeners;
-    port_listeners = l;
     nl->ptr = l;
     *canon = var_ref(desc);
     *name = l->name;
     return E_NONE;
+}
+
+int
+network_set_listener_tls(network_listener nl, const char *certificate,
+                         const char *key)
+{
+    session_listener *l = nl.ptr;
+
+    if (l->fd >= 0 || !certificate != !key)
+        return 0;
+    l->tls = 1;
+    if (certificate) {
+        l->certificate = strdup(certificate);
+        l->key = strdup(key);
+        if (!l->certificate || !l->key)
+            return 0;
+    }
+    return 1;
 }
 
 enum error
@@ -807,6 +860,14 @@ network_make_listener(server_listener sl, Var desc, network_listener *nl,
     listener->path = strdup(desc.v.str);
     listener->name = listener->path;
     the_listener = listener;
+    if (tls_port) {
+        session_listener *l = new_port_listener(sl, tls_port);
+
+        if (l) {
+            l->tls = 1;
+            l->active = 1;
+        }
+    }
     nl->ptr = listener;
     canon->type = TYPE_STR;
     canon->v.str = str_dup(desc.v.str);
@@ -830,7 +891,7 @@ network_listen(network_listener nl)
 static void
 send_listeners(void)
 {
-    uint16_t ports[SP_MAX_LISTENERS];
+    struct sp_listen listens[SP_MAX_LISTENERS];
     unsigned count = 0;
     session_listener *l;
     unsigned char *payload;
@@ -839,10 +900,17 @@ send_listeners(void)
     if (!control)
         return;
     for (l = port_listeners; l && count < SP_MAX_LISTENERS; l = l->next)
-        if (l->active)
-            ports[count++] = l->port;
-    if (sp_encode_listeners(ports, count, &payload, &length) < 0)
+        if (l->active) {
+            listens[count].port = l->port;
+            listens[count].flags = l->tls ? SP_LISTEN_TLS : 0;
+            listens[count].certificate = l->certificate;
+            listens[count].key = l->key;
+            count++;
+        }
+    if (sp_encode_listeners(listens, count, &payload, &length) < 0) {
+        errlog("SESSION: Can't tell the edge which ports to listen on\n");
         return;
+    }
     (void) queue_frame(control, SP_LISTENERS, payload, length, 0);
     free(payload);
 }
@@ -1192,8 +1260,7 @@ network_close_listener(network_listener nl)
             }
         if (listener->active)
             send_listeners();
-        free(listener->name);
-        free(listener);
+        free_port_listener(listener);
         return;
     }
     close(listener->fd);

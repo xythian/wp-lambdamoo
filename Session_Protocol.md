@@ -30,7 +30,7 @@ edge that owns it.
 ```sh
 ./configure --enable-net=session,poll,outoff,require
 make
-./moo [options] input.db output.db [+O|-O] [session-socket-path]
+./moo [options] input.db output.db [+O|-O] [-t tls-port] [session-socket-path]
 ```
 
 The optional last argument is the path of the Unix socket the server listens
@@ -42,24 +42,52 @@ leaving both out removes `open_network_connection()`, as with the TCP backend.
 
 The socket is the listener for connections the edge accepts on its own port,
 and is the listener object `#0`'s initial listening point, as `-p` gives the TCP
-backend. Everything else the database does with the network goes through the
-edge:
+backend. `-t tls-port` also has the edge accept TLS clients for `#0` on that
+port, with the edge's own certificate. Everything else the database does with
+the network goes through the edge:
 
-- **`listen(object, port)`** asks the edge to accept clients on that TCP port
-  for the server ([Listening ports](#listening-ports)). It returns the port.
-  The port must be given (1 to 65535); the edge doesn't choose one, so
-  `listen(object, 0)` raises `E_INVARG`, and a point that isn't an integer
-  raises `E_TYPE`. `unlisten(port)` asks the edge to stop.
+- **`listen(object, port [, print-messages] [, options])`** asks the edge to
+  accept clients on that TCP port for the server
+  ([Listening ports](#listening-ports)). It returns the port. The port must be
+  given (1 to 65535); the edge doesn't choose one, so `listen(object, 0)`
+  raises `E_INVARG`, and a point that isn't an integer raises `E_TYPE`. With
+  the `tls` option the edge accepts TLS on the port. `unlisten(port)` asks the
+  edge to stop.
 - **`open_network_connection(host, port [, listener] [, options])`** asks the
   edge to make the connection ([Outbound connections](#outbound-connections)).
   The calling task is suspended while the edge connects, and other tasks run
-  in the meantime. *Options* is a list of `{name, value}` pairs; the only
-  option is `{"tls", 1}`, which has the edge connect with TLS, verifying the
-  host's certificate against the name given. Failures raise what the TCP
+  in the meantime. With the `tls` option the edge connects with TLS, verifying
+  the host's certificate against the name given. Failures raise what the TCP
   backend raises: `E_INVARG` for a host or port that can't be reached
   (including a failed TLS handshake), `E_QUOTA` for the edge running out of
   resources or losing its control attachment, and `E_PERM` when outbound
   connections are disabled.
+
+### Network options
+
+*Options* is a list of `{name, value}` pairs, and is the same for every
+network backend, so a database written for one runs on another. Names are
+case-insensitive.
+
+| Builtin | Name | Value |
+|---|---|---|
+| both | `tls` | true for TLS |
+| `listen()` | `print-messages` | the same as the `print-messages` argument, which it overrides |
+| `listen()` | `certificate` | path of the certificate chain file to accept TLS with |
+| `listen()` | `key` | path of the private key file for `certificate` |
+| `open_network_connection()` | `listener` | the same as the `listener` argument |
+
+An option name the builtin doesn't know, an entry that isn't a
+`{string, value}` pair, `certificate` or `key` without the other or without
+`tls`, or `listener` given twice raises `E_INVARG`; an options argument that
+isn't a list, or a value of the wrong type, raises `E_TYPE`. Without
+`certificate` and `key`, a TLS port uses the edge's own certificate. Paths are
+the edge's: it reads the files, and the server never does.
+
+A backend that can't do TLS raises `E_INVARG` for a true `tls` rather than
+making a plain connection; today that is every backend but this one. A TCP
+backend that terminated TLS itself would take the same options and use the
+same `-t` switch, so a database needs no change to move between the two.
 
 Limits of this backend, compared to the TCP backend:
 
@@ -150,7 +178,7 @@ of reads.
 | 7 | `CLOSE` | both | 0 to 65536 |
 | 8 | `ERROR` | either | 0 to 65536 |
 | 9 | `BIND` | server | 16 |
-| 10 | `LISTENERS` | server, control only | 0 to 2048, even |
+| 10 | `LISTENERS` | server, control only | 0 to 65536 |
 | 11 | `CONNECT` | server, control only | 17 to 65536 |
 | 12 | `CONNECT_FAILED` | edge, control only | 8 to 65536 |
 
@@ -269,8 +297,20 @@ treated as a crash.
 
 Sent by the server on the control attachment, right after `WELCOME` and
 whenever the set changes. The payload is the complete set of TCP ports the
-server listens on through the edge, as 2-byte port numbers, at most 1024 of
-them. The edge's own port is not included.
+server listens on through the edge, at most 1024 of them, each as one entry:
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 2 | port, 1 to 65535 |
+| 2 | 2 | flags: 1 TLS; other bits 0 |
+| 4 | 2 | certificate path length |
+| 6 | 2 | key path length |
+| 8 | n | certificate path, UTF-8 |
+| 8+n | m | key path, UTF-8 |
+
+The paths are both empty, meaning the edge's own certificate, or both
+non-empty, and only with the TLS flag. A port appears at most once. The edge's
+own port is not included; a `-t` port is, with the TLS flag and no paths.
 
 ### CONNECT
 
@@ -328,8 +368,12 @@ them, so a database that wants a port opens it again in `#0:server_started`,
 as with the TCP backend. Whenever an edge's control attachment begins, and
 whenever the set changes afterwards, the server sends `LISTENERS`. The edge
 listens on every port named and stops listening on any other it had opened for
-a server. Sessions already accepted on a port the edge stops listening on carry
-on.
+a server. A port whose flags or paths change is opened again with the new ones.
+Sessions already accepted on a port the edge stops listening on carry on.
+
+On a TLS port the edge completes the TLS handshake before it attaches the
+session, and gives the session the origin `tls:address:port`, which
+`connection_name()` returns. The server sees only the plain bytes.
 
 While no server is attached, the edge keeps listening on the ports the last
 server asked for, and holds clients that arrive as it holds any unattached
@@ -337,8 +381,9 @@ session. A client's `HELLO` carries the port it arrived on. The server refuses
 a new session for a port it isn't listening on; a resumed session is checked
 against its binding instead, so it survives the port going away.
 
-If the edge cannot listen on a port, it says so in its own log; the server is
-not told.
+If the edge cannot listen on a port, or cannot load a TLS port's certificate,
+or has none of its own for a TLS port that names none, it says so in its own
+log; the server is not told.
 
 ### Outbound connections
 
@@ -475,6 +520,8 @@ An edge implementing this protocol must:
   `CONNECT_FAILED`;
 - verify the certificate of a TLS outbound connection against the host name
   in `CONNECT`;
+- terminate TLS on ports `LISTENERS` flags as TLS, with the paths it names or
+  the edge's own certificate;
 - bound every buffer, and pause reading the client when its input allowance is
   exhausted.
 
@@ -496,5 +543,5 @@ version and must be zero in 1.0.
   It carries client sessions on its own port only, without a control
   attachment.
 - The lambdamoo-tests suite contains a Python implementation of the edge side,
-  including the control attachment, listening ports and outbound TLS, used to
-  test the server.
+  including the control attachment, listening ports, and TLS both ways, used
+  to test the server.
