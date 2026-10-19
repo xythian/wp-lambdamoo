@@ -473,11 +473,16 @@ insert_or_append(Var arglist, int append1)
     if (arglist.v.list[0].v.num == 2)
 	pos = append1 ? lst.v.list[0].v.num + 1 : 1;
     else {
-	pos = arglist.v.list[3].v.num + append1;
-	if (pos <= 0)
+	/* clamp as Num: adding append1 or narrowing to int first would
+	 * overflow or truncate a large index */
+	Num p = arglist.v.list[3].v.num;
+	Num len = lst.v.list[0].v.num;
+	if (p > len)
+	    pos = len + 1;
+	else if (p + append1 <= 0)
 	    pos = 1;
-	else if (pos > lst.v.list[0].v.num + 1)
-	    pos = lst.v.list[0].v.num + 1;
+	else
+	    pos = p + append1;
     }
     free_var(arglist);
     return make_var_pack(doinsert(lst, elt, pos));
