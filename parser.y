@@ -577,7 +577,7 @@ expr:
 			switch ($2->e.var.type) {
 			  case TYPE_INT:
 			    /* -NUM_MIN wraps, as in OP_UNARY_MINUS */
-			    $2->e.var.v.num = (Num)-(UNum)$2->e.var.v.num;
+			    $2->e.var.v.num = num_negate($2->e.var.v.num);
 			    break;
 			  case TYPE_FLOAT:
 			    flbox_negate_in_place(&($2->e.var.v.fnum));
