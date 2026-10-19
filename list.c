@@ -208,8 +208,10 @@ listrangeset(Var base, Num from, Num after, Var value)
 
     Var ans = new_list(newsize);
     memcpy(ans.v.list + 1, base.v.list + 1, lenleft * sizeof(Var));
-    memcpy(ans.v.list + 1 + lenleft + val_len, base.v.list + after,
-	   lenright * sizeof(Var));
+    /* after may be far past the end when lenright is 0 */
+    if (lenright)
+	memcpy(ans.v.list + 1 + lenleft + val_len, base.v.list + after,
+	       lenright * sizeof(Var));
 
     memcpy(ans.v.list + 1 + lenleft, value.v.list + 1,
 	   val_len * sizeof(Var));
@@ -361,7 +363,9 @@ strrangeset(Var base, Num from, Num after, Var value)
     size_t newlen   = lenleft + val_len + lenright;
 
     char *s = mymalloc(sizeof(char) * (newlen + 1), M_STRING);
-    memcpy(s + lenleft + val_len, base.v.str + after - 1, lenright);
+    /* after may be far past the end when lenright is 0 */
+    if (lenright)
+	memcpy(s + lenleft + val_len, base.v.str + after - 1, lenright);
     s[newlen] = '\0';
 
     memcpy(s, base.v.str, lenleft);
@@ -381,12 +385,15 @@ substr(Var str, Num first, Num after)
 {
     /* first and after are byte-indices. */
     /* str is free'd. */
-    Num len = after - first;
+    Num len;
     char *s;
 
-    if (len <= 0)
+    /* compare before subtracting: an empty range like [NUM_MAX..-1]
+     * would overflow after - first */
+    if (after <= first)
 	s = str_dup("");
     else {
+	len = after - first;
 	s = mymalloc(len + 1, M_STRING);
 	memcpy(s, str.v.str + first - 1, len);
 	s[len] = '\0';

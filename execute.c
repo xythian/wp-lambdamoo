@@ -769,10 +769,23 @@ list_or_string(Var v)
     return v.type == TYPE_LIST || v.type == TYPE_STR;
 }
 
-static int
-rangeref_fails(Num length, Num from, Num after)
+/* One past the end of a range ending at to.  NUM_MAX stays NUM_MAX: no
+ * list or string is that long, so the clamped value is past the end of
+ * every one just as to + 1 would be, without overflowing.
+ */
+static inline Num
+range_after(Num to)
 {
-    return !(from >= after
+    return to < NUM_MAX ? to + 1 : NUM_MAX;
+}
+
+/* empty must come from the original indices (from > to), because a
+ * clamped after can equal from on a range that is not empty.
+ */
+static int
+rangeref_fails(Num length, int empty, Num from, Num after)
+{
+    return !(empty
 	     || (1 <= from && after <= length + 1));
 }
 
@@ -1149,7 +1162,7 @@ do {								\
 		    }
 		}
 		else {  /* list.type == TYPE_STR */
-		    Num bfromafter[] = { index.v.num, index.v.num + 1 };
+		    Num bfromafter[] = { index.v.num, range_after(index.v.num) };
 		    utf_byte_range(list.v.str, bfromafter);
 		    if (value.type != TYPE_STR)
 			e = E_TYPE;
@@ -1509,15 +1522,17 @@ do {								\
 		    e = E_TYPE;
 		else if (base.type == TYPE_LIST) {
 		    if (rangeref_fails(base.v.list[0].v.num,
-				       from.v.num, to.v.num + 1))
+				       from.v.num > to.v.num,
+				       from.v.num, range_after(to.v.num)))
 			e = E_RANGE;
 		    else
-			PUSH(sublist(base, from.v.num, to.v.num + 1));
+			PUSH(sublist(base, from.v.num, range_after(to.v.num)));
 		}
 		else {  /* base.type == TYPE_STR */
-		    Num bfromafter[] = { from.v.num, to.v.num + 1 };
+		    Num bfromafter[] = { from.v.num, range_after(to.v.num) };
 		    utf_byte_range(base.v.str, bfromafter);
 		    if (rangeref_fails(memo_strlen(base.v.str),
+				       from.v.num > to.v.num,
 				       bfromafter[0], bfromafter[1]))
 			e = E_RANGE;
 		    else
@@ -1956,13 +1971,13 @@ do {								\
 			    e = rangeset_error(server_int_option_cached(SVO_MAX_LIST_CONCAT),
 					       base.v.list[0].v.num,
 					       value.v.list[0].v.num,
-					       from.v.num, to.v.num + 1);
+					       from.v.num, range_after(to.v.num));
 			    if (e == E_NONE)
 				PUSH(listrangeset(base, from.v.num,
-						  to.v.num + 1, value));
+						  range_after(to.v.num), value));
 			}
 			else {  /* base.type == TYPE_STR */
-			    Num bfromafter[] = { from.v.num, to.v.num + 1 };
+			    Num bfromafter[] = { from.v.num, range_after(to.v.num) };
 			    utf_byte_range(base.v.str, bfromafter);
 			    e = rangeset_error(server_int_option_cached(SVO_MAX_STRING_CONCAT),
 					       memo_strlen(base.v.str),
