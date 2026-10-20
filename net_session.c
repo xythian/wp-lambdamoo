@@ -20,6 +20,7 @@
 #include "my-unistd.h"
 
 #include "db.h"
+#include "list.h"
 #include "log.h"
 #include "net_mplex.h"
 #include "network.h"
@@ -61,6 +62,7 @@ typedef struct session_handle {
     int excess_utf_count;
     Stream *input;
     char *name;
+    Var info;			/* for connection_info() */
 
     unsigned char header[SP_HEADER_SIZE];
     size_t header_used;
@@ -297,6 +299,7 @@ remove_handle(session_handle *h, int notify_server)
     free(h->payload);
     free_stream(h->input);
     free(h->name);
+    free_var(h->info);
     free(h);
 }
 
@@ -479,6 +482,106 @@ loaded_from(const unsigned char database[SP_DATABASE_ID_SIZE])
         && !memcmp(digest, database, SP_DATABASE_ID_SIZE);
 }
 
+/* Whether a connection field's string is printable ASCII, which is all an
+ * address, a host name or a transport name needs.
+ */
+static int
+field_string_ok(const struct sp_field *field)
+{
+    uint16_t i;
+
+    for (i = 0; i < field->string_length; i++)
+        if (field->string[i] < 0x20 || field->string[i] > 0x7e)
+            return 0;
+    return 1;
+}
+
+static char *
+field_string(const struct sp_field *field)
+{
+    char *s = malloc((size_t) field->string_length + 1);
+
+    if (s) {
+        memcpy(s, field->string, field->string_length);
+        s[field->string_length] = '\0';
+    }
+    return s;
+}
+
+/* Set H's connection_info() list from HELLO's connection fields, and its
+ * connection_name() in the form the TCP backend uses, so database code
+ * that reads either sees the same thing behind an edge.
+ */
+static int
+describe_session(session_handle *h, const struct sp_hello *hello)
+{
+    const unsigned char *cursor = hello->fields;
+    const unsigned char *end = hello->fields + hello->fields_length;
+    char *host = NULL, *address = NULL;
+    Num local_port = 0, remote_port = 0;
+    struct sp_field field;
+    Var info = new_list(0), v;
+    Stream *st;
+    int ok = 1;
+
+    if (hello->kind != SP_KIND_CONTROL)
+        info = network_info_add_str(info, "direction",
+                                    hello->kind == SP_KIND_OUTBOUND
+                                    ? "outbound" : "inbound");
+    while (ok && sp_next_field(&cursor, end, &field) > 0) {
+        if (field.type == SP_FIELD_INTEGER) {
+            v.type = TYPE_INT;
+            v.v.num = (Num) field.integer;
+            if (!strcmp(field.name, "local-port"))
+                local_port = v.v.num;
+            else if (!strcmp(field.name, "remote-port"))
+                remote_port = v.v.num;
+        } else if (!field_string_ok(&field)) {
+            ok = 0;
+            break;
+        } else {
+            char *value = field_string(&field);
+
+            if (!value) {
+                ok = 0;
+                break;
+            }
+            v.type = TYPE_STR;
+            v.v.str = str_dup(value);
+            if (!strcmp(field.name, "remote-host")) {
+                free(host);
+                host = value;
+            } else if (!strcmp(field.name, "remote-address")) {
+                free(address);
+                address = value;
+            } else
+                free(value);
+        }
+        info = network_info_add(info, field.name, v);
+    }
+
+    if (ok) {
+        free(h->name);
+        st = new_stream(100);
+        if (hello->kind == SP_KIND_CONTROL)
+            stream_add_string(st, "session control");
+        else
+            stream_printf(st, "port %"PRIdN" %s %s, port %"PRIdN,
+                          local_port,
+                          hello->kind == SP_KIND_OUTBOUND ? "to" : "from",
+                          host ? host : address, remote_port);
+        h->name = strdup(stream_contents(st));
+        free_stream(st);
+        free_var(h->info);
+        h->info = info;
+        ok = h->name != NULL;
+    } else
+        free_var(info);
+    free(host);
+    free(address);
+    return ok;
+}
+
 static int
 handle_hello(session_handle *h, struct sp_frame *frame)
 {
@@ -499,12 +602,8 @@ handle_hello(session_handle *h, struct sp_frame *frame)
     h->input_position = hello.input_position;
     h->output_position = hello.output_position;
     h->output_acked = hello.output_position;
-    free(h->name);
-    h->name = malloc((size_t) hello.origin_length + 1);
-    if (!h->name)
+    if (!describe_session(h, &hello))
         return 0;
-    memcpy(h->name, hello.origin, hello.origin_length);
-    h->name[hello.origin_length] = '\0';
 
     if (hello.kind == SP_KIND_CONTROL)
         return attach_control(h, &hello);
@@ -689,6 +788,7 @@ new_handle(int fd)
     h->fd = fd;
     h->input = new_stream(100);
     h->name = strdup("unattached session");
+    h->info = new_list(0);
     h->output_tail = &h->output_head;
     h->next = all_handles;
     h->prev = &all_handles;
@@ -1253,6 +1353,12 @@ const char *
 network_connection_name(network_handle nh)
 {
     return ((session_handle *) nh.ptr)->name;
+}
+
+Var
+network_connection_info(network_handle nh)
+{
+    return var_ref(((session_handle *) nh.ptr)->info);
 }
 
 void

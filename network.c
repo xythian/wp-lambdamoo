@@ -27,6 +27,40 @@
 #  include "net_multi.c"
 #endif
 
+#include "list.h"
+#include "storage.h"
+
+Var
+network_info_add(Var info, const char *name, Var value)
+{
+    Var pair = new_list(2);
+
+    pair.v.list[1].type = TYPE_STR;
+    pair.v.list[1].v.str = str_dup(name);
+    pair.v.list[2] = value;
+    return listappend(info, pair);
+}
+
+Var
+network_info_add_str(Var info, const char *name, const char *value)
+{
+    Var v;
+
+    v.type = TYPE_STR;
+    v.v.str = str_dup(value);
+    return network_info_add(info, name, v);
+}
+
+Var
+network_info_add_int(Var info, const char *name, Num value)
+{
+    Var v;
+
+    v.type = TYPE_INT;
+    v.v.num = value;
+    return network_info_add(info, name, v);
+}
+
 #if NETWORK_PROTOCOL == NP_TCP
 #  define TCP_ONLY
 #else

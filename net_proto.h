@@ -110,7 +110,7 @@ enum proto_accept_error {
 extern enum proto_accept_error
  proto_accept_connection(int listener_fd, server_listener sl,
 			 int *read_fd, int *write_fd,
-			 const char **name);
+			 const char **name, Var *info);
 				/* Accept a new connection on LISTENER_FD/SL
 				 * returning PA_OKAY if successful, PA_FULL if
 				 * unsuccessful only because there aren't
@@ -122,8 +122,11 @@ extern enum proto_accept_error
 				 * successful return, *READ_FD and *WRITE_FD
 				 * should be file descriptors on which input
 				 * and output for the new connection can be
-				 * done, and *NAME should be a human-readable
-				 * string identifying this connection.
+				 * done, *NAME should be a human-readable
+				 * string identifying this connection, and
+				 * *INFO a new list of {NAME, VALUE} pairs
+				 * describing it for connection_info(),
+				 * starting with "transport".
 				 */
 
 #ifdef OUTBOUND_NETWORK
@@ -131,7 +134,8 @@ extern enum proto_accept_error
 extern enum error proto_open_connection(Var arglist, server_listener sl,
 					int *read_fd, int *write_fd,
 					const char **local_name,
-					const char **remote_name);
+					const char **remote_name,
+					Var *info);
 				/* The given MOO arguments should be used as a
 				 * specification of a remote network connection
 				 * to be opened, with options as for listening
@@ -142,7 +146,9 @@ extern enum error proto_open_connection(Var arglist, server_listener sl,
 				 * does, *LOCAL_NAME a human-readable string
 				 * naming the local endpoint of the connection,
 				 * *REMOTE_NAME a string naming the remote
-				 * endpoint, and E_NONE returned.  Otherwise,
+				 * endpoint, *INFO as for
+				 * proto_accept_connection(), and E_NONE
+				 * returned.  Otherwise,
 				 * an appropriate error should be returned.
 				 */
 

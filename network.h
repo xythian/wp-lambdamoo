@@ -200,6 +200,25 @@ extern const char *network_connection_name(network_handle nh);
 				 * into the phrase 'Connection accepted: %s'.
 				 */
 
+extern Var network_connection_info(network_handle nh);
+				/* Return what is known about how the
+				 * connection was made, as a list of
+				 * {NAME, VALUE} pairs: at least "direction"
+				 * ("inbound" or "outbound") and "transport".
+				 * The caller owns the returned reference.
+				 */
+
+extern Var network_info_add(Var info, const char *name, Var value);
+				/* Append {NAME, VALUE} to the connection info
+				 * list INFO, consuming VALUE, and return the
+				 * new list.
+				 */
+
+extern Var network_info_add_str(Var info, const char *name,
+				const char *value);
+extern Var network_info_add_int(Var info, const char *name, Num value);
+				/* Convenience forms of network_info_add(). */
+
 extern Var network_connection_options(network_handle nh,
 				      Var list);
 				/* Add the current option settings for the

@@ -22,6 +22,8 @@
 #define SP_CONNECT_FAILED_FIXED_SIZE 8u
 #define SP_MAX_LISTENERS 1024u
 #define SP_LISTEN_FIXED_SIZE 10u
+#define SP_MAX_FIELDS 32u
+#define SP_MAX_FIELD_NAME 32u
 
 enum sp_type {
     SP_HELLO = 1,
@@ -51,6 +53,11 @@ enum sp_connect_flag {
 enum sp_listen_flag {
     SP_LISTEN_TLS = 1,
     SP_LISTEN_ACME = 2
+};
+
+enum sp_field_type {
+    SP_FIELD_STRING = 1,
+    SP_FIELD_INTEGER = 2
 };
 
 enum sp_connect_failure {
@@ -89,8 +96,16 @@ struct sp_hello {
     int64_t player;
     int64_t listener;
     unsigned char database[SP_DATABASE_ID_SIZE];
-    uint16_t origin_length;
-    const unsigned char *origin;
+    uint16_t fields_length;	/* connection fields, see sp_next_field() */
+    const unsigned char *fields;
+};
+
+struct sp_field {
+    char name[SP_MAX_FIELD_NAME + 1];
+    uint8_t type;
+    const unsigned char *string;	/* SP_FIELD_STRING */
+    uint16_t string_length;
+    int64_t integer;		/* SP_FIELD_INTEGER */
 };
 
 struct sp_listen {
@@ -152,6 +167,18 @@ void sp_frame_clear(struct sp_frame *frame);
 int sp_encode_hello(const struct sp_hello *hello, unsigned char **payload,
                     uint32_t *length);
 int sp_decode_hello(const struct sp_frame *frame, struct sp_hello *hello);
+/* Read the connection field at *CURSOR, advancing it.  Returns 1 for a
+ * field, 0 at END, and -1 for a malformed field.
+ */
+int sp_next_field(const unsigned char **cursor, const unsigned char *end,
+                  struct sp_field *field);
+/* Write a connection field at P and return its size; a null P only
+ * measures.  NAME is 1 to SP_MAX_FIELD_NAME of [a-z0-9-].
+ */
+size_t sp_put_string_field(unsigned char *p, const char *name,
+                           const void *value, uint16_t length);
+size_t sp_put_integer_field(unsigned char *p, const char *name,
+                            int64_t value);
 void sp_encode_welcome(const struct sp_welcome *welcome,
                        unsigned char payload[SP_WELCOME_SIZE]);
 int sp_decode_welcome(const struct sp_frame *frame, struct sp_welcome *welcome);

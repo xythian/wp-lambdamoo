@@ -205,12 +205,152 @@ sp_frame_clear(struct sp_frame *frame)
     memset(frame, 0, sizeof(*frame));
 }
 
+static int
+field_name_ok(const unsigned char *name, size_t length)
+{
+    size_t i;
+
+    if (length == 0 || length > SP_MAX_FIELD_NAME)
+        return 0;
+    for (i = 0; i < length; i++)
+        if (!((name[i] >= 'a' && name[i] <= 'z')
+              || (name[i] >= '0' && name[i] <= '9') || name[i] == '-'))
+            return 0;
+    return 1;
+}
+
+int
+sp_next_field(const unsigned char **cursor, const unsigned char *end,
+              struct sp_field *field)
+{
+    const unsigned char *p = *cursor;
+    size_t name_length;
+
+    if (p == end)
+        return 0;
+    name_length = *p++;
+    if ((size_t) (end - p) < name_length + 1 || !field_name_ok(p, name_length))
+        return -1;
+    memset(field, 0, sizeof(*field));
+    memcpy(field->name, p, name_length);
+    p += name_length;
+    field->type = *p++;
+    switch (field->type) {
+    case SP_FIELD_STRING:
+        if (end - p < 2)
+            return -1;
+        field->string_length = get_u16(p);
+        p += 2;
+        if ((size_t) (end - p) < field->string_length)
+            return -1;
+        field->string = p;
+        p += field->string_length;
+        break;
+    case SP_FIELD_INTEGER:
+        if (end - p < 8)
+            return -1;
+        field->integer = (int64_t) sp_get_u64(p);
+        p += 8;
+        break;
+    default:
+        return -1;
+    }
+    *cursor = p;
+    return 1;
+}
+
+static size_t
+put_field_name(unsigned char *p, const char *name, uint8_t type)
+{
+    size_t length = strlen(name);
+
+    if (p) {
+        p[0] = (unsigned char) length;
+        memcpy(p + 1, name, length);
+        p[1 + length] = type;
+    }
+    return length + 2;
+}
+
+size_t
+sp_put_string_field(unsigned char *p, const char *name, const void *value,
+                    uint16_t length)
+{
+    size_t n = put_field_name(p, name, SP_FIELD_STRING);
+
+    if (p) {
+        put_u16(p + n, length);
+        memcpy(p + n + 2, value, length);
+    }
+    return n + 2 + length;
+}
+
+size_t
+sp_put_integer_field(unsigned char *p, const char *name, int64_t value)
+{
+    size_t n = put_field_name(p, name, SP_FIELD_INTEGER);
+
+    if (p)
+        sp_put_u64(p + n, (uint64_t) value);
+    return n + 8;
+}
+
+/* The fields a client or outbound session must describe itself with, and
+ * the type each must have.
+ */
+static const struct {
+    const char *name;
+    uint8_t type;
+} required_fields[] = {
+    {"transport", SP_FIELD_STRING},
+    {"local-port", SP_FIELD_INTEGER},
+    {"remote-address", SP_FIELD_STRING},
+    {"remote-port", SP_FIELD_INTEGER},
+};
+
+#define REQUIRED_FIELDS (sizeof(required_fields) / sizeof(required_fields[0]))
+
+static int
+check_fields(const struct sp_hello *hello)
+{
+    const unsigned char *cursor = hello->fields;
+    const unsigned char *end = hello->fields + hello->fields_length;
+    char names[SP_MAX_FIELDS][SP_MAX_FIELD_NAME + 1];
+    unsigned count = 0, found = 0, i;
+    struct sp_field field;
+    int r;
+
+    while ((r = sp_next_field(&cursor, end, &field)) > 0) {
+        if (count == SP_MAX_FIELDS || !strcmp(field.name, "direction"))
+            return -1;
+        for (i = 0; i < count; i++)
+            if (!strcmp(names[i], field.name))
+                return -1;
+        strcpy(names[count++], field.name);
+        if ((!strcmp(field.name, "local-port")
+             || !strcmp(field.name, "remote-port"))
+            && (field.integer < 0 || field.integer > 65535))
+            return -1;
+        for (i = 0; i < REQUIRED_FIELDS; i++)
+            if (!strcmp(field.name, required_fields[i].name)) {
+                if (field.type != required_fields[i].type)
+                    return -1;
+                found++;
+            }
+    }
+    if (r < 0)
+        return -1;
+    if (hello->kind == SP_KIND_CONTROL)
+        return count == 0 ? 0 : -1;
+    return found == REQUIRED_FIELDS ? 0 : -1;
+}
+
 int
 sp_encode_hello(const struct sp_hello *hello, unsigned char **payload,
                 uint32_t *length)
 {
     unsigned char *p;
-    uint32_t total = SP_HELLO_FIXED_SIZE + hello->origin_length;
+    uint32_t total = SP_HELLO_FIXED_SIZE + hello->fields_length;
 
     if (total > SP_MAX_CONTROL)
         return -1;
@@ -230,9 +370,9 @@ sp_encode_hello(const struct sp_hello *hello, unsigned char **payload,
     sp_put_u64(p + 64, (uint64_t) hello->player);
     sp_put_u64(p + 72, (uint64_t) hello->listener);
     memcpy(p + 80, hello->database, SP_DATABASE_ID_SIZE);
-    put_u16(p + 96, hello->origin_length);
-    if (hello->origin_length)
-        memcpy(p + SP_HELLO_FIXED_SIZE, hello->origin, hello->origin_length);
+    put_u16(p + 96, hello->fields_length);
+    if (hello->fields_length)
+        memcpy(p + SP_HELLO_FIXED_SIZE, hello->fields, hello->fields_length);
     *payload = p;
     *length = total;
     return 0;
@@ -241,12 +381,12 @@ sp_encode_hello(const struct sp_hello *hello, unsigned char **payload,
 int
 sp_decode_hello(const struct sp_frame *frame, struct sp_hello *hello)
 {
-    uint16_t origin_length;
+    uint16_t fields_length;
 
     if (frame->type != SP_HELLO || frame->length < SP_HELLO_FIXED_SIZE)
         return -1;
-    origin_length = get_u16(frame->payload + 96);
-    if ((uint32_t) SP_HELLO_FIXED_SIZE + origin_length != frame->length)
+    fields_length = get_u16(frame->payload + 96);
+    if ((uint32_t) SP_HELLO_FIXED_SIZE + fields_length != frame->length)
         return -1;
 
     memset(hello, 0, sizeof(*hello));
@@ -283,11 +423,11 @@ sp_decode_hello(const struct sp_frame *frame, struct sp_hello *hello)
     }
     hello->input_position = sp_get_u64(frame->payload + 48);
     hello->output_position = sp_get_u64(frame->payload + 56);
-    hello->origin_length = origin_length;
+    hello->fields_length = fields_length;
     hello->player = (int64_t) sp_get_u64(frame->payload + 64);
     hello->listener = (int64_t) sp_get_u64(frame->payload + 72);
-    hello->origin = frame->payload + SP_HELLO_FIXED_SIZE;
-    return 0;
+    hello->fields = frame->payload + SP_HELLO_FIXED_SIZE;
+    return check_fields(hello);
 }
 
 void

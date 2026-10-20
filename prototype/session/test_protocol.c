@@ -27,7 +27,8 @@ test_hello(void)
     struct sp_frame frame;
     unsigned char *payload;
     uint32_t length;
-    const unsigned char origin[] = "tls:127.0.0.1:1234";
+    unsigned char fields[128];
+    size_t fields_length = 0;
 
     memset(&source, 0, sizeof(source));
     memset(source.session_id, 0x11, sizeof(source.session_id));
@@ -39,8 +40,15 @@ test_hello(void)
     source.player = 3;
     source.listener = 0;
     memset(source.database, 0x33, sizeof(source.database));
-    source.origin = origin;
-    source.origin_length = (uint16_t) (sizeof(origin) - 1);
+    fields_length += sp_put_string_field(fields, "transport", "tls", 3);
+    fields_length += sp_put_integer_field(fields + fields_length,
+                                          "local-port", 7443);
+    fields_length += sp_put_string_field(fields + fields_length,
+                                         "remote-address", "127.0.0.1", 9);
+    fields_length += sp_put_integer_field(fields + fields_length,
+                                          "remote-port", 1234);
+    source.fields = fields;
+    source.fields_length = (uint16_t) fields_length;
 
     assert(sp_encode_hello(&source, &payload, &length) == 0);
     frame.type = SP_HELLO;
@@ -56,8 +64,8 @@ test_hello(void)
     assert(decoded.output_position == source.output_position);
     assert(decoded.player == source.player);
     assert(decoded.listener == source.listener);
-    assert(decoded.origin_length == source.origin_length);
-    assert(memcmp(decoded.origin, origin, source.origin_length) == 0);
+    assert(decoded.fields_length == source.fields_length);
+    assert(memcmp(decoded.fields, fields, fields_length) == 0);
     assert(memcmp(decoded.database, source.database, SP_DATABASE_ID_SIZE) == 0);
     free(payload);
 
@@ -69,6 +77,78 @@ test_hello(void)
     frame.payload = payload;
     assert(sp_decode_hello(&frame, &decoded) < 0);
     free(payload);
+}
+
+static int
+hello_with_fields(const unsigned char *fields, size_t length, uint8_t kind)
+{
+    struct sp_hello source, decoded;
+    struct sp_frame frame;
+    unsigned char *payload;
+    uint32_t total;
+    int result;
+
+    memset(&source, 0, sizeof(source));
+    source.mode = SP_MODE_INITIAL;
+    source.kind = kind;
+    source.player = source.listener = INT64_MIN;
+    source.fields = fields;
+    source.fields_length = (uint16_t) length;
+    assert(sp_encode_hello(&source, &payload, &total) == 0);
+    frame.type = SP_HELLO;
+    frame.flags = 0;
+    frame.length = total;
+    frame.payload = payload;
+    result = sp_decode_hello(&frame, &decoded);
+    free(payload);
+    return result;
+}
+
+static void
+test_connection_fields(void)
+{
+    unsigned char fields[256];
+    const unsigned char *cursor = fields;
+    struct sp_field field;
+    size_t base, n;
+
+    base = sp_put_string_field(fields, "transport", "tcp", 3);
+    base += sp_put_integer_field(fields + base, "local-port", 8301);
+    base += sp_put_string_field(fields + base, "remote-address", "10.0.0.1", 8);
+    base += sp_put_integer_field(fields + base, "remote-port", 4000);
+    assert(hello_with_fields(fields, base, SP_KIND_CLIENT) == 0);
+
+    assert(sp_next_field(&cursor, fields + base, &field) == 1);
+    assert(!strcmp(field.name, "transport") && field.type == SP_FIELD_STRING);
+    assert(field.string_length == 3 && !memcmp(field.string, "tcp", 3));
+    assert(sp_next_field(&cursor, fields + base, &field) == 1);
+    assert(field.type == SP_FIELD_INTEGER && field.integer == 8301);
+
+    /* Extra fields pass through; a missing required one does not. */
+    n = base + sp_put_string_field(fields + base, "remote-host", "a.example", 9);
+    assert(hello_with_fields(fields, n, SP_KIND_CLIENT) == 0);
+    n = base - sp_put_integer_field(NULL, "remote-port", 0);
+    assert(hello_with_fields(fields, n, SP_KIND_CLIENT) < 0);
+
+    /* No duplicates, no server-owned names, no bad ports or names. */
+    n = base + sp_put_string_field(fields + base, "transport", "tls", 3);
+    assert(hello_with_fields(fields, n, SP_KIND_CLIENT) < 0);
+    n = base + sp_put_string_field(fields + base, "direction", "inbound", 7);
+    assert(hello_with_fields(fields, n, SP_KIND_CLIENT) < 0);
+    n = base + sp_put_string_field(fields + base, "Upper", "x", 1);
+    assert(hello_with_fields(fields, n, SP_KIND_CLIENT) < 0);
+    n = sp_put_string_field(fields, "transport", "tcp", 3);
+    n += sp_put_integer_field(fields + n, "local-port", 70000);
+    n += sp_put_string_field(fields + n, "remote-address", "10.0.0.1", 8);
+    n += sp_put_integer_field(fields + n, "remote-port", 4000);
+    assert(hello_with_fields(fields, n, SP_KIND_CLIENT) < 0);
+
+    /* A truncated field is malformed. */
+    assert(hello_with_fields(fields, base - 1, SP_KIND_CLIENT) < 0);
+
+    /* The control attachment describes no connection. */
+    assert(hello_with_fields(fields, 0, SP_KIND_CONTROL) == 0);
+    assert(hello_with_fields(fields, base, SP_KIND_CONTROL) < 0);
 }
 
 static void
@@ -174,6 +254,7 @@ main(void)
 {
     test_u64();
     test_hello();
+    test_connection_fields();
     test_frame_round_trip();
     test_rejects_bad_header();
     test_codecs();

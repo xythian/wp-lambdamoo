@@ -96,7 +96,6 @@ This code favors a legible experiment over a production event loop:
 - gateway configuration, certificate rotation, logging, and metrics are absent;
 - backend discovery is a fixed Unix socket path with retry;
 - sessions survive backend failure but not failure of their owning edge;
-- origin metadata is carried but has no structured schema yet; and
 - the standalone harness does not model MOO login/checkpoint authorization.
 
 These limitations are interface work or alternative-carrier work. None requires

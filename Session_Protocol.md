@@ -156,7 +156,7 @@ exactly one session. There is no multiplexing.
 The socket's `0600` mode and a peer-credential check are the only
 authentication: the server accepts a carrier connection only from a process
 with the same effective UID as the server (`SO_PEERCRED`, where available).
-Anything that can connect can assert any origin and resume any session the
+Anything that can connect can describe any client and resume any session the
 loaded database records, so the socket must be reachable only by trusted
 edges. Session IDs are not credentials.
 
@@ -217,12 +217,63 @@ ends the attachment.
 | 64 | 8 | bound player (signed), or `INT64_MIN` if not logged in |
 | 72 | 8 | bound listener (signed), meaningful only with a player |
 | 80 | 16 | database: the digest from the session's last `DETACH`, or zeros |
-| 96 | 2 | origin length |
-| 98 | origin length | origin |
+| 96 | 2 | connection fields length |
+| 98 | fields length | connection fields |
 
-The origin is text the edge asserts about the client, such as its address. The
-server uses it as the connection's name, so `connection_name()` returns it.
-The protocol doesn't define its format.
+#### Connection fields
+
+The connection fields are what the edge asserts about how the client reached
+it. They fill the rest of the `HELLO` exactly, as a sequence of:
+
+| Size | Field |
+| ---: | --- |
+| 1 | name length, 1 to 32 |
+| name length | name: lowercase ASCII letters, digits and `-` |
+| 1 | type: 1 string, 2 integer |
+| 2 | string length, for a string |
+| string length | string: printable ASCII (0x20 to 0x7e) |
+| 8 | signed value, for an integer |
+
+A `HELLO` may carry at most 32 fields, and no name twice. A client or outbound
+session must carry these, with these types:
+
+| Name | Type | Meaning |
+| --- | --- | --- |
+| `transport` | string | how the client reached the edge, such as `tcp`, `tls`, `websocket` or `ssh` |
+| `local-port` | integer, 0 to 65535 | the edge's port on the connection |
+| `remote-address` | string | the remote end's numeric address |
+| `remote-port` | integer, 0 to 65535 | the remote end's port |
+
+and may carry:
+
+| Name | Type | Meaning |
+| --- | --- | --- |
+| `remote-host` | string | the remote end's name: for a client, from a reverse lookup the edge chose to do; for an outbound session, the host the server asked for |
+
+Any other field is passed on as it is; an edge may describe anything else it
+knows, such as a TLS server name or an SSH user. The name `direction` belongs
+to the server. A control attachment carries no fields. A server refuses a
+`HELLO` whose fields are malformed or don't meet these rules.
+
+The server makes two things of the fields:
+
+- `connection_name()` reads as it would on the TCP backend, so database code
+  that parses it sees no difference behind an edge:
+  `port LOCAL from HOST, port REMOTE` for a client and
+  `port LOCAL to HOST, port REMOTE` for an outbound session, where HOST is
+  `remote-host` if present and `remote-address` otherwise.
+- `connection_info()` returns `{"direction", "inbound"}` or
+  `{"direction", "outbound"}` followed by every field as a `{name, value}`
+  pair, in the order the edge sent them. The TCP backend returns the same
+  shape from its own sockets, so `connection_info()` reads the same with or
+  without an edge.
+
+The fields are fixed for the session: a resumed `HELLO` carries them again,
+and the server takes the new copy.
+
+Name lookups belong to the edge. A session server does no DNS of its own: the
+edge resolves the host in a `CONNECT`, and an edge that does reverse lookups
+for clients finishes them, within a bounded time, before it sends the `HELLO`.
 
 The kind constrains the other fields:
 
@@ -389,7 +440,7 @@ diagnostic, which is not trusted application data.
 
 1. The client connects to the edge.
 2. The edge connects to the server's socket and sends `HELLO` in initial
-   mode, with positions 0, no binding, and the origin.
+   mode, with positions 0, no binding, and the connection fields.
 3. The server sends `WELCOME` and treats the session as a new connection: it
    prints the welcome message and waits for a login command, exactly as for a
    new TCP connection.
@@ -406,8 +457,8 @@ a server. A port whose flags or paths change is opened again with the new ones.
 Sessions already accepted on a port the edge stops listening on carry on.
 
 On a TLS port the edge completes the TLS handshake before it attaches the
-session, and gives the session the origin `tls:address:port`, which
-`connection_name()` returns. The server sees only the plain bytes.
+session, and describes it with `transport` `tls`. The server sees only the
+plain bytes.
 
 While no server is attached, the edge keeps listening on the ports the last
 server asked for, and holds clients that arrive as it holds any unattached
@@ -427,8 +478,9 @@ in its own log; the server is not told.
 2. The edge connects, with TLS if asked. If it fails, it sends
    `CONNECT_FAILED`, and the server resumes the task with the error.
 3. If it succeeds, the edge opens an attachment for the new connection: `HELLO`
-   in initial mode, kind outbound, carrying the request ID and an origin such
-   as `tcp:host:port` or `tls:host:port`.
+   in initial mode, kind outbound, carrying the request ID and connection
+   fields with `transport` `tcp` or `tls` and `remote-host` set to the host
+   the server asked for.
 4. The server accepts it as an outbound connection, sends `WELCOME`, and
    resumes the task with the new connection object.
 

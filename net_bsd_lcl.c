@@ -31,7 +31,9 @@
 #include <sys/un.h>		/* struct sockaddr_un */
 #include "my-unistd.h"		/* close() */
 
+#include "list.h"
 #include "log.h"
+#include "network.h"
 #include "server.h"
 #include "storage.h"
 #include "structures.h"
@@ -128,9 +130,11 @@ proto_listen(int fd)
 
 enum proto_accept_error
 proto_accept_connection(int listener_fd, server_listener sl UNUSED_,
-			int *read_fd, int *write_fd, const char **name)
+			int *read_fd, int *write_fd, const char **name,
+			Var *info)
 {
     int fd;
+    listener *l;
     static struct sockaddr_un address;
     socklen_t addr_length = sizeof(address);
 
@@ -145,6 +149,10 @@ proto_accept_connection(int listener_fd, server_listener sl UNUSED_,
     }
     *read_fd = *write_fd = fd;
     *name = "??";
+    *info = network_info_add_str(new_list(0), "transport", "local");
+    for (l = all_listeners; l; l = l->next)
+	if (l->fd == listener_fd)
+	    *info = network_info_add_str(*info, "path", l->filename);
     return PA_OKAY;
 }
 

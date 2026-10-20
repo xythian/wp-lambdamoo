@@ -1992,6 +1992,21 @@ bf_connection_name(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid pr
 }
 
 static package
+bf_connection_info(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
+{				/* (player) */
+    Objid who = arglist.v.list[1].v.obj;
+    shandle *h = find_shandle(who);
+
+    free_var(arglist);
+    if (!is_wizard(progr) && progr != who)
+	return make_error_pack(E_PERM);
+    else if (!h || h->disconnect_me)
+	return make_error_pack(E_INVARG);
+    else
+	return make_var_pack(network_connection_info(h->nhandle));
+}
+
+static package
 bf_notify(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
 {				/* (player, string [, no_flush]) */
     Objid conn = arglist.v.list[1].v.obj;
@@ -2255,6 +2270,7 @@ register_server(void)
 		      TYPE_OBJ);
     register_function("idle_seconds", 1, 1, bf_idle_seconds, TYPE_OBJ);
     register_function("connection_name", 1, 1, bf_connection_name, TYPE_OBJ);
+    register_function("connection_info", 1, 1, bf_connection_info, TYPE_OBJ);
     register_function("notify", 2, 3, bf_notify, TYPE_OBJ, TYPE_STR, TYPE_ANY);
     register_function("boot_player", 1, 1, bf_boot_player, TYPE_OBJ);
     register_function("set_connection_option", 3, 3, bf_set_connection_option,

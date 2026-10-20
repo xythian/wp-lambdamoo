@@ -332,6 +332,13 @@ There are two classes of command-line arguments for `./configure`
     ACME or the edge's own), and `-t PORT` has it accept TLS clients for
     `#0`; see [Session_Protocol.md](./Session_Protocol.md).
 
+    On every backend, `connection_info(PLAYER)` returns a list of
+    `{NAME, VALUE}` pairs describing how a connection was made: its
+    `"direction"` (`"inbound"` or `"outbound"`) and `"transport"`, and for
+    TCP its `"local-port"`, `"remote-address"`, `"remote-port"` and, when a
+    name is known, `"remote-host"`. Like `connection_name()`, it is for
+    wizards and the player themselves.
+
   + `--enable-sz`
 
     manages all datatype size options (`INT_TYPE_BITSIZE`,

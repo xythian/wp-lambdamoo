@@ -31,7 +31,8 @@ struct client {
     int fd;
     struct edge_config *config;
     unsigned char session_id[SP_ID_SIZE];
-    char origin[128];
+    unsigned char fields[256];	/* connection fields for HELLO */
+    uint16_t fields_length;
     uint64_t generation;
     uint64_t input_position;
     uint64_t input_acked;
@@ -121,6 +122,24 @@ tls_write_all(SSL *tls, const unsigned char *data, size_t length)
     return 0;
 }
 
+static void
+describe_client(struct client *client, const struct sockaddr_in *peer)
+{
+    struct sockaddr_in local;
+    socklen_t length = sizeof(local);
+    const char *address = inet_ntoa(peer->sin_addr);
+    unsigned char *p = client->fields;
+
+    if (getsockname(client->fd, (struct sockaddr *) &local, &length) < 0)
+        memset(&local, 0, sizeof(local));
+    p += sp_put_string_field(p, "transport", "tls", 3);
+    p += sp_put_integer_field(p, "local-port", ntohs(local.sin_port));
+    p += sp_put_string_field(p, "remote-address", address,
+                             (uint16_t) strlen(address));
+    p += sp_put_integer_field(p, "remote-port", ntohs(peer->sin_port));
+    client->fields_length = (uint16_t) (p - client->fields);
+}
+
 static int
 send_hello(struct client *client, int backend)
 {
@@ -142,8 +161,8 @@ send_hello(struct client *client, int backend)
     hello.listener = client->listener;
     if (hello.mode != SP_MODE_INITIAL)
         memcpy(hello.database, client->database, SP_DATABASE_ID_SIZE);
-    hello.origin = (const unsigned char *) client->origin;
-    hello.origin_length = (uint16_t) strlen(client->origin);
+    hello.fields = client->fields;
+    hello.fields_length = client->fields_length;
     if (sp_encode_hello(&hello, &payload, &length) < 0)
         return -1;
     result = sp_frame_write(backend, SP_HELLO, 0, payload, length);
@@ -443,8 +462,7 @@ main(int argc, char **argv)
             free(client);
             continue;
         }
-        snprintf(client->origin, sizeof(client->origin), "tls:%s:%u",
-                 inet_ntoa(peer.sin_addr), ntohs(peer.sin_port));
+        describe_client(client, &peer);
         if (pthread_create(&thread, NULL, serve_client, client) != 0) {
             SSL_free(client->tls);
             close(fd);
