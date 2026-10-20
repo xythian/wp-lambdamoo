@@ -8,6 +8,11 @@ explains why the protocol is shaped this way, and
 [`prototype/session/`](prototype/session/README.md) holds a C reference edge and
 its tests.
 
+[`session_protocol.ksy`](session_protocol.ksy) describes every frame's byte
+layout in [Kaitai Struct](https://kaitai.io/), from which parsers can be
+generated for most languages. It is normative for byte layouts, and the
+tables below follow it; this document is normative for everything else.
+
 ## Purpose
 
 With the ordinary TCP backend, a player's network connection and the MOO
