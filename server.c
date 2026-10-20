@@ -1088,6 +1088,12 @@ server_new_connection(server_listener sl, network_handle nh, int outbound)
     return result;
 }
 
+void
+server_listener_failed(server_listener sl)
+{
+    free_slistener((slistener *) sl.ptr);
+}
+
 server_handle
 server_resume_connection(server_listener sl, network_handle nh,
                          Objid player, Objid listener, int crashed,

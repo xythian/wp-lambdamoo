@@ -195,6 +195,7 @@ of reads.
 | 10 | `LISTENERS` | server, control only | 0 to 65536 |
 | 11 | `CONNECT` | server, control only | 17 to 65536 |
 | 12 | `CONNECT_FAILED` | edge, control only | 8 to 65536 |
+| 13 | `LISTEN_FAILED` | edge, control only | 8 to 65536 |
 
 Reserved bytes inside payloads must be zero and are checked by receivers.
 
@@ -424,6 +425,18 @@ connection.
 | 5 | 3 | reserved |
 | 8 | rest | UTF-8 diagnostic, which the server logs |
 
+### LISTEN_FAILED
+
+Sent by the edge on the control attachment when it can't serve a port the
+latest `LISTENERS` names.
+
+| Offset | Size | Field |
+| ---: | ---: | --- |
+| 0 | 2 | port |
+| 2 | 1 | reason: 1 the port can't be opened, 2 there's no certificate to accept TLS with |
+| 3 | 5 | reserved |
+| 8 | rest | UTF-8 diagnostic, which the server logs |
+
 ### CLOSE and ERROR
 
 `CLOSE` ends the session permanently. The server sends it when the database
@@ -467,8 +480,13 @@ a new session for a port it isn't listening on; a resumed session is checked
 against its binding instead, so it survives the port going away.
 
 If the edge cannot listen on a port, cannot load or get a TLS port's
-certificate, or has none of its own for a TLS port that names none, it says so
-in its own log; the server is not told.
+certificate, or has none of its own for a TLS port that names none, it sends
+`LISTEN_FAILED`. The server logs it and drops the listener, as if `listen()`
+had failed, so `listeners()` no longer shows the port and the next `LISTENERS`
+leaves it out; the database can try `listen()` again. A failure on the `-t`
+port is only logged, since no `listen()` call owns it. A certificate an edge
+gets lazily, as ACME clients often do on a client's first handshake, fails
+per handshake instead, and the edge only logs that.
 
 ### Outbound connections
 
@@ -641,8 +659,8 @@ An edge implementing this protocol must:
 - send `CLOSE` when the client goes away, and close the client on `CLOSE`;
 - keep a control attachment open while it can reach a server, listen on the
   ports the latest `LISTENERS` names, keep listening on them while no server
-  is attached, and answer every `CONNECT` with a connection or with
-  `CONNECT_FAILED`;
+  is attached, answer every `CONNECT` with a connection or with
+  `CONNECT_FAILED`, and send `LISTEN_FAILED` for a port it can't serve;
 - verify the certificate of a TLS outbound connection against the host name
   in `CONNECT`;
 - terminate TLS on ports `LISTENERS` flags as TLS, with the paths it names, a

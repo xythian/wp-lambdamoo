@@ -781,9 +781,26 @@ handle_control_frame(session_handle *h)
         h->frame_type, 0, h->payload_length, h->payload
     };
     struct sp_connect_failed failed;
+    struct sp_listen_failed listen_failed;
+    session_listener *l;
     connect_request *r;
 
     switch (h->frame_type) {
+    case SP_LISTEN_FAILED:
+        if (sp_decode_listen_failed(&frame, &listen_failed) < 0)
+            return 0;
+        errlog("SESSION LISTEN: edge can't %s port %u: %.*s\n",
+               listen_failed.code == SP_LISTEN_FAILED_CERTIFICATE
+               ? "get a certificate for" : "listen on",
+               (unsigned) listen_failed.port,
+               (int) listen_failed.reason_length, listen_failed.reason);
+        /* As if listen() had failed, so listeners() tells the truth.  The
+         * -t port belongs to the command line, not to a listen() call.
+         */
+        l = find_port_listener(listen_failed.port);
+        if (l && l->port != tls_port)
+            server_listener_failed(l->slistener);
+        return 1;
     case SP_CONNECT_FAILED:
         if (sp_decode_connect_failed(&frame, &failed) < 0)
             return 0;

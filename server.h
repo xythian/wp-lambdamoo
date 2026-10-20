@@ -74,6 +74,13 @@ extern server_handle server_new_connection(server_listener l,
 				 * calls on each other.
 				 */
 
+extern void server_listener_failed(server_listener l);
+				/* Called by the session network backend when
+				 * the edge couldn't open a port listen()
+				 * asked for: drop it, as if listen() had
+				 * failed.
+				 */
+
 extern server_handle server_resume_connection(server_listener l,
 					      network_handle h,
 					      Objid player,

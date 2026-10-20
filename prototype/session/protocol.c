@@ -130,6 +130,9 @@ valid_type_and_length(uint8_t type, uint32_t length)
     case SP_CONNECT_FAILED:
         return length >= SP_CONNECT_FAILED_FIXED_SIZE
             && length <= SP_MAX_CONTROL;
+    case SP_LISTEN_FAILED:
+        return length >= SP_LISTEN_FAILED_FIXED_SIZE
+            && length <= SP_MAX_CONTROL;
     default:
         return 0;
     }
@@ -652,5 +655,46 @@ sp_decode_connect_failed(const struct sp_frame *frame,
         return -1;
     failed->reason_length = frame->length - SP_CONNECT_FAILED_FIXED_SIZE;
     failed->reason = frame->payload + SP_CONNECT_FAILED_FIXED_SIZE;
+    return 0;
+}
+
+int
+sp_encode_listen_failed(const struct sp_listen_failed *failed,
+                        unsigned char **payload, uint32_t *length)
+{
+    uint32_t total = SP_LISTEN_FAILED_FIXED_SIZE + failed->reason_length;
+    unsigned char *p;
+
+    if (total > SP_MAX_CONTROL)
+        return -1;
+    p = calloc(1, total);
+    if (!p)
+        return -1;
+    put_u16(p, failed->port);
+    p[2] = failed->code;
+    if (failed->reason_length)
+        memcpy(p + SP_LISTEN_FAILED_FIXED_SIZE, failed->reason,
+               failed->reason_length);
+    *payload = p;
+    *length = total;
+    return 0;
+}
+
+int
+sp_decode_listen_failed(const struct sp_frame *frame,
+                        struct sp_listen_failed *failed)
+{
+    if (frame->type != SP_LISTEN_FAILED
+        || frame->length < SP_LISTEN_FAILED_FIXED_SIZE
+        || !all_zero(frame->payload + 3, 5))
+        return -1;
+    memset(failed, 0, sizeof(*failed));
+    failed->port = get_u16(frame->payload);
+    failed->code = frame->payload[2];
+    if (failed->port == 0 || failed->code < SP_LISTEN_FAILED_PORT
+        || failed->code > SP_LISTEN_FAILED_CERTIFICATE)
+        return -1;
+    failed->reason_length = frame->length - SP_LISTEN_FAILED_FIXED_SIZE;
+    failed->reason = frame->payload + SP_LISTEN_FAILED_FIXED_SIZE;
     return 0;
 }

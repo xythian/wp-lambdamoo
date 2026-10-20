@@ -20,6 +20,7 @@
 #define SP_DETACH_SIZE 40u
 #define SP_CONNECT_FIXED_SIZE 16u
 #define SP_CONNECT_FAILED_FIXED_SIZE 8u
+#define SP_LISTEN_FAILED_FIXED_SIZE 8u
 #define SP_MAX_LISTENERS 1024u
 #define SP_LISTEN_FIXED_SIZE 10u
 #define SP_MAX_FIELDS 32u
@@ -37,7 +38,8 @@ enum sp_type {
     SP_BIND = 9,
     SP_LISTENERS = 10,
     SP_CONNECT = 11,
-    SP_CONNECT_FAILED = 12
+    SP_CONNECT_FAILED = 12,
+    SP_LISTEN_FAILED = 13
 };
 
 enum sp_kind {
@@ -58,6 +60,11 @@ enum sp_listen_flag {
 enum sp_field_type {
     SP_FIELD_STRING = 1,
     SP_FIELD_INTEGER = 2
+};
+
+enum sp_listen_failure {
+    SP_LISTEN_FAILED_PORT = 1,
+    SP_LISTEN_FAILED_CERTIFICATE = 2
 };
 
 enum sp_connect_failure {
@@ -132,6 +139,13 @@ struct sp_connect_failed {
     const unsigned char *reason;
 };
 
+struct sp_listen_failed {
+    uint16_t port;
+    uint8_t code;
+    uint32_t reason_length;
+    const unsigned char *reason;
+};
+
 struct sp_welcome {
     uint64_t generation;
     uint8_t mode;
@@ -200,5 +214,9 @@ int sp_encode_connect_failed(const struct sp_connect_failed *failed,
                              unsigned char **payload, uint32_t *length);
 int sp_decode_connect_failed(const struct sp_frame *frame,
                              struct sp_connect_failed *failed);
+int sp_encode_listen_failed(const struct sp_listen_failed *failed,
+                            unsigned char **payload, uint32_t *length);
+int sp_decode_listen_failed(const struct sp_frame *frame,
+                            struct sp_listen_failed *failed);
 
 #endif
