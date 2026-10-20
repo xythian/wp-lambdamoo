@@ -2,9 +2,10 @@
 > **This is Waterpoint's fork of LambdaMOO.**  The `waterpoint` branch
 > is an upstream [wrog/lambdamoo](https://github.com/wrog/lambdamoo)
 > release tag (currently `v1.9.0alpha`) with Waterpoint's changes on
-> top as a series of commits, one per change: bug fixes, PCRE2-only
-> regexps, `wp-N` release versioning, and the CI and release workflows
-> in `.github/`.  The rest of this README is upstream's.  When upstream
+> top as a series of commits, one per change: code changes, `wp-N` release versioning,
+> and the CI and release workflows in `.github/`.
+>
+> The rest of this README is upstream's.  When upstream
 > makes a new release, we rebuild that series on it; see
 > [Upstream_Releases.md](./Upstream_Releases.md).
 
