@@ -505,16 +505,32 @@ across frames over to the next frame. In binary mode each frame's data is
 delivered to the database as one binary string. After processing a frame, the
 server acknowledges it.
 
-When the server suspends input for a connection, it stops reading that
-connection's carrier, and the carrier's own backpressure reaches the edge.
+Flow control is the carrier's own: there is no credit or window frame. The
+server reads a session's carrier only while that connection's input isn't
+suspended, and it suspends input when more than `MAX_QUEUED_INPUT` bytes are
+waiting for the database (or the database holds input with `hold-input`).
+The carrier's socket buffer then fills, and the edge's writes to it stop. An
+edge must then stop reading that client too, so the client's own TCP window
+closes; it may not keep reading and buffer the input instead. The server
+acknowledges input as it reads it, so an edge also sees the pause as
+acknowledgements that stop advancing.
 
 ### Output
 
-The server sends `OUTPUT` frames, splitting at 1 MiB. When more than
-`MAX_QUEUED_OUTPUT` bytes are queued for a session and the carrier can't take
-more, output the caller doesn't allow to be flushed is refused. Other output is
-queued anyway; this backend doesn't discard old output the way the TCP backend
-does. The edge writes output to the client and acknowledges it.
+The server sends `OUTPUT` frames, splitting at 1 MiB. It queues at most
+`MAX_QUEUED_OUTPUT` bytes of output for a session, as the TCP backend does.
+When new output wouldn't fit and the carrier can't take more, output the
+caller doesn't allow to be flushed (`notify()` with no-flush) is refused, and
+otherwise the oldest queued output that hasn't started going to the edge is
+dropped. The next output the edge receives is then the line
+`>> Network buffer overflow: N lines of output to you have been lost <<`,
+where the dropped lines would have been. A frame takes its output position
+when the server starts writing it, so dropping queued output leaves no gap in
+positions.
+
+The edge writes output to the client and acknowledges it. When a client
+doesn't read, the edge stops reading that session's carrier rather than
+buffer without bound, which is what makes the server's queue fill.
 
 ### Ending a session
 
@@ -529,7 +545,12 @@ A server shutting down in an orderly way (the `shutdown()` builtin, `SIGINT`,
 `SIGTERM` or `SIGUSR1`) sends every player the usual `*** Shutting down ***` line and
 writes its final database, which records every logged-in player and listener
 pair. Only then does it send each session `DETACH` with its current positions
-and the digest of that database, and close the carrier. Each edge keeps its clients
+and the digest of that database, and close the carrier. The server writes out
+every session's queued output and `DETACH` together and waits for the edge to
+close each carrier, with one deadline of five seconds for all of them, so a
+server with many sessions, or a stalled edge, still stops promptly. A session
+that misses the deadline is logged; its edge sees the carrier end and treats
+it as a crash. Each edge keeps its clients
 connected and retries the socket until a replacement server is listening, then
 attaches each session in graceful mode with the binding it holds.
 
@@ -586,8 +607,12 @@ graceful or crash mode without a binding is accepted as a new, not yet logged in
 connection.
 
 At startup, the TCP backend tells the database that every connection recorded
-in the loaded database has disconnected. The session backend skips that step,
-since those players are expected to resume.
+in the loaded database has disconnected. The session backend waits instead,
+since those players are expected to resume: for `$server_options.session_resume_timeout`
+seconds from startup (60 if unset), and then calls
+`#0:user_disconnected` for every recorded connection no edge has resumed,
+logging `SESSION NOT RESUMED`. A session that arrives after that is refused
+like any other that the database doesn't record.
 
 ### Panics
 
@@ -623,8 +648,12 @@ An edge implementing this protocol must:
 - terminate TLS on ports `LISTENERS` flags as TLS, with the paths it names, a
   certificate it gets and renews by ACME for the names given, or the edge's
   own certificate;
-- bound every buffer, and pause reading the client when its input allowance is
-  exhausted.
+- bound every buffer: hold at most one read (64 KiB is a good size) of a
+  client's input that hasn't been written to the carrier, and stop reading the
+  client while the carrier won't take more; hold at most a bounded amount of a
+  session's output (1 MiB is a good size) that hasn't been written to the
+  client, and stop reading the carrier while it is full. An edge never drops
+  input, and drops output only by closing the session.
 
 How long an edge holds an unattached session, what it tells the client during
 the gap, and when it gives up are edge policy, not protocol.

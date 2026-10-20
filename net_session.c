@@ -41,13 +41,31 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
+/* Where a queued frame takes the output position from, which it is given
+ * only when it is first written: until then a data frame can still be
+ * dropped to keep the queue bounded without leaving a gap in positions.
+ */
+enum output_stamp {
+    STAMP_NONE,
+    STAMP_DATA,			/* OUTPUT: payload bytes 0-7 */
+    STAMP_DETACH		/* DETACH: payload bytes 16-23 */
+};
+
 typedef struct session_output {
     struct session_output *next;
     unsigned char *buffer;
     size_t length;
     size_t offset;
     size_t data_length;
+    enum output_stamp stamp;
+    int stamped;
 } session_output;
+
+enum settle_state {
+    SETTLE_DONE,
+    SETTLE_WRITING,		/* writing out queued frames */
+    SETTLE_CLOSING		/* half-closed, waiting for the edge's EOF */
+};
 
 typedef struct session_handle {
     struct session_handle *next, **prev;
@@ -74,6 +92,8 @@ typedef struct session_handle {
     session_output *output_head;
     session_output **output_tail;
     size_t output_length;
+    unsigned output_lines_flushed;	/* dropped since the last notice */
+    enum settle_state settle;	/* see settle_handles() */
     uint64_t input_position;
     uint64_t output_position;
     uint64_t output_acked;
@@ -181,10 +201,80 @@ queue_frame(session_handle *h, uint8_t type, const void *payload,
     output->length = SP_HEADER_SIZE + length;
     output->offset = 0;
     output->data_length = data_length;
+    output->stamp = type == SP_OUTPUT ? STAMP_DATA
+        : type == SP_DETACH ? STAMP_DETACH : STAMP_NONE;
+    output->stamped = 0;
     *h->output_tail = output;
     h->output_tail = &output->next;
     h->output_length += data_length;
     return 1;
+}
+
+static void
+free_output(session_handle *h)
+{
+    while (h->output_head) {
+        session_output *output = h->output_head;
+        h->output_head = output->next;
+        free(output->buffer);
+        free(output);
+    }
+}
+
+static int queue_data(session_handle *h, const unsigned char *data,
+                      size_t length, int flush_ok);
+
+/* Put the overflow notice ahead of the frame at the head of H's queue, in
+ * the stream where the dropped lines would have been.
+ */
+static int
+queue_overflow_notice(session_handle *h)
+{
+    session_output *rest = h->output_head;
+    session_output **rest_tail = h->output_tail;
+    size_t rest_length = h->output_length;
+    char notice[100];
+    unsigned lost = h->output_lines_flushed;
+
+    snprintf(notice, sizeof(notice),
+             "\r\n>> Network buffer overflow: %u line%s of output to you "
+             "%s been lost <<\r\n",
+             lost, lost == 1 ? "" : "s", lost == 1 ? "has" : "have");
+    h->output_head = NULL;
+    h->output_tail = &h->output_head;
+    h->output_length = 0;
+    if (!queue_data(h, (const unsigned char *) notice, strlen(notice), 1)) {
+        free_output(h);
+        h->output_head = rest;
+        h->output_tail = rest_tail;
+        h->output_length = rest_length;
+        return 0;
+    }
+    *h->output_tail = rest;
+    if (rest)
+        h->output_tail = rest_tail;
+    h->output_length += rest_length;
+    h->output_lines_flushed = 0;
+    return 1;
+}
+
+static void
+stamp_output(session_handle *h, session_output *output)
+{
+    unsigned char *payload = output->buffer + SP_HEADER_SIZE;
+
+    switch (output->stamp) {
+    case STAMP_DATA:
+        sp_put_u64(payload, h->output_position);
+        h->output_position += output->data_length;
+        break;
+    case STAMP_DETACH:
+        sp_put_u64(payload + 16, h->output_position);
+        break;
+    case STAMP_NONE:
+        break;
+    }
+    output->stamped = 1;
 }
 
 static int
@@ -192,8 +282,18 @@ push_output(session_handle *h)
 {
     while (h->output_head) {
         session_output *output = h->output_head;
-        ssize_t count = write(h->fd, output->buffer + output->offset,
-                              output->length - output->offset);
+        ssize_t count;
+
+        if (!output->stamped) {
+            if (output->stamp == STAMP_DATA && h->output_lines_flushed) {
+                if (!queue_overflow_notice(h))
+                    return 0;
+                continue;
+            }
+            stamp_output(h, output);
+        }
+        count = write(h->fd, output->buffer + output->offset,
+                      output->length - output->offset);
 
         if (count > 0) {
             output->offset += (size_t) count;
@@ -215,67 +315,99 @@ push_output(session_handle *h)
     return 1;
 }
 
-static int
-drain_output(session_handle *h)
+#define SETTLE_DEADLINE_MS 5000
+
+static long
+monotonic_ms(void)
 {
-    struct pollfd writable = {h->fd, POLLOUT, 0};
-    int attempts = 4;
+    struct timespec now;
 
-    while (h->output_head) {
-        int result;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (long) now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
 
+/* Take H one step towards settled: written out and, for a session being
+ * detached, closed by the edge.  Returns false if it failed.
+ */
+static int
+settle_step(session_handle *h, int detaching)
+{
+    unsigned char discard[256];
+    ssize_t count;
+
+    if (h->settle == SETTLE_WRITING) {
         if (!push_output(h))
             return 0;
-        if (!h->output_head)
+        if (h->output_head)
             return 1;
-        do {
-            result = poll(&writable, 1, 250);
-        } while (result < 0 && errno == EINTR);
-        if (result <= 0 || !(writable.revents & POLLOUT) || --attempts == 0)
+        if (h == control || !detaching) {
+            h->settle = SETTLE_DONE;
+            return 1;
+        }
+        if (shutdown(h->fd, SHUT_WR) < 0)
             return 0;
+        h->settle = SETTLE_CLOSING;
     }
+    while ((count = read(h->fd, discard, sizeof(discard))) > 0)
+        continue;
+    if (count == 0)
+        h->settle = SETTLE_DONE;
+    else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+        return 0;
     return 1;
 }
 
-static int
-finish_detach(session_handle *h)
+/* Write out every handle's queued frames and, when DETACHING, wait for the
+ * edge to close each session after its DETACH.  All of them share one
+ * deadline, so a server with many sessions or a stalled edge still stops
+ * promptly.  Returns how many didn't finish.
+ */
+static unsigned
+settle_handles(int detaching)
 {
-    struct pollfd readable = {h->fd, POLLIN, 0};
-    unsigned char discard[256];
-    int attempts = 4;
+    long deadline = monotonic_ms() + SETTLE_DEADLINE_MS;
+    unsigned failed = 0, pending, count = 0;
+    struct pollfd *fds;
+    session_handle *h;
 
-    if (shutdown(h->fd, SHUT_WR) < 0)
-        return 0;
-    while (attempts-- > 0) {
-        int result;
-        do {
-            result = poll(&readable, 1, 250);
-        } while (result < 0 && errno == EINTR);
-        if (result < 0)
-            return 0;
-        if (result == 0)
-            continue;
-        {
-            ssize_t count = read(h->fd, discard, sizeof(discard));
-            if (count == 0)
-                return 1;
-            if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
-                return 0;
+    for (h = all_handles; h; h = h->next) {
+        h->settle = SETTLE_WRITING;
+        count++;
+    }
+    fds = malloc((count ? count : 1) * sizeof(*fds));
+    for (;;) {
+        long remaining = deadline - monotonic_ms();
+
+        pending = 0;
+        for (h = all_handles; h; h = h->next) {
+            if (h->settle != SETTLE_DONE && !settle_step(h, detaching)) {
+                h->settle = SETTLE_DONE;
+                failed++;
+            }
+            if (h->settle != SETTLE_DONE && fds) {
+                fds[pending].fd = h->fd;
+                fds[pending].events =
+                    h->settle == SETTLE_WRITING ? POLLOUT : POLLIN;
+                fds[pending].revents = 0;
+            }
+            if (h->settle != SETTLE_DONE)
+                pending++;
+        }
+        if (pending == 0)
+            break;
+        if (remaining <= 0 || !fds) {
+            failed += pending;
+            break;
+        }
+        if (poll(fds, pending, (int) remaining) < 0 && errno != EINTR) {
+            failed += pending;
+            break;
         }
     }
-    return 0;
+    free(fds);
+    return failed;
 }
 
-static void
-free_output(session_handle *h)
-{
-    while (h->output_head) {
-        session_output *output = h->output_head;
-        h->output_head = output->next;
-        free(output->buffer);
-        free(output);
-    }
-}
 
 static void
 remove_handle(session_handle *h, int notify_server)
@@ -739,6 +871,11 @@ pull_input(session_handle *h)
         size_t wanted;
         ssize_t count;
 
+        /* Suspended input stops at a frame boundary, leaving the rest in
+         * the carrier, so the edge feels the backpressure.
+         */
+        if (h->input_suspended && h->header_used == 0)
+            return 1;
         if (h->header_used < SP_HEADER_SIZE) {
             target = h->header + h->header_used;
             wanted = SP_HEADER_SIZE - h->header_used;
@@ -1129,6 +1266,32 @@ expire_requests(void)
     }
 }
 
+/* Drop the oldest output the edge hasn't been sent yet until NEEDED more
+ * bytes fit under MAX_QUEUED_OUTPUT, as the TCP backend does, counting
+ * what was lost for the notice push_output() sends in its place.
+ */
+static void
+drop_oldest_output(session_handle *h, size_t needed)
+{
+    session_output **p = &h->output_head;
+
+    while (*p && h->output_length + needed > MAX_QUEUED_OUTPUT) {
+        session_output *output = *p;
+
+        if (output->stamp != STAMP_DATA || output->stamped) {
+            p = &output->next;
+            continue;
+        }
+        *p = output->next;
+        if (!*p)
+            h->output_tail = p;
+        h->output_length -= output->data_length;
+        h->output_lines_flushed++;
+        free(output->buffer);
+        free(output);
+    }
+}
+
 static int
 queue_data(session_handle *h, const unsigned char *data, size_t length,
            int flush_ok)
@@ -1137,23 +1300,25 @@ queue_data(session_handle *h, const unsigned char *data, size_t length,
         size_t chunk = length > SP_MAX_DATA ? SP_MAX_DATA : length;
         unsigned char *payload;
 
-        if (h->output_length + chunk > MAX_QUEUED_OUTPUT) {
-            if (!push_output(h)
-                || (h->output_length + chunk > MAX_QUEUED_OUTPUT
-                    && !flush_ok))
-                return 0;
+        if (h->output_length != 0
+            && h->output_length + chunk > MAX_QUEUED_OUTPUT) {
+            (void) push_output(h);
+            if (h->output_length + chunk > MAX_QUEUED_OUTPUT) {
+                if (!flush_ok)
+                    return 0;
+                drop_oldest_output(h, chunk);
+            }
         }
         payload = malloc(chunk + 8);
         if (!payload)
             return 0;
-        sp_put_u64(payload, h->output_position);
+        memset(payload, 0, 8);
         memcpy(payload + 8, data, chunk);
         if (!queue_frame(h, SP_OUTPUT, payload, (uint32_t) chunk + 8, chunk)) {
             free(payload);
             return 0;
         }
         free(payload);
-        h->output_position += chunk;
         data += chunk;
         length -= chunk;
     }
@@ -1407,6 +1572,7 @@ detach_sessions(uint8_t mode)
 {
     struct sp_detach detach;
     session_handle *h;
+    unsigned failed;
 
     memset(&detach, 0, sizeof(detach));
     if (!db_dump_digest(detach.database)) {
@@ -1418,18 +1584,17 @@ detach_sessions(uint8_t mode)
     for (h = all_handles; h; h = h->next) {
         unsigned char payload[SP_DETACH_SIZE];
 
-        if (h == control) {
-            /* The edge keeps its ports open for the next server. */
-            (void) drain_output(h);
-            continue;
-        }
+        if (h == control)
+            continue;	/* the edge keeps its ports open for the next server */
         detach.input_position = h->input_position;
-        detach.output_position = h->output_position;
         sp_encode_detach(&detach, payload);
-        if (!queue_frame(h, SP_DETACH, payload, sizeof(payload), 0)
-            || !drain_output(h) || !finish_detach(h))
-            errlog("SESSION DETACH: completion failed\n");
+        if (!queue_frame(h, SP_DETACH, payload, sizeof(payload), 0))
+            errlog("SESSION DETACH: out of memory queueing DETACH\n");
     }
+    failed = settle_handles(1);
+    if (failed)
+        errlog("SESSION DETACH: %u session%s didn't finish detaching\n",
+               failed, failed == 1 ? "" : "s");
     return 1;
 }
 
@@ -1442,12 +1607,8 @@ network_detach_after_panic(void)
 void
 network_shutdown(void)
 {
-    session_handle *h;
-
     if (!detach_sessions(SP_MODE_GRACEFUL))
-        for (h = all_handles; h; h = h->next)
-            if (h == control)
-                (void) drain_output(h);
+        (void) settle_handles(0);
     while (all_handles)
         remove_handle(all_handles, 0);
     if (the_listener) {

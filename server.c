@@ -440,11 +440,10 @@ send_message(Objid listener, network_handle nh, const char *msg_name,...)
     va_end(args);
 }
 
+/* Tell the database that the connections it recorded as open are gone. */
 static void
-main_loop(void)
+disconnect_recorded_connections(void)
 {
-#if NETWORK_PROTOCOL != NP_SESSION
-    /* First, notify DB of disconnections for all checkpointed connections */
     int i;
     for (i = 1;
 	 i <= (TYPE_LIST == checkpointed_connections.type
@@ -453,11 +452,44 @@ main_loop(void)
 	 i++) {
 
 	Var v = checkpointed_connections.v.list[i];
+#if NETWORK_PROTOCOL == NP_SESSION
+	oklog("SESSION NOT RESUMED: #%"PRIdN"\n", v.v.list[1].v.obj);
+#endif
 	call_notifier(v.v.list[1].v.obj, v.v.list[2].v.obj,
 		      "user_disconnected");
     }
     free_var(checkpointed_connections);
     checkpointed_connections = zero;
+}
+
+#if NETWORK_PROTOCOL == NP_SESSION
+/* How long an edge has to resume the connections the database recorded
+ * before the database is told they're gone.
+ */
+#define DEFAULT_SESSION_RESUME_TIMEOUT 60
+
+static time_t resume_deadline;
+
+static void
+disconnect_unresumed_connections(void)
+{
+    if (checkpointed_connections.type == TYPE_LIST
+	&& time(0) >= resume_deadline)
+	disconnect_recorded_connections();
+}
+#endif
+
+static void
+main_loop(void)
+{
+#if NETWORK_PROTOCOL == NP_SESSION
+    /* Recorded connections wait for an edge to resume them. */
+    resume_deadline = time(0)
+	+ server_int_option("session_resume_timeout",
+			    DEFAULT_SESSION_RESUME_TIMEOUT);
+#else
+    /* First, notify DB of disconnections for all checkpointed connections */
+    disconnect_recorded_connections();
 #endif
 
     /* Second, run #0:server_started() */
@@ -502,6 +534,9 @@ main_loop(void)
 	    db_flush(FLUSH_IF_FULL);
 
 	run_ready_tasks();
+#if NETWORK_PROTOCOL == NP_SESSION
+	disconnect_unresumed_connections();
+#endif
 
 	{			/* Get rid of old un-logged-in or useless connections */
 	    int now = time(0);
