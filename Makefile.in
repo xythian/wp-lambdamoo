@@ -215,7 +215,8 @@ gitclean-all: gitclean distclean-all
 clean: clean-keeps-moo clean-keeps-parser clean-keeps-keywords
 	rm -f $(OBJS) $(DFILES) core \
 	  version_src.h version_make.* \
-	  bf_register.h bf_register.c bf_register.lastrun
+	  bf_register.h bf_register.c bf_register.lastrun \
+	  *.gcno *.gcda
 
 distclean: clean
 	rm -f config.h options.h Makefile config.status config.cache config.log config.lastrun \
