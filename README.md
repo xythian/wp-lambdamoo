@@ -397,6 +397,25 @@ particular `OPTION_DEFAULT` value was resolved, you can invoke
 `server_version("options")` from MOO code to see all compiled-in
 options or, say, `server_version("options/MPLEX_STYLE")` for just one.
 
+#### measuring test coverage
+
+`--enable-coverage` builds the server at `-O0` with gcov
+instrumentation (it needs gcc or clang).  Each object file gets a
+`.gcno` file next to it, and the server adds its counts to the
+`.gcda` files when it exits normally (a crash or `kill -9` loses
+them).  Run the test suite against that binary, then report with
+`gcov` or [gcovr](https://gcovr.com/):
+
+```
+   ./configure --enable-coverage ...your usual arguments...
+   make
+   ...run tests against ./moo...
+   gcovr -r . -e 'parser\.c' -e 'keywords\.c' --html-details coverage.html
+```
+
+The test suite's `lmt coverage` command does all of this for you.
+`make clean` removes the coverage data.
+
 #### how **NOT** to do options.h or config.h settings
 
 As a matter of general principle, if you ever find yourself trying to
