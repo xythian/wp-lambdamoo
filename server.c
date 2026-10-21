@@ -920,6 +920,7 @@ emergency_mode(void)
     return start_ok;
  abort:
     printf("Bye.  (%s)\n\n", "NOT saving database");
+    network_shutdown();
     exit(1);
 }
 
@@ -1360,8 +1361,8 @@ main(int argc, char **argv)
 	    exit(1);
 
 	main_loop();
-	network_shutdown();
     }
+    network_shutdown();
     db_shutdown();
     free_str(this_program);
 
