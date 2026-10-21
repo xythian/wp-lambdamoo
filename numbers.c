@@ -41,7 +41,7 @@
 #include "utils.h"
 
 
-inline int
+static inline int
 inrange_for_float_to_int(FlNum d)
 {
     return (((FlNum)NUM_MIN) <= FLOAT_FN(ceil)(d)
