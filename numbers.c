@@ -679,6 +679,20 @@ SIMPLE_BINARY(multiply, *)
 
 DIVISION_OP(divide, /, fl_unbox(a.v.fnum) / fl_unbox(b.v.fnum))
 DIVISION_OP(modulus, %, fmod(fl_unbox(a.v.fnum), fl_unbox(b.v.fnum)))
+/* The C library sets errno to ERANGE on underflow as well as overflow.
+ * The Programmer's Manual says 0.0 is always returned on underflow, so
+ * a finite result with ERANGE becomes 0.0 and errno is cleared; an
+ * overflow (an infinite result) still reaches the E_FLOAT check.
+ */
+static void
+clear_underflow(FlNum *d)
+{
+    if (errno == ERANGE && IS_REAL(*d) && FLOAT_FN(fabs)(*d) < 1.0) {
+	errno = 0;
+	*d = 0.0;
+    }
+}
+
 Var
 do_power(Var lhs, Var rhs)
 {				/* LHS ^ RHS */
@@ -735,6 +749,7 @@ do_power(Var lhs, Var rhs)
 	}
 	errno = 0;
 	d = FLOAT_FN(pow)(fl_unbox(lhs.v.fnum), d);
+	clear_underflow(&d);
 	if (errno != 0 || !IS_REAL(d)) {
 	    ans.type = TYPE_ERR;
 	    ans.v.err = E_FLOAT;
@@ -868,6 +883,7 @@ bf_abs(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 								\
 	errno = 0;						\
 	d = FLOAT_FN(name)(fl_unbox(arglist.v.list[1].v.fnum));	\
+	clear_underflow(&d);					\
 	free_var(arglist);					\
 	if (errno == EDOM)					\
 	    return make_error_pack(E_INVARG);			\
@@ -929,6 +945,7 @@ bf_atan(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_
 	d = FLOAT_FN(atan2)(d, fl_unbox(arglist.v.list[2].v.fnum));
     else
 	d = FLOAT_FN(atan)(d);
+    clear_underflow(&d);
     free_var(arglist);
     if (errno == EDOM)
 	return make_error_pack(E_INVARG);
@@ -966,6 +983,7 @@ bf_j(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 	d = FLOAT_FN(jn)(n, d);
 	break;
     }
+    clear_underflow(&d);
     free_var(arglist);
     if (errno == EDOM)
 	return make_error_pack(E_INVARG);
@@ -996,6 +1014,7 @@ bf_y(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 	d = FLOAT_FN(yn)(n, d);
 	break;
     }
+    clear_underflow(&d);
     free_var(arglist);
     if (errno == EDOM)
 	return make_error_pack(E_INVARG);
