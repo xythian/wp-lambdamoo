@@ -18,6 +18,11 @@ num64 = []
 num32 = []
 # One feature per ported module; the Makefile enables those in RUST_MODULES.
 utf = []
+# Build the original C utf.c into the test binaries and compare it with the port.
+differential = ["utf"]
+
+[build-dependencies]
+cc = "1"
 
 [profile.release]
 panic = "abort"

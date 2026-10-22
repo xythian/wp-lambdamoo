@@ -13,6 +13,9 @@ pub mod ffi;
 #[cfg(feature = "utf")]
 pub mod utf;
 
+#[cfg(all(test, feature = "differential"))]
+mod differential;
+
 #[cfg(not(test))]
 #[panic_handler]
 fn on_panic(_: &core::panic::PanicInfo) -> ! {

@@ -30,9 +30,26 @@ the matching `Num` size; `rust_glue.c` makes a mismatch a link error.
 
 ## Tests
 
+Unit tests:
+
 ```sh
 cd rust && cargo test
 ```
+
+Differential tests compile the original `utf.c` into the test binary
+under `c_`-prefixed names and compare the two implementations on every
+string of up to three bytes, on all five-byte strings over a set of
+boundary bytes, on random strings, on every code point for encoding, and
+on index translation at and around every boundary (including `NUM_MIN`
+and `NUM_MAX`). They need a configured server tree for `config.h` and
+`options.h`:
+
+```sh
+cd rust && MOO_BUILD_DIR=.. cargo test --release --features differential
+```
+
+`cargo test --release --features differential timing -- --ignored --nocapture`
+prints rough timings of both versions on a 1 MB string.
 
 The server-level check is the lambdamoo-tests suite run against a server
 built with `make RUST_MODULES=utf`.
