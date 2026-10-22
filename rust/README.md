@@ -12,6 +12,7 @@ This is an experiment. The default build does not use any of it.
 | Module | Replaces | Notes |
 |--------|----------|-------|
 | `utf`  | `utf.c`  | UTF-8 decode/encode and character/byte index translation (Unicode builds only) |
+| `net_mplex` | `net_mplex.c` | Waiting for network I/O, with `poll()` instead of `select()` (Linux) |
 
 ## Building the server with Rust modules
 
@@ -19,7 +20,7 @@ Configure as usual, then name the modules to take from Rust:
 
 ```sh
 ./configure --enable-sz=i64 --enable-unicode ...
-make RUST_MODULES=utf
+make RUST_MODULES="utf net_mplex"
 ```
 
 This needs a Rust toolchain (`cargo`, 1.77 or later). The Makefile reads
@@ -52,7 +53,7 @@ cd rust && MOO_BUILD_DIR=.. cargo test --release --features differential
 prints rough timings of both versions on a 1 MB string.
 
 The server-level check is the lambdamoo-tests suite run against a server
-built with `make RUST_MODULES=utf`.
+built with `make RUST_MODULES="utf net_mplex"`.
 
 ## Design notes
 
@@ -77,3 +78,13 @@ built with `make RUST_MODULES=utf`.
   partially links the library into `rust_modules.o`, pulling in only what
   the ported modules need, and makes every symbol but their C entry points
   local. Building this way needs GNU `ld` and `objcopy`.
+- `select()` holds descriptors below `FD_SETSIZE` (1024). Once the server's
+  descriptor limit is raised past that, the C server's `FD_SET()` on
+  descriptor 1024 trips glibc's fortify check and the server aborts
+  without saving the database (lambdamoo-tests NET-100). `net_mplex`
+  waits with `poll()`, which has no such limit. `poll()` reports a closed
+  descriptor as `POLLNVAL` and returns at once rather than failing with
+  `EBADF`; the port turns `POLLNVAL` back into `EBADF`, which is how
+  `net_multi.c` knows to find and drop such descriptors. The C
+  `MPLEX_STYLE=MP_POLL` code does not, and busy-loops on a closed
+  descriptor.

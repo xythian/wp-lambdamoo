@@ -13,13 +13,17 @@ doctest = false
 [features]
 # Size of the server's Num type; must match INT_TYPE_BITSIZE in options.h.
 # The Makefile selects one; the link-time check in rust_glue.c catches a mismatch.
-default = ["num64", "utf"]
+default = ["num64", "utf", "net_mplex"]
 num64 = []
 num32 = []
 # One feature per ported module; the Makefile enables those in RUST_MODULES.
 utf = []
+net_mplex = []
 # Build the original C utf.c into the test binaries and compare it with the port.
 differential = ["utf"]
+
+[dependencies]
+libc = { version = "0.2", default-features = false }
 
 [build-dependencies]
 cc = "1"

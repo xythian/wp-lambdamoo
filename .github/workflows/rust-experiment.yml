@@ -5,9 +5,9 @@ name: Rust modules (experimental)
 on:
   push:
     branches: [ waterpoint ]
-    paths: [ 'rust/**', 'rust_glue.c', 'Makefile.in', 'utf.c', 'utf.h', '.github/workflows/rust-experiment.yml' ]
+    paths: [ 'rust/**', 'rust_glue.c', 'Makefile.in', 'utf.c', 'utf.h', 'net_mplex.[ch]', 'net_mp_*.c', '.github/workflows/rust-experiment.yml' ]
   pull_request:
-    paths: [ 'rust/**', 'rust_glue.c', 'Makefile.in', 'utf.c', 'utf.h', '.github/workflows/rust-experiment.yml' ]
+    paths: [ 'rust/**', 'rust_glue.c', 'Makefile.in', 'utf.c', 'utf.h', 'net_mplex.[ch]', 'net_mp_*.c', '.github/workflows/rust-experiment.yml' ]
 
 permissions:
   contents: read
@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  rust-utf:
-    name: Build with RUST_MODULES=utf and test (Ubuntu 26.04, waterpoint config)
+  rust-modules:
+    name: Build with RUST_MODULES="utf net_mplex" and test (Ubuntu 26.04, waterpoint config)
     runs-on: ubuntu-26.04
 
     steps:
@@ -63,14 +63,17 @@ jobs:
         cargo test --release
         cargo test --release --features differential
 
-    - name: Build with RUST_MODULES=utf
+    - name: Build with RUST_MODULES="utf net_mplex"
       working-directory: wp-lambdamoo
       run: |
-        make -j"$(nproc)" RUST_MODULES=utf
-        if nm moo | grep -q ' moo_rs_num_bits_64$' && [ ! -e utf.o ]; then
-          echo "utf comes from Rust"
+        make -j"$(nproc)" RUST_MODULES="utf net_mplex"
+        if nm moo | grep -q ' moo_rs_num_bits_64$' && [ ! -e utf.o ] && [ ! -e net_mplex.o ]; then
+          echo "utf and net_mplex come from Rust"
         else
-          echo "::error::utf.c was linked instead of the Rust port"; exit 1
+          echo "::error::C modules were linked instead of the Rust ports"; exit 1
+        fi
+        if nm moo | grep -q ' U select'; then
+          echo "::error::the server still waits with select()"; exit 1
         fi
         # Rust's own libm copies must not stand in for the C library's
         if nm moo | grep -E ' [tTwW] (sqrt|fmod|pow|exp|log|sin|cos)$'; then
