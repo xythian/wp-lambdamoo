@@ -9,7 +9,9 @@ This is an experiment. The default build does not use any of it.
 
 ## Ported modules
 
-None yet.
+| Module | Replaces | Notes |
+|--------|----------|-------|
+| `utf`  | `utf.c`  | UTF-8 decode/encode and character/byte index translation (Unicode builds only) |
 
 ## Building the server with Rust modules
 
@@ -17,7 +19,7 @@ Configure as usual, then name the modules to take from Rust:
 
 ```sh
 ./configure --enable-sz=i64 --enable-unicode ...
-make RUST_MODULES=<module> ...
+make RUST_MODULES=utf
 ```
 
 This needs a Rust toolchain (`cargo`, 1.77 or later). The Makefile reads
@@ -33,13 +35,23 @@ cd rust && cargo test
 ```
 
 The server-level check is the lambdamoo-tests suite run against a server
-built with `make RUST_MODULES=...`.
+built with `make RUST_MODULES=utf`.
 
 ## Design notes
 
 - The library is `no_std` and built with `panic = "abort"`, so it adds no
   runtime and no libraries to the link. A Rust panic calls the server's
   own `panic()`, which logs and dumps the database like any other panic.
+- C hands these functions NUL-terminated strings, often in the middle of
+  buffers whose length is unknown. Rather than call `strlen()` first,
+  which would make index lookups near the start of a long string cost the
+  whole string, the port reads through one small `Cursor` type that stops
+  at the NUL. That type holds all of the pointer reading; the decoding
+  and index logic above it is ordinary safe Rust.
+- `utf_char_index()` in C trusts its caller to pass `bi <= strlen + 2`
+  and reads backwards from there. The port checks that requirement as it
+  reads, so a bad caller panics the server instead of reading past the
+  string.
 - The Rust standard library's `compiler_builtins` includes its own
   `sqrt`, `fmod` and other libm functions, which do not set `errno`.
   Linked as a plain archive, they replaced the C library's for the whole

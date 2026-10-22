@@ -13,10 +13,11 @@ doctest = false
 [features]
 # Size of the server's Num type; must match INT_TYPE_BITSIZE in options.h.
 # The Makefile selects one; the link-time check in rust_glue.c catches a mismatch.
-default = ["num64"]
+default = ["num64", "utf"]
 num64 = []
 num32 = []
 # One feature per ported module; the Makefile enables those in RUST_MODULES.
+utf = []
 
 [profile.release]
 panic = "abort"

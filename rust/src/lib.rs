@@ -10,6 +10,8 @@
 compile_error!("enable exactly one of the num64 and num32 features");
 
 pub mod ffi;
+#[cfg(feature = "utf")]
+pub mod utf;
 
 #[cfg(not(test))]
 #[panic_handler]
