@@ -5,9 +5,9 @@ name: Rust modules (experimental)
 on:
   push:
     branches: [ waterpoint ]
-    paths: [ 'rust/**', 'Makefile.in', 'structures.h', 'exceptions.h', 'log.h', 'options.h.in', 'config.h.in', 'utf.c', 'utf.h', 'net_mplex.[ch]', 'net_mp_*.c', '.github/workflows/rust-experiment.yml' ]
+    paths: [ 'rust/**', 'Makefile.in', 'structures.h', 'exceptions.h', 'log.h', 'options.h.in', 'config.h.in', 'utf.c', 'utf.h', 'net_mplex.[ch]', 'net_mp_*.c', 'net_proto.[ch]', 'net_bsd_tcp.c', 'net_tcp.c', 'name_lookup.h', 'server.h', '.github/workflows/rust-experiment.yml' ]
   pull_request:
-    paths: [ 'rust/**', 'Makefile.in', 'structures.h', 'exceptions.h', 'log.h', 'options.h.in', 'config.h.in', 'utf.c', 'utf.h', 'net_mplex.[ch]', 'net_mp_*.c', '.github/workflows/rust-experiment.yml' ]
+    paths: [ 'rust/**', 'Makefile.in', 'structures.h', 'exceptions.h', 'log.h', 'options.h.in', 'config.h.in', 'utf.c', 'utf.h', 'net_mplex.[ch]', 'net_mp_*.c', 'net_proto.[ch]', 'net_bsd_tcp.c', 'net_tcp.c', 'name_lookup.h', 'server.h', '.github/workflows/rust-experiment.yml' ]
 
 permissions:
   contents: read
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   rust-modules:
-    name: Build with RUST_MODULES="utf net_mplex" and test (Ubuntu 26.04, waterpoint config)
+    name: Build with RUST_MODULES="utf net_mplex net_proto" and test (Ubuntu 26.04, waterpoint config)
     runs-on: ubuntu-26.04
 
     steps:
@@ -64,12 +64,12 @@ jobs:
         cargo test --release
         cargo test --release --features differential
 
-    - name: Build with RUST_MODULES="utf net_mplex"
+    - name: Build with RUST_MODULES="utf net_mplex net_proto"
       working-directory: wp-lambdamoo
       run: |
-        make -j"$(nproc)" RUST_MODULES="utf net_mplex"
-        if [ -e rust_modules.o ] && [ ! -e utf.o ] && [ ! -e net_mplex.o ]; then
-          echo "utf and net_mplex come from Rust"
+        make -j"$(nproc)" RUST_MODULES="utf net_mplex net_proto"
+        if [ -e rust_modules.o ] && [ ! -e utf.o ] && [ ! -e net_mplex.o ] && [ ! -e net_proto.o ]; then
+          echo "utf, net_mplex and net_proto come from Rust"
         else
           echo "::error::C modules were linked instead of the Rust ports"; exit 1
         fi

@@ -11,10 +11,11 @@ crate-type = ["staticlib"]
 doctest = false
 
 [features]
-default = ["utf", "net_mplex"]
+default = ["utf", "net_mplex", "net_proto"]
 # One feature per ported module; the Makefile enables those in RUST_MODULES.
 utf = []
 net_mplex = []
+net_proto = []
 # Build the original C utf.c into the test binaries and compare it with the port.
 differential = ["utf"]
 

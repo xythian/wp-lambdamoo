@@ -13,6 +13,7 @@ This is an experiment. The default build does not use any of it.
 |--------|----------|-------|
 | `utf`  | `utf.c`  | UTF-8 decode/encode and character/byte index translation (Unicode builds only) |
 | `net_mplex` | `net_mplex.c` | Waiting for network I/O, with `poll()` instead of `select()` (Linux) |
+| `net_proto` | `net_proto.c` (`net_bsd_tcp.c`, `net_tcp.c`) | BSD sockets TCP/IP: command-line options, listening, accepting, outbound connections |
 
 ## Building the server with Rust modules
 
@@ -20,7 +21,7 @@ Configure as usual, then name the modules to take from Rust:
 
 ```sh
 ./configure --enable-sz=i64 --enable-unicode ...
-make RUST_MODULES="utf net_mplex"
+make RUST_MODULES="utf net_mplex net_proto"
 ```
 
 This needs a Rust toolchain (`cargo`, 1.77 or later) and libclang (for
@@ -56,7 +57,7 @@ cd rust && MOO_BUILD_DIR=.. cargo test --release --features differential
 prints rough timings of both versions on a 1 MB string.
 
 The server-level check is the lambdamoo-tests suite run against a server
-built with `make RUST_MODULES="utf net_mplex"`.
+built with `make RUST_MODULES="utf net_mplex net_proto"`.
 
 ## Design notes
 
@@ -91,3 +92,9 @@ built with `make RUST_MODULES="utf net_mplex"`.
   `net_multi.c` knows to find and drop such descriptors. The C
   `MPLEX_STYLE=MP_POLL` code does not, and busy-loops on a closed
   descriptor.
+- The C `proto_open_connection()` bounds `connect()` with a `SIGALRM`
+  timer and `longjmp()`s out of the signal handler when it fires. That
+  cannot cross Rust frames. `net_proto` connects without blocking and
+  waits with `poll()` instead, so `outbound_connect_timeout` is exact
+  rather than rounded to the clock's second, and a timeout of 0 means
+  "only if it connects at once" rather than "always fail".

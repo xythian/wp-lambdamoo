@@ -25,3 +25,13 @@ impl<T> Global<T> {
         unsafe { &mut *self.0.get() }
     }
 }
+
+impl<T: Copy> Global<T> {
+    pub fn get(&self) -> T {
+        *self.get_mut()
+    }
+
+    pub fn set(&self, value: T) {
+        *self.get_mut() = value;
+    }
+}

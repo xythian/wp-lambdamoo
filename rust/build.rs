@@ -43,7 +43,9 @@ fn bindings(manifest: &PathBuf, src: &PathBuf, build: &PathBuf) {
     for header in ["config.h", "options.h"] {
         println!("cargo:rerun-if-changed={}", build.join(header).display());
     }
-    for header in ["structures.h", "exceptions.h", "log.h"] {
+    for header in [
+        "structures.h", "exceptions.h", "log.h", "name_lookup.h", "net_proto.h", "server.h",
+    ] {
         println!("cargo:rerun-if-changed={}", src.join(header).display());
     }
 
@@ -52,10 +54,18 @@ fn bindings(manifest: &PathBuf, src: &PathBuf, build: &PathBuf) {
         .clang_arg(format!("-I{}", build.display()))
         .clang_arg(format!("-I{}", src.display()))
         .use_core()
-        .allowlist_type("Num|UNum|Objid|Var|var_type")
+        .allowlist_type("Num|UNum|Objid|Var|var_type|error|proto|proto_accept_error|server_listener|moo_rs_options")
         .allowlist_function("panic|oklog|errlog|log_perror")
-        .allowlist_var("INT_TYPE_BITSIZE")
-        .rustified_enum("var_type")
+        .allowlist_function("initialize_name_lookup|lookup_addr_from_name|lookup_name_from_addr")
+        .allowlist_function("server_listener_int_option")
+        .allowlist_var("INT_TYPE_BITSIZE|DEFAULT_PORT")
+        .rustified_enum("var_type|proto_accept_error")
+        .constified_enum_module("error")
+        .constified_enum("moo_rs_options")
+        .prepend_enum_name(false)
+        // name_lookup.h's functions take the C library's sockaddr_in.
+        .blocklist_type("sockaddr_in")
+        .raw_line("pub use libc::sockaddr_in;")
         .derive_debug(false)
         .layout_tests(false)
         .generate()

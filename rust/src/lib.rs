@@ -10,6 +10,8 @@ pub mod ffi;
 mod global;
 #[cfg(feature = "net_mplex")]
 pub mod net_mplex;
+#[cfg(feature = "net_proto")]
+pub mod net_proto;
 #[cfg(feature = "utf")]
 pub mod utf;
 
