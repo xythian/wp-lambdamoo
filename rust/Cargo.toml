@@ -1,0 +1,26 @@
+[package]
+name = "moo-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Experimental Rust replacements for parts of the LambdaMOO server"
+publish = false
+
+[lib]
+name = "moo_rs"
+crate-type = ["staticlib"]
+doctest = false
+
+[features]
+# Size of the server's Num type; must match INT_TYPE_BITSIZE in options.h.
+# The Makefile selects one; the link-time check in rust_glue.c catches a mismatch.
+default = ["num64"]
+num64 = []
+num32 = []
+# One feature per ported module; the Makefile enables those in RUST_MODULES.
+
+[profile.release]
+panic = "abort"
+debug = true
+
+[profile.dev]
+panic = "abort"
