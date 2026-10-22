@@ -13,13 +13,13 @@
 //! report it as POLLNVAL and succeed, so the port turns that back into
 //! EBADF.  Readiness is what select() reports for the same poll() events.
 
-use core::cell::UnsafeCell;
 use core::ffi::{c_int, c_uint};
 use core::ptr;
 
 use libc::{nfds_t, pollfd, POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT};
 
 use crate::ffi::server_panic;
+use crate::global::Global;
 
 /// What select() counts as readable and writable (Linux fs/select.c).
 const READABLE: i16 = POLLIN | libc::POLLRDNORM | libc::POLLRDBAND | POLLHUP | POLLERR;
@@ -148,18 +148,10 @@ fn set_errno(err: c_int) {
     unsafe { *libc::__errno_location() = err };
 }
 
-/// The server's one wait set.  The network layer runs on one thread.
-struct Global(UnsafeCell<WaitSet>);
-
-// SAFETY: only the server's main thread calls the mplex functions.
-unsafe impl Sync for Global {}
-
-static WAIT_SET: Global = Global(UnsafeCell::new(WaitSet::new()));
+static WAIT_SET: Global<WaitSet> = Global::new(WaitSet::new());
 
 fn wait_set() -> &'static mut WaitSet {
-    // SAFETY: single-threaded, and no caller holds the reference across
-    // another call into this module.
-    unsafe { &mut *WAIT_SET.0.get() }
+    WAIT_SET.get_mut()
 }
 
 /// Seconds to poll()'s milliseconds, saturating instead of wrapping.

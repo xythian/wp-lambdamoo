@@ -7,6 +7,7 @@
 #![cfg_attr(not(test), no_std)]
 
 pub mod ffi;
+mod global;
 #[cfg(feature = "net_mplex")]
 pub mod net_mplex;
 #[cfg(feature = "utf")]
