@@ -70,6 +70,9 @@ handle:verbs()            instance verb names
 handle:properties()       provider-defined instance property names
 ```
 
+Handles for the same subtype compare equal, so `value.class ==
+bound_type("bytes")` tests a value's subtype.
+
 Every instance has read-only `owner` and `class` properties.  Constructors set
 the owner to the calling programmer.  Provider verbs and properties marked
 `BOUND_OP_PUBLIC` are callable by anyone; otherwise only the owner or a wizard
