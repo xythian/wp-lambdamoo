@@ -119,7 +119,7 @@ LD_R = ld -r
 OBJCOPY = objcopy
 
 ifneq ($(strip $(RUST_MODULES)),)
-RUST_OBJS = rust_glue.o rust_modules.o
+RUST_OBJS = rust_modules.o
 endif
 
 OBJS = $(filter-out $(RUST_MODULES:%=%.o),$(COBJS)) $(YOBJS) keywords.o bf_register.o
@@ -131,13 +131,11 @@ all: moo
 moo:	$(OBJS) $(XT_LOBJS) $(RUST_OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) $(XT_LOBJS) $(RUST_OBJS) $(LIBS) -o $@
 
-# The Rust Num type must match INT_TYPE_BITSIZE; rust_glue.o fails to link if not.
+# build.rs generates the Rust declarations of C types from this tree's headers.
 $(RUST_LIB): FORCE
-	+bits=`printf '#include "structures.h"\nINT_TYPE_BITSIZE\n' | \
-	      $(CC) $(CPPFLAGS) -E -P -x c - | tail -n 1` && \
-	cd $(abs_srcdir)/rust && $(CARGO) build --release --quiet \
+	+cd $(abs_srcdir)/rust && MOO_BUILD_DIR=$(abs_builddir) $(CARGO) build --release --quiet \
 	  --target-dir $(RUST_TARGET_DIR) --no-default-features \
-	  --features "num$$bits $(RUST_MODULES)"
+	  --features "$(RUST_MODULES)"
 
 # The Rust library carries its own copies of libm functions (sqrt, fmod...)
 # that do not set errno.  Linked as an archive, they would quietly replace
@@ -247,7 +245,7 @@ gitclean-all: gitclean distclean-all
 
 clean: clean-keeps-moo clean-keeps-parser clean-keeps-keywords
 	rm -rf $(RUST_TARGET_DIR)
-	rm -f $(OBJS) $(COBJS) rust_glue.o rust_modules.o rust_exports.txt $(DFILES) core \
+	rm -f $(OBJS) $(COBJS) rust_modules.o rust_exports.txt $(DFILES) core \
 	  version_src.h version_make.* \
 	  bf_register.h bf_register.c bf_register.lastrun \
 	  *.gcno *.gcda

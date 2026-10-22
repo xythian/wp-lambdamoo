@@ -6,9 +6,6 @@
 
 #![cfg_attr(not(test), no_std)]
 
-#[cfg(all(feature = "num64", feature = "num32"))]
-compile_error!("enable exactly one of the num64 and num32 features");
-
 pub mod ffi;
 #[cfg(feature = "net_mplex")]
 pub mod net_mplex;

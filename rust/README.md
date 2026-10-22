@@ -23,15 +23,18 @@ Configure as usual, then name the modules to take from Rust:
 make RUST_MODULES="utf net_mplex"
 ```
 
-This needs a Rust toolchain (`cargo`, 1.77 or later). The Makefile reads
-`INT_TYPE_BITSIZE` from the configured headers and builds the library for
-the matching `Num` size; `rust_glue.c` makes a mismatch a link error.
+This needs a Rust toolchain (`cargo`, 1.77 or later) and libclang (for
+example `libclang-dev`). `build.rs` runs bindgen over the configured
+tree's headers (see `wrapper.h`), so `Num`, `Var` and the other C types
+the ports use always match the C build: there is no separate setting for
+the integer size to get wrong.
 
 `make clean` removes the Rust build directory (`rust-target/`) too.
 
 ## Tests
 
-Unit tests:
+Unit tests (these need a configured server tree too, for the bindings;
+`MOO_BUILD_DIR` names it and defaults to the parent directory):
 
 ```sh
 cd rust && cargo test

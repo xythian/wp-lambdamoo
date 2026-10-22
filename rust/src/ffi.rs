@@ -1,34 +1,27 @@
 //! Types and functions shared with the C side of the server.
+//!
+//! The declarations come from the server's own headers (see build.rs), so
+//! `Num`, `Var` and the rest always match the configured C build.
 
 use core::ffi::CStr;
 
-/// The server's `Num` (see structures.h).
-#[cfg(not(feature = "num32"))]
-pub type Num = i64;
-#[cfg(feature = "num32")]
-pub type Num = i32;
+#[allow(non_camel_case_types, non_upper_case_globals, non_snake_case, dead_code)]
+mod bindings {
+    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+}
+
+pub use bindings::*;
 
 pub const NUM_MAX: Num = Num::MAX;
 
-/// Lets rust_glue.c check at link time that `Num` matches the C build.
-#[cfg(not(feature = "num32"))]
-#[no_mangle]
-pub static moo_rs_num_bits_64: u8 = 64;
-#[cfg(feature = "num32")]
-#[no_mangle]
-pub static moo_rs_num_bits_32: u8 = 32;
-
-#[cfg(not(test))]
-extern "C" {
-    fn panic(message: *const core::ffi::c_char) -> !;
-}
+const _: () = assert!(core::mem::size_of::<Num>() * 8 == INT_TYPE_BITSIZE as usize);
 
 /// Shut the server down through its own panic(), which logs, dumps the
 /// database and aborts.
 #[cfg(not(test))]
 pub fn server_panic(message: &CStr) -> ! {
     // SAFETY: panic() takes a NUL-terminated message and never returns.
-    unsafe { panic(message.as_ptr()) }
+    unsafe { bindings::panic(message.as_ptr()) }
 }
 
 /// Unit tests have no server to panic, so unwind and let the test see it.

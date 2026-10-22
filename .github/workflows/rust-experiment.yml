@@ -5,9 +5,9 @@ name: Rust modules (experimental)
 on:
   push:
     branches: [ waterpoint ]
-    paths: [ 'rust/**', 'rust_glue.c', 'Makefile.in', 'utf.c', 'utf.h', 'net_mplex.[ch]', 'net_mp_*.c', '.github/workflows/rust-experiment.yml' ]
+    paths: [ 'rust/**', 'Makefile.in', 'structures.h', 'exceptions.h', 'log.h', 'options.h.in', 'config.h.in', 'utf.c', 'utf.h', 'net_mplex.[ch]', 'net_mp_*.c', '.github/workflows/rust-experiment.yml' ]
   pull_request:
-    paths: [ 'rust/**', 'rust_glue.c', 'Makefile.in', 'utf.c', 'utf.h', 'net_mplex.[ch]', 'net_mp_*.c', '.github/workflows/rust-experiment.yml' ]
+    paths: [ 'rust/**', 'Makefile.in', 'structures.h', 'exceptions.h', 'log.h', 'options.h.in', 'config.h.in', 'utf.c', 'utf.h', 'net_mplex.[ch]', 'net_mp_*.c', '.github/workflows/rust-experiment.yml' ]
 
 permissions:
   contents: read
@@ -38,7 +38,8 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y autoconf make gcc gperf bison \
-          libpcre2-dev libexpat1-dev libunistring-dev libcrypt-dev
+          libpcre2-dev libexpat1-dev libunistring-dev libcrypt-dev \
+          libclang-dev
 
     - name: Install Rust
       run: rustup toolchain install stable --profile minimal && rustup default stable
@@ -67,7 +68,7 @@ jobs:
       working-directory: wp-lambdamoo
       run: |
         make -j"$(nproc)" RUST_MODULES="utf net_mplex"
-        if nm moo | grep -q ' moo_rs_num_bits_64$' && [ ! -e utf.o ] && [ ! -e net_mplex.o ]; then
+        if [ -e rust_modules.o ] && [ ! -e utf.o ] && [ ! -e net_mplex.o ]; then
           echo "utf and net_mplex come from Rust"
         else
           echo "::error::C modules were linked instead of the Rust ports"; exit 1
