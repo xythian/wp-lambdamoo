@@ -310,7 +310,9 @@ bound_equal(BoundValue *a, BoundValue *b, int case_matters)
         return 1;
     if (a->entry != b->entry || a->flags != b->flags)
         return 0;
-    if ((a->flags & (BV_CLASS | BV_OPAQUE)) || !a->entry->def
+    if (a->flags & BV_CLASS)
+        return 1;
+    if ((a->flags & BV_OPAQUE) || !a->entry->def
         || !a->entry->def->equal)
         return 0;
     return a->entry->def->equal(a->payload, b->payload, case_matters);
