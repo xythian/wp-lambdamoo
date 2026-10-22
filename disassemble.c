@@ -371,6 +371,10 @@ disassemble(Program * prog, Printer p, void *data)
 			case TYPE_ERR:
 			    stream_printf(insn, " %s", error_name(v.v.err));
 			    break;
+			case TYPE_FLOAT:
+			    stream_add_char(insn, ' ');
+			    unparse_value(insn, v);
+			    break;
 			default:
 			    stream_printf(insn, " <literal type = %d>",
 					  v.type);
