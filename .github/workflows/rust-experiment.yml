@@ -1,0 +1,88 @@
+name: Rust modules (experimental)
+
+# Builds the server with the Rust ports in rust/ and runs the same tests
+# as the main CI job, plus the C-vs-Rust differential tests.
+on:
+  push:
+    branches: [ waterpoint ]
+    paths: [ 'rust/**', 'rust_glue.c', 'Makefile.in', 'utf.c', 'utf.h', '.github/workflows/rust-experiment.yml' ]
+  pull_request:
+    paths: [ 'rust/**', 'rust_glue.c', 'Makefile.in', 'utf.c', 'utf.h', '.github/workflows/rust-experiment.yml' ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-utf:
+    name: Build with RUST_MODULES=utf and test (Ubuntu 26.04, waterpoint config)
+    runs-on: ubuntu-26.04
+
+    steps:
+    - name: Checkout wp-lambdamoo
+      uses: actions/checkout@v4
+      with:
+        path: wp-lambdamoo
+        fetch-depth: 0
+
+    - name: Checkout lambdamoo-tests
+      uses: actions/checkout@v4
+      with:
+        repository: xythian/lambdamoo-tests
+        path: lambdamoo-tests
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y autoconf make gcc gperf bison \
+          libpcre2-dev libexpat1-dev libunistring-dev libcrypt-dev
+
+    - name: Install Rust
+      run: rustup toolchain install stable --profile minimal && rustup default stable
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: "3.12"
+
+    - name: Configure (waterpoint config)
+      working-directory: wp-lambdamoo
+      run: |
+        autoconf
+        ./configure --enable-sz=i64 --enable-unicode --enable-xml \
+          --enable-waifs=dict --enable-def-BITWISE_OPERATORS
+
+    - name: Rust unit and differential tests
+      working-directory: wp-lambdamoo/rust
+      env:
+        MOO_BUILD_DIR: ${{ github.workspace }}/wp-lambdamoo
+      run: |
+        cargo test --release
+        cargo test --release --features differential
+
+    - name: Build with RUST_MODULES=utf
+      working-directory: wp-lambdamoo
+      run: |
+        make -j"$(nproc)" RUST_MODULES=utf
+        if nm moo | grep -q ' moo_rs_num_bits_64$' && [ ! -e utf.o ]; then
+          echo "utf comes from Rust"
+        else
+          echo "::error::utf.c was linked instead of the Rust port"; exit 1
+        fi
+        # Rust's own libm copies must not stand in for the C library's
+        if nm moo | grep -E ' [tTwW] (sqrt|fmod|pow|exp|log|sin|cos)$'; then
+          echo "::error::the server links Rust's libm functions instead of the C library's"; exit 1
+        fi
+
+    - name: Install test suite
+      working-directory: lambdamoo-tests
+      run: uv sync
+
+    - name: Run lmt tests
+      working-directory: lambdamoo-tests
+      env:
+        MOO_MINIMAL_DB: ${{ github.workspace }}/wp-lambdamoo/Minimal.db
+      run: uv run lmt test --candidate ../wp-lambdamoo/moo -m "not upgrade"
