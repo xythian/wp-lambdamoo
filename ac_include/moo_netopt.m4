@@ -26,7 +26,7 @@ moo_net_do_require=false
 AS_HELP_STRING([[--disable-$1]],[NETWORK_PROTOCOL=NP_SINGLE])
 AS_HELP_STRING([[--enable-$1=KWD[,KWD]]],
 [set all network options])
-[                  tcp, local:  NETWORK_PROTOCOL=NP_*]
+[         tcp, local, session:  NETWORK_PROTOCOL=NP_*]
 [                   bsd, sysv:  NETWORK_STYLE=NS_*]
 [          select, poll, fake:  MPLEX_STYLE=MP_*]
 [   <path>/<file>, '"<file>"':  DEFAULT_CONNECT_FILE=*]
@@ -54,6 +54,8 @@ for moo_kwd in ,x $enableval ; do
     tcp]],    [[moo_d=NETWORK_PROTOCOL; moo_v=NP_TCP]],  [[
     local]],  [[moo_d=NETWORK_PROTOCOL; moo_v=NP_LOCAL
               moo_d_OUTBOUND_NETWORK=no]], [[
+    session]],[[moo_d=NETWORK_PROTOCOL; moo_v=NP_SESSION
+              moo_d_NETWORK_STYLE=NS_BSD]], [[
     bsd]],    [[moo_d=NETWORK_STYLE;    moo_v=NS_BSD]],   [[
     sysv]],   [[moo_d=NETWORK_STYLE;    moo_v=NS_SYSV]],  [[
     select]], [[moo_d=MPLEX_STYLE;      moo_v=MP_SELECT]],[[
@@ -83,6 +85,7 @@ AC_REQUIRE([MOO_NET_FIFO_WORKS])
   moo_net_cv_configs=,
   moo_net_uconfigs=
   _MOO_NET_VIABLE_ADD([],[NP_SINGLE])
+  _MOO_NET_VIABLE_ADD([session],[NP_SESSION/NS_BSD])
 m4_foreach_w([_moo_np],[[TCP] [LOCAL]],
   [m4_foreach_w([_moo_ns],[[BSD] [SYSV]],
 [AS_IF(m4_dquote(m4_indir([_MOO_NET_VIABLE(NP_]_moo_np[/NS_]_moo_ns[)])),
@@ -100,8 +103,8 @@ m4_define([_MOO_NET_VIABLE_ADD],
 [[moo_net_cv_configs="${moo_net_cv_configs}]$2[,"
 moo_net_uconfigs="$moo_net_uconfigs]
 AS_HELP_STRING([[--]m4_ifval([$1],[[enable-net=]$1],[[disable-net]])dnl
-m4_if(m4_index([$1],[tcp]),[-1],[],[[[,out]]])],
-  $2[]m4_if(m4_index([$2],[TCP]),[-1],[],[[ [+ OUTBOUND_NETWORK]]]),[35])"])dnl
+m4_if(m4_index([$1],[tcp])m4_index([$1],[session]),[-1-1],[],[[[,out]]])],
+  $2[]m4_if(m4_index([$2],[TCP])m4_index([$2],[SESSION]),[-1-1],[],[[ [+ OUTBOUND_NETWORK]]]),[35])"])dnl
 
 # ----------------------------------------------------------
 #   viability test logic
@@ -164,7 +167,7 @@ if $moo_net_do_check ; then
     *,$_moo_config,*]],[
       AS_IF([[test $enable_def_OUTBOUND_NETWORK != no]],[
         AS_CASE([[$_moo_config]],[[
-	  *TCP*]],[],
+	  *TCP*|*SESSION*]],[],
           [[_moo_fail="OUTBOUND_NETWORK not allowed for $_moo_config"]])
     ])],[[
       _moo_fail="$_moo_config is not viable"

@@ -334,6 +334,22 @@ There are two classes of command-line arguments for `./configure`
     to get a server with TCP networking, default listener on port
     8888, and `open_network_connection()` enabled by default.
 
+    `--enable-net=session,poll,outoff,require` builds the experimental
+    session backend, which lets a separate edge process keep players
+    connected while the server is restarted or replaced. The edge also
+    opens the ports `listen()` asks for and makes the connections
+    `open_network_connection()` asks for (with `+O`), either one
+    optionally over TLS (a TLS port's certificate comes from files,
+    ACME or the edge's own), and `-t PORT` has it accept TLS clients for
+    `#0`; see [Session_Protocol.md](./Session_Protocol.md).
+
+    On every backend, `connection_info(PLAYER)` returns a list of
+    `{NAME, VALUE}` pairs describing how a connection was made: its
+    `"direction"` (`"inbound"` or `"outbound"`) and `"transport"`, and for
+    TCP its `"local-port"`, `"remote-address"`, `"remote-port"` and, when a
+    name is known, `"remote-host"`. Like `connection_name()`, it is for
+    wizards and the player themselves.
+
   + `--enable-sz`
 
     manages all datatype size options (`INT_TYPE_BITSIZE`,

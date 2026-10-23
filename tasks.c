@@ -2157,6 +2157,32 @@ do_resume(TaskID id, Var value, Objid progr)
     return E_INVARG;
 }
 
+/* Resume a suspended task on the server's behalf, without the permission
+ * check resume() makes; only a task still waiting is resumed.
+ */
+enum error
+resume_waiting_task(TaskID id, Var value)
+{
+    task **tt;
+
+    for (tt = &waiting_tasks; *tt; tt = &((*tt)->next)) {
+	task *t = *tt;
+	tqueue *tq;
+
+	if (t->kind != TASK_SUSPENDED || t->t.suspended.the_vm->task_id != id)
+	    continue;
+	t->t.suspended.start_time = time(0);	/* runnable now */
+	free_var(t->t.suspended.value);
+	t->t.suspended.value = value;
+	tq = find_tqueue(progr_of_cur_verb(t->t.suspended.the_vm), 1);
+	*tt = t->next;
+	ensure_usage(tq);
+	enqueue_bg_task(tq, t);
+	return E_NONE;
+    }
+    return E_INVARG;
+}
+
 static package
 bf_resume(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
 {

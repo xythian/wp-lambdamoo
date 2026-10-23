@@ -68,10 +68,43 @@ extern server_handle server_new_connection(server_listener l,
 				 * the server to some external place, and L is
 				 * NULL_SERVER_LISTENER; if `outbound' is
 				 * false, the L is the listening point on which
-				 * the new connection was received.  By this
+				 * the new connection was received. By this
 				 * call, the network and server exchange tokens
 				 * representing the connection for use in later
 				 * calls on each other.
+				 */
+
+extern void server_listener_failed(server_listener l);
+				/* Called by the session network backend when
+				 * the edge couldn't open a port listen()
+				 * asked for: drop it, as if listen() had
+				 * failed.
+				 */
+
+extern server_handle server_resume_connection(server_listener l,
+					      network_handle h,
+					      Objid player,
+					      Objid listener,
+					      int crashed,
+					      int outbound);
+				/* Attach a network connection to a connection
+				 * recorded in the loaded checkpoint.
+				 */
+
+extern server_handle server_open_connection(Objid listener,
+					    network_handle h,
+					    Objid *connection);
+				/* Called by the session network backend when
+				 * the edge has made a connection that
+				 * open_network_connection() asked for; sets
+				 * CONNECTION to the new connection's object.
+				 */
+
+extern int server_resume_connecting_task(TaskID task, Var value);
+				/* Resume the task waiting in
+				 * open_network_connection() with VALUE (an
+				 * object or an error to raise); false if that
+				 * task no longer exists.
 				 */
 
 extern void server_refuse_connection(server_listener l,

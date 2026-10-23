@@ -9,6 +9,38 @@
 
 static in_addr_t bind_local_ip = INADDR_ANY;
 
+static const char *
+dotted_address(const struct sockaddr_in *addr)
+{
+    static char buffer[16];
+    uint32_t a = ntohl(addr->sin_addr.s_addr);
+
+    sprintf(buffer, "%u.%u.%u.%u",
+	    (unsigned) (a >> 24) & 0xff, (unsigned) (a >> 16) & 0xff,
+	    (unsigned) (a >> 8) & 0xff, (unsigned) a & 0xff);
+    return buffer;
+}
+
+/* The connection_info() entries for a TCP connection.  HOST is the name the
+ * remote end is known by, which is only worth reporting when it isn't just
+ * the dotted address.
+ */
+static Var
+tcp_connection_info(const struct sockaddr_in *local,
+		    const struct sockaddr_in *remote, const char *host)
+{
+    Var info = new_list(0);
+    const char *address = dotted_address(remote);
+
+    info = network_info_add_str(info, "transport", "tcp");
+    info = network_info_add_int(info, "local-port", ntohs(local->sin_port));
+    if (host && strcmp(host, address))
+	info = network_info_add_str(info, "remote-host", host);
+    info = network_info_add_str(info, "remote-address", address);
+    info = network_info_add_int(info, "remote-port", ntohs(remote->sin_port));
+    return info;
+}
+
 const char *
 proto_usage_string(void)
 {

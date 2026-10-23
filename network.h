@@ -103,6 +103,26 @@ extern int network_listen(network_listener nl);
 				 * returning true iff this is now possible.
 				 */
 
+#if NETWORK_PROTOCOL == NP_SESSION
+extern int network_set_listener_tls(network_listener nl,
+				    const char *certificate,
+				    const char *key,
+				    const char *acme);
+				/* Make the listener accept TLS, with the
+				 * given certificate and key files, with a
+				 * certificate the edge gets by ACME for the
+				 * comma-separated names in ACME, or, when
+				 * all are null, with the edge's own.  Called
+				 * before network_listen(); false on failure.
+				 */
+
+extern void network_detach_after_panic(void);
+				/* Detach every session in crash mode, naming
+				 * the panic dump just written so that a server
+				 * loading it can resume them.
+				 */
+#endif
+
 extern int network_send_line(network_handle nh, const char *line,
 			     int flush_ok);
 				/* The given line should be queued for output
@@ -148,8 +168,14 @@ extern void network_suspend_input(network_handle nh);
 
 extern void network_resume_input(network_handle nh);
 				/* The network module may once again feel free
-				 * to call `server_receive_line()' for the
+				 * to call `server_receive_line()` for the
 				 * given connection.
+				 */
+
+extern void network_set_connection_player(network_handle nh,
+				          Objid player, Objid listener);
+				/* Inform a network implementation that a connection
+				 * has acquired its authenticated player identity.
 				 */
 
 extern void network_set_connection_binary(network_handle, int);
@@ -173,6 +199,25 @@ extern const char *network_connection_name(network_handle nh);
 				 * for the specified connection.  It should fit
 				 * into the phrase 'Connection accepted: %s'.
 				 */
+
+extern Var network_connection_info(network_handle nh);
+				/* Return what is known about how the
+				 * connection was made, as a list of
+				 * {NAME, VALUE} pairs: at least "direction"
+				 * ("inbound" or "outbound") and "transport".
+				 * The caller owns the returned reference.
+				 */
+
+extern Var network_info_add(Var info, const char *name, Var value);
+				/* Append {NAME, VALUE} to the connection info
+				 * list INFO, consuming VALUE, and return the
+				 * new list.
+				 */
+
+extern Var network_info_add_str(Var info, const char *name,
+				const char *value);
+extern Var network_info_add_int(Var info, const char *name, Num value);
+				/* Convenience forms of network_info_add(). */
 
 extern Var network_connection_options(network_handle nh,
 				      Var list);
@@ -201,7 +246,22 @@ extern int network_set_connection_option(network_handle nh,
 #ifdef OUTBOUND_NETWORK
 #include "structures.h"
 
+#if NETWORK_PROTOCOL == NP_SESSION
+extern enum error network_request_connection(Var arglist, Objid listener,
+					     int tls, int timeout,
+					     uint32_t *id);
+				/* Ask the edge to connect to the host and
+				 * port in ARGLIST, setting ID.  The server
+				 * suspends the calling task and passes its ID
+				 * to network_request_task(); the network later
+				 * calls server_open_connection() and
+				 * server_resume_connecting_task().
+				 */
+
+extern void network_request_task(uint32_t id, TaskID task);
+#else
 extern enum error network_open_connection(Var arglist, server_listener sl);
+#endif
 				/* The given MOO arguments should be used as a
 				 * specification of a remote network connection
 				 * to be made.  If the arguments are OK and the
