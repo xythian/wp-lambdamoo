@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Keep AI and coding-tool attribution out of commits and pull requests.
+
+A person is the accountable author of every change, so commits carry no
+tool or bot author or committer identity, no Co-Authored-By trailer for a
+tool, no session link and no "Generated with ..." footer, and pull request
+bodies carry no such footer either. Coding agents are often told to add
+these by their harness, and an agent's default git identity is often the
+tool itself, so this is enforced rather than remembered:
+
+  check-attribution commits <range>   fail on a non-merge commit in the range (CI)
+  check-attribution body              fail on a PR body read from stdin (CI)
+  check-attribution strip <file>      remove the lines from a commit message (commit-msg hook)
+  check-attribution author            fail if the configured author is a tool (pre-commit hook)
+
+The hooks are opt-in: git config core.hooksPath scripts/git-hooks
+"""
+
+import re
+import subprocess
+import sys
+
+TOOLS = r"claude|anthropic|copilot|openai|chatgpt|codex|gemini|cursor|aider|devin|jules|\[bot\]"
+
+# Lines that are attribution and nothing else; strip removes them.
+LINES = [
+    re.compile(rf"^\s*Co-Authored-By:.*({TOOLS})", re.I),
+    re.compile(r"^\s*Claude-Session:", re.I),
+    re.compile(r"^[\W_]*Generated (with|by) \[?(Claude|Copilot|Cursor|Codex|Gemini|Aider|Jules)", re.I),
+    re.compile(r"^\s*https://claude\.ai/code/session_\S*\s*$", re.I),
+]
+# Anywhere in a text: a link to an agent session.
+ANYWHERE = [re.compile(r"claude\.ai/code/session_", re.I)]
+AUTHOR = re.compile(rf"noreply@anthropic\.com|^({TOOLS})\b|\[bot\]", re.I)
+
+
+def findings(text):
+    out = []
+    for n, line in enumerate(text.splitlines(), 1):
+        if any(p.search(line) for p in LINES) or any(p.search(line) for p in ANYWHERE):
+            out.append(f"line {n}: {line.strip()}")
+    return out
+
+
+def strip(text):
+    kept = [l for l in text.split("\n") if not any(p.search(l) for p in LINES)]
+    while len(kept) > 1 and kept[-1].strip() == "" and kept[-2].strip() in ("", "---"):
+        kept.pop()
+        if kept[-1].strip() == "---":
+            kept.pop()
+    return "\n".join(kept).rstrip("\n") + "\n"
+
+
+def git(*args):
+    return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+
+
+def cmd_commits(rng):
+    bad = 0
+    for sha in git("rev-list", "--no-merges", rng).split():
+        an, ae, cn, ce = git("log", "-1", "--format=%an%x00%ae%x00%cn%x00%ce", sha).strip().split("\0")
+        problems = []
+        if AUTHOR.search(ae) or AUTHOR.search(an):
+            problems.append(f"author {an} <{ae}>")
+        if AUTHOR.search(ce) or AUTHOR.search(cn):
+            problems.append(f"committer {cn} <{ce}>")
+        problems += findings(git("log", "-1", "--format=%B", sha))
+        for p in problems:
+            print(f"{sha[:10]}: {p}")
+        bad += bool(problems)
+    if bad:
+        print(f"\n{bad} commit(s) carry tool attribution. A person is the author of every change: "
+              "re-author them (git rebase --exec 'git commit --amend --no-edit --reset-author' with "
+              "your own user.name/user.email set) and drop the trailers, then force-push the branch.")
+    return 1 if bad else 0
+
+
+def cmd_body():
+    problems = findings(sys.stdin.read())
+    for p in problems:
+        print(f"PR body {p}")
+    if problems:
+        print("\nThe PR body carries tool attribution; edit it out.")
+    return 1 if problems else 0
+
+
+def cmd_strip(path):
+    with open(path) as f:
+        text = f.read()
+    new = strip(text)
+    if new != text:
+        with open(path, "w") as f:
+            f.write(new)
+        print("check-attribution: removed tool attribution lines from the commit message", file=sys.stderr)
+    return 0
+
+
+def cmd_author():
+    ident = git("var", "GIT_AUTHOR_IDENT")
+    if AUTHOR.search(ident):
+        print(f"check-attribution: the commit author is {ident.rsplit('>', 1)[0]}>. A person is the "
+              "author of every change: set git config user.name and user.email to your own.",
+              file=sys.stderr)
+        return 1
+    return 0
+
+
+def main(argv):
+    if len(argv) >= 2 and argv[0] == "commits":
+        return cmd_commits(argv[1])
+    if argv == ["body"]:
+        return cmd_body()
+    if len(argv) == 2 and argv[0] == "strip":
+        return cmd_strip(argv[1])
+    if argv == ["author"]:
+        return cmd_author()
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

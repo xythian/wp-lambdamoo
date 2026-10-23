@@ -1,0 +1,3 @@
+#!/bin/sh
+# Drop tool attribution trailers from the message (scripts/check-attribution).
+exec python3 "$(git rev-parse --show-toplevel)/scripts/check-attribution" strip "$1"
