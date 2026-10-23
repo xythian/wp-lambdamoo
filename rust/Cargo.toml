@@ -1,0 +1,34 @@
+[package]
+name = "moo-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Experimental Rust replacements for parts of the LambdaMOO server"
+publish = false
+
+[lib]
+name = "moo_rs"
+crate-type = ["staticlib"]
+doctest = false
+
+[features]
+default = ["utf", "net_mplex", "net_proto"]
+# One feature per ported module; the Makefile enables those in RUST_MODULES.
+utf = []
+net_mplex = []
+net_proto = []
+# Build the original C utf.c into the test binaries and compare it with the port.
+differential = ["utf"]
+
+[dependencies]
+libc = { version = "0.2", default-features = false }
+
+[build-dependencies]
+bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
+cc = "1"
+
+[profile.release]
+panic = "abort"
+debug = true
+
+[profile.dev]
+panic = "abort"

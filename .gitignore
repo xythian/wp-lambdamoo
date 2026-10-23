@@ -32,3 +32,6 @@ moo
 *~
 *.gcno
 *.gcda
+rust/target
+rust-target
+rust_exports.txt
