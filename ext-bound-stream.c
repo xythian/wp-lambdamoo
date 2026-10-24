@@ -116,6 +116,22 @@ moo_character_encoding(void)
 #endif
 }
 
+/* True if iconv can convert between ENCODING and the server's encoding
+ * in both directions, as append_text() and string() need.
+ */
+static int
+valid_encoding(const char *encoding)
+{
+    Stream *scratch = new_stream(1);
+    int ok = stream_add_recoded_chars(scratch, "", 0, moo_character_encoding(),
+                                      encoding)
+        && stream_add_recoded_chars(scratch, "", 0, encoding,
+                                    moo_character_encoding());
+
+    free_stream(scratch);
+    return ok;
+}
+
 static enum error
 append_binary_value(Stream *out, Var v)
 {
@@ -393,6 +409,10 @@ bound_stream_construct(Var args, Objid progr)
     if (nargs > 1 || (nargs == 1 && args.v.list[1].type != TYPE_STR)) {
         free_var(args);
         return make_error_pack(nargs > 1 ? E_ARGS : E_TYPE);
+    }
+    if (nargs == 1 && !valid_encoding(args.v.list[1].v.str)) {
+        free_var(args);
+        return make_error_pack(E_INVARG);
     }
     s = mymalloc(sizeof(*s), M_BOUND_XTRA);
     s->open = new_stream(32);
