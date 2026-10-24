@@ -19,6 +19,7 @@ typedef enum error (*bound_prop_handler)(BoundValue *bound, Var *value,
 
 typedef struct BoundEncoder BoundEncoder;
 typedef struct BoundDecoder BoundDecoder;
+typedef struct BoundHasher BoundHasher;
 
 typedef struct {
     size_t length;
@@ -56,7 +57,7 @@ typedef struct BoundTypeDef {
     enum error (*decode)(unsigned schema, BoundDecoder *in, void **payload);
     size_t (*bytes)(void *payload);
     int (*equal)(void *lhs, void *rhs, int case_matters);
-    void (*hash)(void *payload, Stream *out);
+    void (*hash)(void *payload, BoundHasher *out);
     enum error (*output)(void *payload, const char **bytes, size_t *length,
                          void **token, void (**release)(void *));
     enum error (*byte_source)(void *payload, BoundByteSource *source);
@@ -82,11 +83,12 @@ extern unsigned bound_encoder_add_ref(BoundEncoder *, Var);
 extern const void *bound_decoder_bytes(BoundDecoder *, size_t *);
 extern unsigned bound_decoder_ref_count(BoundDecoder *);
 extern enum error bound_decoder_ref(BoundDecoder *, unsigned, Var *);
+extern void bound_hasher_write(BoundHasher *, const void *, size_t);
 
 extern void free_bound(BoundValue *);
 extern int bound_equal(BoundValue *, BoundValue *, int);
 extern int bound_bytes(BoundValue *);
-extern void bound_hash(BoundValue *, Stream *);
+extern void bound_hash_literal(BoundValue *, Stream *);
 extern void bound_tostr(BoundValue *, Stream *);
 extern void bound_toliteral(BoundValue *, Stream *);
 

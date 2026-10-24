@@ -248,10 +248,10 @@ bytes_equal(void *left, void *right, int case_matters)
 }
 
 static void
-bytes_hash(void *payload, Stream *out)
+bytes_hash(void *payload, BoundHasher *out)
 {
     ByteStore *s = payload;
-    stream_add_bytes(out, s->data, s->length);
+    bound_hasher_write(out, s->data, s->length);
 }
 
 static enum error

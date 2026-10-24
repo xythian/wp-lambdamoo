@@ -77,6 +77,12 @@ disable_stream_exceptions(void)
     --allow_stream_exceptions;
 }
 
+size_t
+stream_size_limit(void)
+{
+    return allow_stream_exceptions > 0 ? stream_alloc_maximum : SIZE_MAX;
+}
+
 static int
 grew(Stream * s, size_t need)
 {

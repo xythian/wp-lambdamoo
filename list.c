@@ -998,24 +998,32 @@ bf_value_bytes(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr 
     return make_var_pack(r);
 }
 
+/* Finishes CONTEXT and returns its digest as 32 uppercase hex digits. */
 static const char *
-hash_bytes(const char *input, size_t length)
+md5_hex(md5ctx_t * context)
 {
-    md5ctx_t context;
     uint8_t result[16];
     int i;
     const char digits[] = "0123456789ABCDEF";
     char *hex = str_dup("12345678901234567890123456789012");
     const char *answer = hex;
 
-    md5_Init(&context);
-    md5_Update(&context, (uint8_t *) input, length);
-    md5_Final(&context, result);
+    md5_Final(context, result);
     for (i = 0; i < 16; i++) {
 	*hex++ = digits[result[i] >> 4];
 	*hex++ = digits[result[i] & 0xF];
     }
     return answer;
+}
+
+static const char *
+hash_bytes(const char *input, size_t length)
+{
+    md5ctx_t context;
+
+    md5_Init(&context);
+    md5_Update(&context, (uint8_t *) input, length);
+    return md5_hex(&context);
 }
 
 static package
@@ -1041,6 +1049,83 @@ bf_string_hash(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr 
     return p;
 }
 
+static void
+hash_scalar(Stream * s, Var v)
+{
+#ifdef BOUND_CORE
+    if (v.type == TYPE_BOUND)
+	bound_hash_literal(v.v.bound, s);
+    else
+#endif
+	unparse_scalar(s, v);
+}
+
+/* Feeds S to CONTEXT and empties it, raising stream_too_big once the
+ * running *TOTAL reaches the length at which one stream holding all of
+ * it would have.
+ */
+static void
+hash_flush(md5ctx_t * context, Stream * s, size_t * total)
+{
+    size_t length = stream_length(s);
+
+    *total += length;
+    if (*total >= stream_size_limit())
+	RAISE(stream_too_big, 0);
+    md5_Update(context, (uint8_t *) stream_contents(s), length);
+    reset_stream(s);
+}
+
+#define HASH_CHUNK 4096
+
+/* value_hash(): the MD5 of V's literal form, as unparse_value() would
+ * write it, fed to MD5 a piece at a time through the scratch stream S so
+ * the whole literal is never held in memory.  The result, and the length
+ * at which it raises stream_too_big, are the same as hashing
+ * unparse_value()'s output, except that a bound value anywhere inside V
+ * contributes bound_hash_literal() rather than its literal form.
+ */
+static const char *
+hash_value(Stream * s, Var v)
+{
+    static Walk_Stack ws;
+    md5ctx_t context;
+    size_t total = 0;
+
+    md5_Init(&context);
+    if (v.type != TYPE_LIST)
+	hash_scalar(s, v);
+    else {
+	/* A stream_too_big exception can leave frames from an earlier call. */
+	ws.depth = 0;
+	stream_add_char(s, '{');
+	walk_push(&ws, v, zero, 0);
+	while (ws.depth > 0) {
+	    Walk_Frame *f = &ws.frames[ws.depth - 1];
+	    Var c;
+
+	    if (stream_length(s) >= HASH_CHUNK)
+		hash_flush(&context, s, &total);
+	    if (f->i == f->a.v.list[0].v.num) {
+		stream_add_char(s, '}');
+		ws.depth--;
+		continue;
+	    }
+	    if (f->i > 0)
+		stream_add_string(s, ", ");
+	    c = f->a.v.list[++f->i];
+	    if (c.type == TYPE_LIST) {
+		stream_add_char(s, '{');
+		walk_push(&ws, c, zero, 0);
+	    } else
+		hash_scalar(s, c);
+	}
+	walk_release(&ws);
+    }
+    hash_flush(&context, s, &total);
+    return md5_hex(&context);
+}
+
 static package
 bf_value_hash(volatile Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 {
@@ -1048,13 +1133,7 @@ bf_value_hash(volatile Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Obji
     Stream *volatile s = new_stream(100);
 
     TRY_STREAM {
-#ifdef BOUND_CORE
-        if (arglist.v.list[1].type == TYPE_BOUND)
-            bound_hash(arglist.v.list[1].v.bound, s);
-        else
-#endif
-	unparse_value(s, arglist.v.list[1]);
-	p = make_string_pack(hash_bytes(stream_contents(s), stream_length(s)));
+	p = make_string_pack(hash_value(s, arglist.v.list[1]));
     }
     EXCEPT (stream_too_big) {
 	p = make_space_pack();
