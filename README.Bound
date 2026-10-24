@@ -91,6 +91,26 @@ reference counting, `tostr()`, `toliteral()`, `value_bytes()`, equality, and
 `value_hash()`.  Providers may choose content equality and hashing or leave
 instances identity-only.
 
+### `value_hash()`
+
+`value_hash(v)` is the MD5 of `v`'s literal form, except that each bound value
+anywhere inside `v` contributes `[[bound NAME DIGEST]]` in place of its
+literal, where `NAME` is the canonical subtype name and `DIGEST` is the MD5,
+in 32 uppercase hex digits, of the bytes its provider's `hash` hook writes.
+Type handles, unavailable (opaque) values and subtypes without a `hash` hook
+contribute their literal, `[[bound NAME]]`. For a value with no bound value
+inside it, `value_hash(v) == string_hash(toliteral(v))`, exactly as in builds
+without bound values. For example:
+
+```
+value_hash(bound_type("bytes"):new("hi"))
+    == string_hash("[[bound bytes " + string_hash("hi") + "]]")
+value_hash({1, b})  == string_hash("{1, [[bound bytes " + ... + "]]}")
+```
+
+The value is hashed as it is walked, without building its literal, and
+raises `E_QUOTA` at the same length `toliteral()` would.
+
 ## Provider interface
 
 Providers declare a static `BoundTypeDef` from `bound.h` and register it during
@@ -127,7 +147,7 @@ register_example(void)
 ```
 
 `register_bound_type()` requires a nonempty name plus `encode` and `decode`
-hooks, and rejects duplicate names.  Names are matched case-insensitively and
+hooks, requires `hash` when `equal` is present, and rejects duplicate names.  Names are matched case-insensitively and
 the registry retains the provider definition for the life of the server.
 
 The main hooks are:
@@ -143,8 +163,11 @@ The main hooks are:
   `bound_decoder_bytes()` and `bound_decoder_ref()`. The provider uses the
   saved schema number to migrate or reject older representations.
 - `bytes(payload)` reports provider-owned memory for `value_bytes()`.
-- `equal(lhs, rhs, case_matters)` and `hash(payload, stream)` provide matching
-  content semantics.  If `equal` is absent, distinct instances are unequal.
+- `equal(lhs, rhs, case_matters)` and `hash(payload, hasher)` provide matching
+  content semantics: `hash` feeds the content to `bound_hasher_write()`, in as
+  many calls as it likes. If `equal` is absent, distinct instances are unequal.
+  A provider with `equal` must also have `hash`. See "Provider conformance
+  requirements" below.
 - `output(...)` returns an immutable contiguous byte view plus a retention
   token and release callback. Consumers may safely retain the view independently
   of the bound value.
@@ -230,7 +253,9 @@ its `decode` hook to bind existing opaque instances.
 ## Immutable bytes
 
 `bytes` owns an immutable sequence of octets.  Distinct byte values compare by
-content and produce matching `value_hash()` results.
+content and produce matching `value_hash()` results: the `hash` hook writes the
+octets, so `value_hash(b)` is
+`string_hash("[[bound bytes " + binary_hash(b:binary_string()) + "]]")`.
 
 Construction accepts any number of recursively encoded values:
 
@@ -403,6 +428,93 @@ b = s:seal();
 return {s.sealed, b.length, b:string()};
 /* => {1, 5, "hello"} */
 ```
+
+## Provider conformance requirements
+
+A provider is conforming when it meets every requirement below. "Must" is a
+requirement; "should" is a strong recommendation with a stated exception. The
+core checks only the first two; nothing else is checked at run time, so a
+provider that breaks the rest misbehaves silently, often only after a
+database round trip.
+
+### Registration
+
+1. A provider must supply a nonempty `name`, `encode` and `decode`, and must
+   supply `hash` if it supplies `equal`. `register_bound_type()` rejects
+   anything else.
+2. The name is matched case-insensitively and must be unique.
+3. The name is written into every database holding the subtype, so it must
+   never be reused for a different representation. Change the format with
+   `schema_version`, not by renaming.
+
+### Equality and `value_hash()`
+
+4. `equal` must be an equivalence relation (reflexive, symmetric, transitive)
+   that depends only on the two payloads, and must give the same answer each
+   time it is asked while neither value changes.
+5. If `equal(a, b, 1)` is true, the bytes `hash` writes for `a` and for `b`
+   must be the same sequence. How the bytes are split across
+   `bound_hasher_write()` calls does not matter. Values that are unequal
+   should hash differently, but they may collide.
+6. `value_hash()` is case-sensitive, so `hash` must agree with
+   `equal(..., 1)`. If `equal(..., 0)` ignores case, `hash` must not.
+7. What `hash` writes must depend only on content, and be the same on every
+   platform, build and restart: no pointers, padding, uninitialized memory,
+   host byte order or host-sized integers. MOO code stores `value_hash()`
+   results, often in the database, so changing what `hash` writes for an
+   existing value, including through a schema migration, changes stored
+   hashes and needs the same care as a database format change.
+8. A mutable subtype should be identity-only (no `equal` or `hash`), as
+   `stream` is: content equality on mutable state makes a value's hash change
+   while code holds it. If it does compare by content, `hash` must follow
+   the current content and the subtype's documentation must say so.
+9. `equal` and `hash` must not raise, suspend, call MOO code, or create or
+   free MOO values.
+
+### Persistence
+
+10. `encode` must write a portable format (fixed widths and byte order) and
+    must record every MOO value the payload holds through
+    `bound_encoder_add_ref()`, never by copying it into the blob, so aliases
+    survive a reload.
+11. `decode` must accept every `schema_version` the provider has ever written,
+    or fail for it explicitly, so the value is kept opaque instead of being
+    misread.
+12. `decode` must treat the blob and references as untrusted input: check
+    every length and index against `bound_decoder_bytes()` and
+    `bound_decoder_ref_count()`, and fail instead of reading past them.
+13. A decoded value must be `equal` to the one encoded, hash the same, and
+    behave the same through the subtype's verbs and properties.
+
+### Memory and references
+
+14. `destroy` must release everything the payload owns, including the `Var`s
+    it obtained from `bound_decoder_ref()`, and `bytes` should report what the
+    payload owns so `value_bytes()` and quotas see it.
+15. Values are reference counted, not traced. A provider must not let a
+    payload reach itself through the values it holds unless it also has a way
+    to break the cycle; otherwise the cycle is never freed.
+
+### Byte views, sources and input
+
+16. A view from `output` or a source from `byte_source` must stay valid and
+    unchanged until its release callback runs, even if the bound value is
+    freed first. A mutable subtype must not offer either over state that can
+    still change; `stream` offers no output view and gives a byte source only
+    once it is sealed.
+17. `input` must append whole input items or nothing, and report the bytes it
+    accepted.
+
+### Verbs and properties
+
+18. Any verb or property that changes a value must not be `BOUND_OP_PUBLIC`,
+    so only the owner or a wizard can change it.
+19. A verb that fails must leave the value unchanged and report an error code
+    (for example `E_INVARG` or `E_RANGE`), never panic. Check argument types,
+    ranges and encodings before changing anything.
+20. Providers do not control `tostr()` or `toliteral()`. The core writes
+    `{bound NAME}` and `[[bound NAME]]` so that neither can expose payload
+    bytes.
 
 ## Current boundary
 

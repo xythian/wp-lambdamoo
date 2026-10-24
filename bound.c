@@ -222,7 +222,8 @@ register_bound_type(const BoundTypeDef *def)
     BoundRegistryEntry *e;
     BoundValue *v;
 
-    if (!def || !def->name || !*def->name || !def->decode || !def->encode)
+    if (!def || !def->name || !*def->name || !def->decode || !def->encode
+        || (def->equal && !def->hash))
         return 0;
     e = find_or_create_entry(def->name);
     if (e->def)
