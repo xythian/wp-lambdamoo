@@ -329,6 +329,12 @@ dbio_read_var_value(intmax_t vtype, Var *vp)
 	if (!dbio_read_bound(vp))
 	    goto bad_value;
 	break;
+#else
+    case _TYPE_BOUND:
+	dbio_last_error = "Bound value in a server built without bound values";
+	errlog("DBIO_READ_VAR: Bound value at DB file pos. %ld, but this "
+	       "server was built without --enable-bound\n", ftell(input));
+	goto bad_value;
 #endif
 
     default:

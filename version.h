@@ -61,11 +61,7 @@ typedef enum {
     Num_DB_Versions		/* Special: the current version is this - 1. */
 } DB_Version;
 
-#ifdef BOUND_CORE
-#define current_db_version DBV_Bound
-#else
-#define current_db_version DBV_BFBugFixed
-#endif
+#define current_db_version	((DB_Version) (Num_DB_Versions - 1))
 
 extern int check_db_version(DB_Version);
 				/* Returns true iff given version is within the
