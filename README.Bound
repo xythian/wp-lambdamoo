@@ -312,6 +312,8 @@ s = bound_type("stream"):new();          /* UTF-8 */
 s = bound_type("stream"):new("UTF-16LE");
 ```
 
+An encoding that the server cannot convert to and from raises `E_INVARG`.
+
 Before this API is considered stable, the constructor is intended to grow
 without changing the meaning of its existing first argument:
 
