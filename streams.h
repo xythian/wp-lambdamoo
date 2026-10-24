@@ -36,6 +36,7 @@ extern Stream *new_stream(size_t size);
 extern void free_stream(Stream *);
 
 extern char *stream_contents(Stream *);
+extern char *stream_detach(Stream *, size_t *);
 extern size_t stream_length(Stream *);
 extern int32_t stream_last_byte(Stream *s);
 
@@ -161,6 +162,7 @@ extern void enable_stream_exceptions(void);
 extern void disable_stream_exceptions(void);
 extern size_t stream_alloc_maximum;
 extern Exception stream_too_big;
+extern size_t stream_size_limit(void);
 /*
  * Calls to enable_stream_exceptions() and disable_stream_exceptions()
  * must be paired and nest properly.
@@ -168,6 +170,11 @@ extern Exception stream_too_big;
  * If enable_stream_exceptions() is in effect, then, upon any
  * attempt to grow a stream beyond stream_alloc_maximum bytes,
  * a stream_too_big exception will be raised.
+ *
+ * stream_size_limit() returns the length at which a stream would raise
+ * stream_too_big now: stream_alloc_maximum while exceptions are enabled,
+ * otherwise SIZE_MAX.  Code that produces output in pieces rather than in
+ * one stream can check its running total against it.
  */
 
 #endif		/* !Streams_H */

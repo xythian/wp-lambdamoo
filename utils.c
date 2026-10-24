@@ -25,6 +25,7 @@
 #include <iconv.h>
 #include <errno.h>
 
+#include "bound.h"
 #include "db.h"
 #include "db_io.h"
 #include "exceptions.h"
@@ -267,6 +268,12 @@ complex_free_var(Var v)
 	    free_contents(v);
 	break;
 #endif
+#ifdef BOUND_CORE
+    case TYPE_BOUND:
+	if (delref(v.v.bound) == 0)
+	    free_bound(v.v.bound);
+	break;
+#endif
 
     }
 }
@@ -292,6 +299,11 @@ complex_var_ref(Var v)
 #ifdef WAIF_CORE
     case TYPE_WAIF:
 	addref(v.v.waif);
+	break;
+#endif
+#ifdef BOUND_CORE
+    case TYPE_BOUND:
+	addref(v.v.bound);
 	break;
 #endif
 
@@ -327,6 +339,12 @@ complex_var_dup(Var v)
 #ifdef WAIF_CORE
     case TYPE_WAIF:
 	v.v.waif = dup_waif(v.v.waif);
+	break;
+#endif
+#ifdef BOUND_CORE
+    case TYPE_BOUND:
+	addref(v.v.bound);
+	break;
 #endif
 
     }
@@ -347,6 +365,10 @@ var_refcount(Var v)
 #if FLOATS_ARE_BOXED
     case TYPE_FLOAT:
 	return refcount(v.v.fnum);
+#endif
+#ifdef BOUND_CORE
+    case TYPE_BOUND:
+	return refcount(v.v.bound);
 #endif
     default:
 	return 1;
@@ -398,6 +420,10 @@ equality(Var lhs, Var rhs, int case_matters)
 	case TYPE_WAIF:
 	    /* compare them or assert same-waif? */
 	    return lhs.v.waif == rhs.v.waif;
+#endif
+#ifdef BOUND_CORE
+	case TYPE_BOUND:
+	    return bound_equal(lhs.v.bound, rhs.v.bound, case_matters);
 #endif
 
 	default:
@@ -591,6 +617,11 @@ own_bytes(Var v)
 #ifdef WAIF_CORE
     case TYPE_WAIF:
 	size += waif_bytes(v.v.waif);
+	break;
+#endif
+#ifdef BOUND_CORE
+    case TYPE_BOUND:
+	size += bound_bytes(v.v.bound);
 	break;
 #endif
 

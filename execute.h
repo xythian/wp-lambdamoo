@@ -91,8 +91,12 @@ extern enum error call_verb(Objid obj, const char *vname, Var args,
 /* if your vname is already a moo str (via str_dup) then you can
    use this interface instead */
 extern enum error call_verb2(Objid obj, const char *vname
-			     WAIF_COMMA_ARG(Var THIS),
-			     Var args, int do_pass);
+                             WAIF_COMMA_ARG(Var THIS),
+                             Var args, int do_pass);
+
+extern void enter_non_suspending(void);
+extern void leave_non_suspending(void);
+extern int task_can_suspend(void);
 
 extern int setup_activ_for_eval(Program * prog);
 

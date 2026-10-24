@@ -30,6 +30,7 @@
 #include "my-string.h"
 #include <errno.h>
 
+#include "bound.h"
 #include "exceptions.h"
 #include "list.h"
 #include "log.h"
@@ -322,6 +323,18 @@ dbio_read_var_value(intmax_t vtype, Var *vp)
 	if (!dbio_read_waif(vp))
 	    goto bad_value;
 	break;
+#endif
+#ifdef BOUND_CORE
+    case _TYPE_BOUND:
+	if (!dbio_read_bound(vp))
+	    goto bad_value;
+	break;
+#else
+    case _TYPE_BOUND:
+	dbio_last_error = "Bound value in a server built without bound values";
+	errlog("DBIO_READ_VAR: Bound value at DB file pos. %ld, but this "
+	       "server was built without --enable-bound\n", ftell(input));
+	goto bad_value;
 #endif
 
     default:
@@ -739,6 +752,11 @@ write_scalar(Var v)
 #ifdef WAIF_CORE
     case TYPE_WAIF:
 	dbio_write_waif(v);
+	break;
+#endif
+#ifdef BOUND_CORE
+    case TYPE_BOUND:
+	dbio_write_bound(v);
 	break;
 #endif
 

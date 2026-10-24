@@ -122,6 +122,9 @@ extern int network_send_line(network_handle nh, const char *line,
 extern int network_send_bytes(network_handle nh,
 			      const char *buffer, size_t buflen,
 			      int flush_ok);
+extern int network_send_bytes_line(network_handle nh,
+                                   const char *buffer, size_t buflen,
+                                   int flush_ok);
 				/* The first BUFLEN bytes in the given BUFFER
 				 * should be queued for output on the specified
 				 * connection.  If FLUSH_OK is true, then the
