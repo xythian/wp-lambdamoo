@@ -44,8 +44,11 @@ Bound support is disabled by default.  Configure it with one of:
 `stream` implies `core`, and `struct` implies `stream`. `yes` and `all`
 currently select the stream provider; select `struct` explicitly to build the
 structured-byte cursor prototype.
-A build with `--disable-bound` retains the pre-bound database version and
-rejects databases using the bound-value format.
+Every build, with or without bound values, writes database format
+`DBV_Bound` and reads every earlier format. Format versions only increase, so
+any later format must also be readable by builds without bound values. A build
+with `--disable-bound` loads a `DBV_Bound` database that holds no bound values
+and refuses, with a log message saying why, one that holds any.
 
 ## MOO interface
 
