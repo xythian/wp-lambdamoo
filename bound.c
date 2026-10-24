@@ -12,6 +12,7 @@
 #include "exceptions.h"
 #include "list.h"
 #include "log.h"
+#include "md5.h"
 #include "ref_count.h"
 #include "storage.h"
 #include "tasks.h"
@@ -37,6 +38,10 @@ typedef struct BoundEnvelope {
     Var *refs;
     unsigned ref_count;
 } BoundEnvelope;
+
+struct BoundHasher {
+    md5ctx_t context;
+};
 
 struct BoundEncoder {
     Stream *blob;
@@ -332,13 +337,49 @@ bound_bytes(BoundValue *v)
 }
 
 void
-bound_hash(BoundValue *v, Stream *s)
+bound_hasher_write(BoundHasher *h, const void *data, size_t length)
 {
+    const uint8_t *p = data;
+
+    while (length > 0) {
+        unsigned n = length > UINT_MAX ? UINT_MAX : (unsigned) length;
+
+        md5_Update(&h->context, (uint8_t *) p, n);
+        p += n;
+        length -= n;
+    }
+}
+
+/* Appends what value_hash() hashes in place of V's literal form:
+ * "[[bound NAME DIGEST]]", where DIGEST is the MD5, in uppercase hex, of
+ * the bytes the provider's hash hook writes.  Handles, opaque values and
+ * subtypes without a hook append "[[bound NAME]]", which is also their
+ * literal form.  The digest gives every bound value a fixed-length
+ * contribution, so the hash of a list holding several cannot be
+ * produced by a different split of the same bytes.
+ */
+void
+bound_hash_literal(BoundValue *v, Stream *s)
+{
+    static const char digits[] = "0123456789ABCDEF";
+    BoundHasher h;
+    uint8_t digest[16];
+    int i;
+
+    stream_add_string(s, "[[bound ");
     stream_add_string(s, v->entry->name);
-    stream_add_char(s, ':');
     if (!(v->flags & (BV_CLASS | BV_OPAQUE))
-        && v->entry->def && v->entry->def->hash)
-        v->entry->def->hash(v->payload, s);
+        && v->entry->def && v->entry->def->hash) {
+        md5_Init(&h.context);
+        v->entry->def->hash(v->payload, &h);
+        md5_Final(&h.context, digest);
+        stream_add_char(s, ' ');
+        for (i = 0; i < 16; i++) {
+            stream_add_char(s, digits[digest[i] >> 4]);
+            stream_add_char(s, digits[digest[i] & 0xF]);
+        }
+    }
+    stream_add_string(s, "]]");
 }
 
 void
