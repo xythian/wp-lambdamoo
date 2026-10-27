@@ -90,6 +90,68 @@ only when moving to a new tag.
    first release on the new base `server_version()` reports no `+wp.N`
    (see `Version_Source.md`).
 
+## Upstream fixes carried ahead of a release
+
+Fixes land on upstream's `dev` branch some time before they appear in a
+release.  When one matters to us we take it early rather than wait, as
+upstream's own commit (author and message intact) so that step 2 above
+drops it wholesale once a release carries it.  These are the ones on the
+branch now, in series order:
+
+| commit | what |
+|---|---|
+| `1419569` | `log_command_history()` dereferenced a null `command_history` inside `panic()` |
+| `d1222f7` | `NumNum`/`UNumNum` were 64-bit in the INT16 build |
+| `02fe437` | emergency mode's bootstrap wizard got a garbage `.owner` |
+| `d6cbddf` | emergency `quit`/`abort` skipped `network_shutdown()`, orphaning the `NET_LOCAL` socket |
+| `7bbf288` | non-Unicode `get_utf()` sign-extended bytes >= 0x80, so a trailing 0xFF read as `EOF` |
+| `d167aca`, `df39f4f`, `c741e3c` | prerequisites of `8e9596e`, not wanted for themselves |
+| `8e9596e` | `call_function()` leaked continuation state on tail calls and on killed suspended tasks |
+| `698e275` | `min()`/`max()` leaked a reference on type mismatch in boxed-float builds |
+| `31a3c72` | a dump whose `fflush`/`fsync`/`fclose` failed was renamed over the live database |
+| `b1829b1` | `isspace()`/`isdigit()` on plain `char` in `db_io.c` and `db_verbs.c` |
+| `fbd7e9e` | the `net_single.c` half only; the `net_multi.c` half is ours, in "Fix ways a task could hang the whole server" |
+| `7d9d129` | `CodingStyle.md` |
+
+### Deliberately not carried
+
+Reconsider each at the next release rather than before it:
+
+- The build-system series on `dev` (`ax_lp`, `ax_xt`, `ax_subst_pp`,
+  `f3ceb7d`'s gnulib `AM_ICONV` macros, `68eb5c4`, `305a96d`).  No
+  runtime effect, and it arrives with the release.
+- Upstream's unit-test harness (`92a5124`, `bbd8f96`, `4ca16d2`) and the
+  three fixes that are only visible under it (`da547f8`, `7179e8e`,
+  `9f29bb6`).  Worth revisiting once a release includes the harness.
+- `c6698ca` (gperf 3.0 compat), `256fbf6`, `da83c32`, `8c26827`,
+  `4a3e0f5`: portability we don't currently need.
+- `5c50680` (split `pcre.h`/`pcre2.h` configure checks) and `9e074b4`
+  (`pattern_*` style), both of which touch code our PCRE2 commits
+  rewrote.
+- `468292a` (empty initial database file), `53b5724` (`regexp` group in
+  `server_version()`), `1181aa8` (`myrealloc()` in `grew()`),
+  `f646a04` (`str(r)index()` returning `Num`): features and hygiene, not
+  fixes.
+
+### Divergences to settle at the next release
+
+Both of these fix a bug we had already fixed differently, so they will
+conflict and one approach has to be chosen:
+
+- `e2553da` vs our "Fix server panic on ranges that end at the largest
+  integer".  Upstream shifts the whole from-after window, treating
+  `after == NUM_MIN` as `NUM_MAX+1`, across `execute.c`, `list.c`,
+  `list.h` and `utf.[ch]`, and documents the API; we clamp with
+  `range_after()`.  Theirs is the more thorough treatment; expect to drop
+  ours for it.
+- `9bc5e2e` vs our "Skip unmatched groups in substitute()".  Ours skips
+  `start == 0`, the `{0, -1}` unmatched group that was the actual bug;
+  theirs skips `start > end`, which also short-circuits an empty match.
+  Same defect covered either way.
+
+Also note that `bae10bf` makes ylo-plus-Unicode a `configure` error,
+which meets our "Use PCRE2 for match() and rmatch() in every build".
+
 ## Open pull requests
 
 For a PR whose branch was based on commit `B` of the old series, find
