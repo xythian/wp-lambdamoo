@@ -364,7 +364,8 @@ unparse_value(Stream * s, Var v)
 	if (c.type == TYPE_LIST) {
 	    stream_add_char(s, '{');
 	    walk_push(&ws, c, zero, 0);
-	} else
+	}
+	else
 	    unparse_scalar(s, c);
     }
     walk_release(&ws);
@@ -1130,7 +1131,7 @@ bf_decode_binary(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid prog
  * time proportional to the result rather than to the number of paths.
  */
 static int
-encode_list(Stream * s, Var v, int (*encode_scalar)(Stream *, Var))
+encode_list(Stream * s, Var v, int (*encode_scalar) (Stream *, Var))
 {
     static Walk_Stack ws;
     static Visit_Set written;
@@ -1165,7 +1166,8 @@ encode_list(Stream * s, Var v, int (*encode_scalar)(Stream *, Var))
 		ok = 0;
 		break;
 	    }
-	} else if (written.count && (seen = visit_find(&written, c.v.list, 0)))
+	}
+	else if (written.count && (seen = visit_find(&written, c.v.list, 0)))
 	    stream_add_copy(s, seen->x, seen->y);
 	else
 	    walk_push(&ws, c, zero, stream_length(s));

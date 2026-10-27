@@ -430,7 +430,8 @@ small_list_equality(Var lhs, Var rhs, int case_matters, int depth,
 					 budget);
 	    if (result != 1)
 		return result;
-	} else if (!equality(l, r, case_matters))
+	}
+	else if (!equality(l, r, case_matters))
 	    return 0;
     }
     return 1;
@@ -476,7 +477,8 @@ list_equality(Var lhs, Var rhs, int case_matters)
 		|| (equal.count && visit_find(&equal, l.v.list, r.v.list)))
 		continue;
 	    walk_push(&ws, l, r, 0);
-	} else if (!equality(l, r, case_matters)) {
+	}
+	else if (!equality(l, r, case_matters)) {
 	    result = 0;
 	    break;
 	}
@@ -619,7 +621,8 @@ small_list_bytes(Var v, int depth, int *budget)
 	    if (n == 0)
 		return 0;
 	    size += n;
-	} else if (walk_has_children(c))
+	}
+	else if (walk_has_children(c))
 	    return 0;
 	else
 	    size += own_bytes(c);

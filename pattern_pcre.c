@@ -66,8 +66,9 @@ const char *translate(const char *moopat)
      */
 
     /* wrap entire expression so we can add callouts at the start and end;
-       PCRE skips over the start callout when looking for anchoring and
-       other start-of-match optimizations */
+     * PCRE skips over the start callout when looking for anchoring and
+     * other start-of-match optimizations
+     */
     stream_add_string(s, "(?C" START_CALLOUT_STR ")(?:");
 
     while ((c = get_utf(&moopat))) {

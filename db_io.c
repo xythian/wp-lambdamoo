@@ -374,7 +374,8 @@ read_list(Var *vp)
 	    *slot = new_list(len);
 	    f->i++;
 	    walk_push(&ws, *slot, zero, 0);
-	} else if (dbio_read_var_value(vtype, slot))
+	}
+	else if (dbio_read_var_value(vtype, slot))
 	    f->i++;
 	else {
 	    ok = 0;
@@ -787,7 +788,8 @@ dbio_write_var(Var v)
 	if (c.type == TYPE_LIST) {
 	    write_list_header(c);
 	    walk_push(&ws, c, zero, 0);
-	} else
+	}
+	else
 	    write_scalar(c);
     }
     walk_free(&ws);
