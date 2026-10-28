@@ -453,6 +453,11 @@ on the `./configure` command line.
 The 1.9.0 release includes the following optional extensions and
 associated new options
 
+* `--enable-ast`
+  adds `ast_parse()`, `ast_unparse()` and `ast_info()`, which expose the
+  server's parser and unparser with programs as nested lists; the tree
+  format is specified in [AST.md](./AST.md).
+
 * `--enable-unicode`
   adds Unicode support (below) with new options
   `UNICODE_IDENTIFIERS` and `UNICODE_NUMBERS`.

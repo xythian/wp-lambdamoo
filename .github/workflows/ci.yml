@@ -121,15 +121,16 @@ jobs:
 
   # The other supported configs, so a change can't quietly break a build
   # Waterpoint doesn't run: i32 checks integer width, default has none of
-  # the optional features, i64_unicode has Unicode without the rest, and
-  # unitext has the unitext extension without Unicode.
+  # the optional features, i64_unicode has Unicode without the rest,
+  # unitext has the unitext extension without Unicode, and i64_ast has the
+  # ast extension without Unicode or bitwise operators.
   config-matrix:
     name: Build and test (Ubuntu 26.04, ${{ matrix.config }} config)
     runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
-        config: [ i32, default, i64_unicode, unitext ]
+        config: [ i32, default, i64_unicode, unitext, i64_ast ]
 
     steps:
     - name: Checkout wp-lambdamoo

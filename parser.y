@@ -67,7 +67,33 @@ static void	resume_loop_scope(void);
 enum loop_exit_kind { LOOP_BREAK, LOOP_CONTINUE };
 
 static void	check_loop_name(const char *, enum loop_exit_kind);
+
+/* byacc with %locations otherwise passes the location to yyerror() */
+#define YYERROR_CALL(msg) yyerror(msg)
+
+#if AST_BUILTINS
+/* Every rule's node takes the line of the rule's first token. */
+#define YYLLOC_DEFAULT(Cur, Rhs, N)					\
+    do {								\
+	if (N) {							\
+	    (Cur).first_line = YYRHSLOC(Rhs, 1).first_line;		\
+	    (Cur).last_line = YYRHSLOC(Rhs, N).last_line;		\
+	} else								\
+	    (Cur).first_line = (Cur).last_line =			\
+		YYRHSLOC(Rhs, 0).last_line;				\
+	(Cur).first_column = (Cur).last_column = 0;			\
+	ast_line = (Cur).first_line;					\
+    } while (0)
+#define SET_LINE(node, loc)	((node)->line = (loc).first_line)
+
+static int	keep_unknown_builtins;
+#else
+#define SET_LINE(node, loc)	((void) 0)
+#define keep_unknown_builtins	0
+#endif
 %}
+
+%locations
 
 %union {
   Stmt	       *stmt;
@@ -284,6 +310,8 @@ elseifs:
 		{
 		    Cond_Arm *this_arm = alloc_cond_arm($4, $6);
 
+		    SET_LINE(this_arm, @2);
+
 		    if ($1) {
 		        Cond_Arm *tmp = $1;
 
@@ -305,7 +333,10 @@ elsepart:
 
 excepts:
 	  tEXCEPT except
-		{ $$ = $2; }
+		{
+		    SET_LINE($2, @1);
+		    $$ = $2;
+		}
 	| excepts tEXCEPT
 		{
 		    Except_Arm *tmp = $1;
@@ -327,6 +358,7 @@ excepts:
 		    while (tmp->next)
 			tmp = tmp->next;
 
+		    SET_LINE($4, @2);
 		    tmp->next = $4;
 		    $$ = $1;
 		}
@@ -477,7 +509,13 @@ expr:
 			fname->e.var.v.str = $1;
 			a->next = $3;
 			warning("Unknown built-in function: ", $1);
-			$$->e.call.func = number_func_by_name("call_function");
+			/* A lenient parse keeps the name for the AST builtins,
+			 * as FUNC_NOT_FOUND with the name as first argument;
+			 * such a tree is never compiled.
+			 */
+			$$->e.call.func = (keep_unknown_builtins
+					   ? FUNC_NOT_FOUND
+					   : number_func_by_name("call_function"));
 			$$->e.call.args = a;
 		    } else {
 			$$->e.call.func = f_no;
@@ -673,6 +711,8 @@ ne_arglist:
 		{
 		    Arg_List *this_arg = alloc_arg_list(ARG_SPLICE, $4);
 
+		    SET_LINE(this_arg, @3);
+
 		    if ($1) {
 			Arg_List *tmp = $1;
 
@@ -701,13 +741,17 @@ scatter:
 		}
 	| scatter ',' tID
 		{
-		    $$ = add_scatter_item($1, alloc_scatter(SCAT_REQUIRED,
-							    find_id($3), 0));
+		    Scatter    *sc = alloc_scatter(SCAT_REQUIRED, find_id($3), 0);
+
+		    SET_LINE(sc, @3);
+		    $$ = add_scatter_item($1, sc);
 		}
 	| scatter ',' '@' tID
 		{
-		    $$ = add_scatter_item($1, alloc_scatter(SCAT_REST,
-							    find_id($4), 0));
+		    Scatter    *sc = alloc_scatter(SCAT_REST, find_id($4), 0);
+
+		    SET_LINE(sc, @3);
+		    $$ = add_scatter_item($1, sc);
 		}
 	| scatter_item
 		{   $$ = $1;  }
@@ -730,6 +774,42 @@ static int		lineno, nerrors, must_rename_keywords;
 static Parser_Client	client;
 static void	       *client_data;
 static Names	       *local_names;
+
+#if AST_BUILTINS
+/* While set, errors and warnings are collected here as
+ * {severity, line, message} instead of going to the client.
+ */
+static Var	       *diagnostics;
+
+static Var
+str_var(const char *s)
+{
+    Var v;
+
+    v.type = TYPE_STR;
+    v.v.str = str_dup(s);
+    return v;
+}
+
+static void
+add_diagnostic(const char *severity, const char *s, const char *t)
+{
+    Var d = new_list(3);
+
+    d.v.list[1] = str_var(severity);
+    d.v.list[2].type = TYPE_INT;
+    d.v.list[2].v.num = lineno;
+    if (t) {
+	Stream *str = new_stream(100);
+
+	stream_printf(str, "%s%s", s, t);
+	d.v.list[3] = str_var(stream_contents(str));
+	free_stream(str);
+    } else
+	d.v.list[3] = str_var(s);
+    *diagnostics = listappend(*diagnostics, d);
+}
+#endif
 
 static int
 find_id(char *name)
@@ -764,6 +844,12 @@ static void
 error(const char *s, const char *t)
 {
     nerrors++;
+#if AST_BUILTINS
+    if (diagnostics) {
+	add_diagnostic("error", s, t);
+	return;
+    }
+#endif
     (*(client.error))(client_data, fmt_error(s, t));
 }
 
@@ -782,6 +868,12 @@ internal_error(const char *s)
 static void
 warning(const char *s, const char *t)
 {
+#if AST_BUILTINS
+    if (diagnostics && keep_unknown_builtins) {
+	add_diagnostic("warning", s, t);
+	return;
+    }
+#endif
     if (client.warning)
 	(*(client.warning))(client_data, fmt_error(s, t));
     else
@@ -887,6 +979,8 @@ start_over:
 	if (c == '\n') lineno++;
     } while (c != EOF && my_isspace(c));
 
+    yylloc.first_line = yylloc.last_line = lineno;
+
     if (c == EOF)
         return c;
 
@@ -900,6 +994,8 @@ start_over:
 		    if (c == '/')
 			goto start_over;
 		}
+		if (c == '\n')
+		    lineno++;
 		if (c == EOF) {
 		    yyerror("End of program while in a comment");
 		    return c;
@@ -1081,6 +1177,9 @@ scatter_from_arglist(Arg_List *a)
 	    *scp = alloc_scatter(a->kind == ARG_NORMAL ? SCAT_REQUIRED
 						       : SCAT_REST,
 				 a->expr->e.id, 0);
+#if AST_BUILTINS
+	    (*scp)->line = a->expr->line;
+#endif
 	    anext = a->next;
 	    dealloc_node(a->expr);
 	    dealloc_node(a);
@@ -1201,11 +1300,12 @@ check_loop_name(const char *name, enum loop_exit_kind kind)
 
 extern int yyparse(void);
 
-Program *
-parse_program(DB_Version version, Parser_Client c, void *data)
+/* Parse into prog_start and local_names; returns true if there were no
+ * errors, otherwise local_names is already freed.
+ */
+static int
+parse_tree(DB_Version version, Parser_Client c, void *data)
 {
-    Program    *prog;
-
     if (token_stream == 0)
 	token_stream = new_stream(1024);
     unget_count = 0;
@@ -1268,19 +1368,29 @@ parse_program(DB_Version version, Parser_Client c, void *data)
 		}
 	    }
 	}
-
-	prog = generate_code(prog_start, version);
-	prog->num_var_names = local_names->size;
-	prog->var_names = local_names->names;
-
-	myfree(local_names, M_NAMES);
-	free_stmt(prog_start);
-
-	return prog;
+	return 1;
     } else {
 	free_names(local_names);
 	return 0;
     }
+}
+
+Program *
+parse_program(DB_Version version, Parser_Client c, void *data)
+{
+    Program    *prog;
+
+    if (!parse_tree(version, c, data))
+	return 0;
+
+    prog = generate_code(prog_start, version);
+    prog->num_var_names = local_names->size;
+    prog->var_names = local_names->names;
+
+    myfree(local_names, M_NAMES);
+    free_stmt(prog_start);
+
+    return prog;
 }
 
 struct parser_state {
@@ -1338,6 +1448,36 @@ parse_list_as_program(Var code, Var *errors)
 
     return program;
 }
+
+#if AST_BUILTINS
+
+int
+parse_list_as_tree(Var code, int lenient, Var *diags,
+		   Stmt **tree, Names **names)
+{
+    struct parser_state	state;
+    int			ok;
+
+    state.code = code;
+    state.cur_string = 1;
+    state.cur_char = 0;
+    state.errors = new_list(0);
+    *diags = new_list(0);
+    diagnostics = diags;
+    keep_unknown_builtins = lenient;
+    ok = parse_tree(current_db_version, list_parser_client, &state);
+    diagnostics = 0;
+    keep_unknown_builtins = 0;
+    free_var(state.errors);
+
+    if (ok) {
+	*tree = prog_start;
+	*names = local_names;
+    }
+    return ok;
+}
+
+#endif
 
 
 /*
