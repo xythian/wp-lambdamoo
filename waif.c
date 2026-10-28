@@ -40,6 +40,7 @@ static waif_count_type waif_count = 0;
 
 #define PROP_MAPPED(Mmap, Mbit)	((Mmap)[(Mbit) / 32] & (1u << ((Mbit) % 32)))
 #define MAP_PROP(Mmap, Mbit) (Mmap)[(Mbit) / 32] |= 1u << ((Mbit) % 32)
+#define UNMAP_PROP(Mmap, Mbit) (Mmap)[(Mbit) / 32] &= ~(1u << ((Mbit) % 32))
 #define N_MAPPABLE_PROPS (WAIF_MAPSZ * 32)
 
 static int
@@ -401,6 +402,29 @@ alloc_propval_offset(Waif *w, int idx)
 	myfree(w->propvals, M_WAIF_XTRA);
     w->propvals = newpv;
     return result;
+}
+
+/* Clear the mapped property PIDX, whose value is at offset IDX, by
+ * unmapping it and dropping its slot from the propval array.
+ */
+static void
+free_propval_offset(Waif *w, int pidx, int idx)
+{
+    Var *oldpv = w->propvals;
+    Var cleared = oldpv[idx];
+    Var *newpv;
+    int i, cnt;
+
+    UNMAP_PROP(w->u.pmap, pidx);
+    cnt = count_waif_propvals(w);
+    newpv = alloc_waif_propvals(w, 0);
+    for (i = 0; i < idx; ++i)
+	newpv[i] = oldpv[i];
+    for (; i < cnt; ++i)
+	newpv[i] = oldpv[i + 1];
+    myfree(oldpv, M_WAIF_XTRA);
+    w->propvals = newpv;
+    free_var(cleared);
 }
 
 /* When class object properties change, waifs are not immediately updated.
@@ -793,6 +817,101 @@ waif_put_prop(Waif *w, const char *name, Var val, Objid progr)
 	 */
 	idx = alloc_propval_offset(w, pdef_idx);
 	w->propvals[idx] = var_ref(val);
+    }
+    return E_NONE;
+}
+
+/* Shared lookup for the clear-property built-ins: prefix NAME, find
+ * its offsets in W, and return the class's propdef for it.
+ */
+static enum error
+find_waif_propdef(Waif *w, const char *name, int *idx, int *pidx,
+		  db_prop_handle *h)
+{
+    static Stream *s;
+
+    if (!valid(w->class))
+	return E_INVIND;
+
+    if (!s)
+	s = new_stream(50);
+    stream_add_char(s, WAIF_PROP_PREFIX);
+    stream_add_string(s, name);
+    name = reset_stream(s);
+
+    *idx = find_propval_offset(w, name, pidx);
+    if (*idx == -2)
+	return E_PROPNF;
+
+    *h = db_find_property(w->class, name, NULL);
+    if (!h->ptr)
+	panic("waif propdef update failed in find_waif_propdef");
+    else if (h->built_in != BP_NONE)
+	panic("built-in property beginning with WAIF_PROP_PREFIX?!");
+    return E_NONE;
+}
+
+static int
+waif_builtin_prop(const char *name)
+{
+    return (!mystrcasecmp(name, "owner") || !mystrcasecmp(name, "class")
+	    || !mystrcasecmp(name, "wizard"));
+}
+
+enum error
+waif_is_clear_prop(Waif *w, const char *name, int *clear, Objid progr)
+{
+    db_prop_handle h;
+    int idx, pidx;
+    enum error e;
+
+    update_waif_propdefs(w);
+
+    if (waif_builtin_prop(name)) {
+	*clear = 0;
+	return E_NONE;
+    }
+    if ((e = find_waif_propdef(w, name, &idx, &pidx, &h)) != E_NONE)
+	return e;
+    if (!waif_property_allows(w, h, progr, PF_READ))
+	return E_PERM;
+
+    *clear = (idx == -1 || w->propvals[idx].type == TYPE_CLEAR);
+    return E_NONE;
+}
+
+/* Clearing a waif property follows clear_property() on objects: only
+ * the property's owner (waif.owner for +c properties) or a wizard may
+ * do it, whatever the property's +w flag says.  A waif never defines
+ * its own properties, so there is no E_INVARG case.
+ */
+enum error
+waif_clear_prop(Waif *w, const char *name, Objid progr)
+{
+    db_prop_handle h;
+    int idx, pidx;
+    enum error e;
+    Objid owner;
+
+    update_waif_propdefs(w);
+
+    if (waif_builtin_prop(name))
+	return E_PERM;
+    if ((e = find_waif_propdef(w, name, &idx, &pidx, &h)) != E_NONE)
+	return e;
+
+    owner = ((db_property_flags(h) & PF_CHOWN)
+	     ? w->owner : db_property_owner(h));
+    if (progr != owner && !is_wizard(progr))
+	return E_PERM;
+
+    if (idx == -1)
+	return E_NONE;		/* unmapped, so already clear */
+    if (pidx < N_MAPPABLE_PROPS)
+	free_propval_offset(w, pidx, idx);
+    else {
+	free_var(w->propvals[idx]);
+	w->propvals[idx].type = TYPE_CLEAR;
     }
     return E_NONE;
 }

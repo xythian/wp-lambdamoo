@@ -22,6 +22,14 @@
 #include "list.h"
 #include "storage.h"
 #include "utils.h"
+#include "waif.h"
+
+/* The built-ins that take an object or a waif check the type themselves. */
+#ifdef WAIF_CORE
+#  define PROP_HOLDER_TYPE TYPE_ANY
+#else
+#  define PROP_HOLDER_TYPE TYPE_OBJ
+#endif
 
 struct prop_data {
     Var r;
@@ -249,32 +257,42 @@ bf_delete_prop(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
 	return make_error_pack(e);
 }
 
-static package
-bf_clear_prop(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
-{				/* (object, prop-name) */
-    Objid oid = arglist.v.list[1].v.obj;
-    const char *pname = arglist.v.list[2].v.str;
+static enum error
+clear_prop(Objid oid, const char *pname, Objid progr)
+{
     db_prop_handle h;
     Var value;
-    enum error e;
 
     if (!valid(oid))
-	e = E_INVARG;
-    else {
-	h = db_find_property(oid, pname, 0);
-	if (!h.ptr)
-	    e = E_PROPNF;
-	else if (h.built_in
-		 || (progr != db_property_owner(h) && !is_wizard(progr)))
-	    e = E_PERM;
-	else if (h.definer == oid)
-	    e = E_INVARG;
-	else {
-	    value.type = TYPE_CLEAR;
-	    db_set_property_value(h, value);
-	    e = E_NONE;
-	}
-    }
+	return E_INVARG;
+    h = db_find_property(oid, pname, 0);
+    if (!h.ptr)
+	return E_PROPNF;
+    else if (h.built_in
+	     || (progr != db_property_owner(h) && !is_wizard(progr)))
+	return E_PERM;
+    else if (h.definer == oid)
+	return E_INVARG;
+    value.type = TYPE_CLEAR;
+    db_set_property_value(h, value);
+    return E_NONE;
+}
+
+static package
+bf_clear_prop(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
+{				/* (object-or-waif, prop-name) */
+    Var holder = arglist.v.list[1];
+    const char *pname = arglist.v.list[2].v.str;
+    enum error e;
+
+    if (holder.type == TYPE_OBJ)
+	e = clear_prop(holder.v.obj, pname, progr);
+#ifdef WAIF_CORE
+    else if (holder.type == TYPE_WAIF)
+	e = waif_clear_prop(holder.v.waif, pname, progr);
+#endif
+    else
+	e = E_TYPE;
 
     free_var(arglist);
     if (e == E_NONE)
@@ -283,35 +301,46 @@ bf_clear_prop(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
 	return make_error_pack(e);
 }
 
-static package
-bf_is_clear_prop(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
-{				/* (object, prop-name) */
-    Objid oid = arglist.v.list[1].v.obj;
-    const char *pname = arglist.v.list[2].v.str;
-    Var r;
+static enum error
+is_clear_prop(Objid oid, const char *pname, int *clear, Objid progr)
+{
     db_prop_handle h;
-    enum error e;
 
     if (!valid(oid))
-	e = E_INVARG;
-    else {
-	h = db_find_property(oid, pname, 0);
-	if (!h.ptr)
-	    e = E_PROPNF;
-	else if (!h.built_in && !db_property_allows(h, progr, PF_READ))
-	    e = E_PERM;
-	else {
-	    r.type = TYPE_INT;
-	    r.v.num = (!h.built_in && db_property_value(h).type == TYPE_CLEAR);
-	    e = E_NONE;
-	}
-    }
+	return E_INVARG;
+    h = db_find_property(oid, pname, 0);
+    if (!h.ptr)
+	return E_PROPNF;
+    else if (!h.built_in && !db_property_allows(h, progr, PF_READ))
+	return E_PERM;
+    *clear = (!h.built_in && db_property_value(h).type == TYPE_CLEAR);
+    return E_NONE;
+}
+
+static package
+bf_is_clear_prop(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
+{				/* (object-or-waif, prop-name) */
+    Var holder = arglist.v.list[1];
+    const char *pname = arglist.v.list[2].v.str;
+    int clear;
+    Var r;
+    enum error e;
+
+    if (holder.type == TYPE_OBJ)
+	e = is_clear_prop(holder.v.obj, pname, &clear, progr);
+#ifdef WAIF_CORE
+    else if (holder.type == TYPE_WAIF)
+	e = waif_is_clear_prop(holder.v.waif, pname, &clear, progr);
+#endif
+    else
+	e = E_TYPE;
 
     free_var(arglist);
-    if (e == E_NONE)
-	return make_var_pack(r);
-    else
+    if (e != E_NONE)
 	return make_error_pack(e);
+    r.type = TYPE_INT;
+    r.v.num = clear;
+    return make_var_pack(r);
 }
 
 void
@@ -327,9 +356,9 @@ register_property(void)
     (void) register_function("delete_property", 2, 2, bf_delete_prop,
 			     TYPE_OBJ, TYPE_STR);
     (void) register_function("clear_property", 2, 2, bf_clear_prop,
-			     TYPE_OBJ, TYPE_STR);
+			     PROP_HOLDER_TYPE, TYPE_STR);
     (void) register_function("is_clear_property", 2, 2, bf_is_clear_prop,
-			     TYPE_OBJ, TYPE_STR);
+			     PROP_HOLDER_TYPE, TYPE_STR);
 }
 
 
