@@ -108,14 +108,45 @@ COBJS = $(COMMON_CSRCS:.c=.o) $(XT_CSRCS:.c=.o)
 
 YOBJS = $(YSRCS:.y=.o)
 
-OBJS = $(COBJS) $(YOBJS) keywords.o bf_register.o
+# Experimental: replace C modules with the Rust ports in rust/, e.g.
+#     make RUST_MODULES=utf
+# Each name drops NAME.o and links NAME from rust/ instead (see rust/README.md).
+RUST_MODULES =
+CARGO = cargo
+RUST_TARGET_DIR = $(abs_builddir)/rust-target
+RUST_LIB = $(RUST_TARGET_DIR)/release/libmoo_rs.a
+LD_R = ld -r
+OBJCOPY = objcopy
+
+ifneq ($(strip $(RUST_MODULES)),)
+RUST_OBJS = rust_modules.o
+endif
+
+OBJS = $(filter-out $(RUST_MODULES:%=%.o),$(COBJS)) $(YOBJS) keywords.o bf_register.o
 
 DFILES = $(OBJS:.o=.d) $(CLIENT_CSRCS:.c=.d)
 
 all: moo
 
-moo:	$(OBJS) $(XT_LOBJS)
-	$(CC) $(LDFLAGS) $(OBJS) $(XT_LOBJS) $(LIBS) -o $@
+moo:	$(OBJS) $(XT_LOBJS) $(RUST_OBJS)
+	$(CC) $(LDFLAGS) $(OBJS) $(XT_LOBJS) $(RUST_OBJS) $(LIBS) -o $@
+
+# build.rs generates the Rust declarations of C types from this tree's headers.
+$(RUST_LIB): FORCE
+	+cd $(abs_srcdir)/rust && MOO_BUILD_DIR=$(abs_builddir) $(CARGO) build --release --quiet \
+	  --target-dir $(RUST_TARGET_DIR) --no-default-features \
+	  --features "$(RUST_MODULES)"
+
+# The Rust library carries its own copies of libm functions (sqrt, fmod...)
+# that do not set errno.  Linked as an archive, they would quietly replace
+# the C library's for the whole server.  So pull in only what the ported
+# modules need and keep only their C entry points global.
+rust_modules.o: $(RUST_LIB)
+	nm -A -g --defined-only $(RUST_LIB) 2>/dev/null | \
+	  sed -n 's/^[^:]*:moo_rs-[^:]*: *[0-9a-f]* [A-Z] \([A-Za-z][A-Za-z0-9_]*\)$$/\1/p' \
+	  >rust_exports.txt
+	$(LD_R) -o $@ `sed 's/^/-u /' rust_exports.txt` $(RUST_LIB)
+	$(OBJCOPY) --keep-global-symbols=rust_exports.txt $@
 
 pure_moo: moo
 	purify $(CC) $(CFLAGS) $(OBJS) $(XT_LOBJS) $(LIBS) -o $@
@@ -213,7 +244,8 @@ distclean-all: distclean
 gitclean-all: gitclean distclean-all
 
 clean: clean-keeps-moo clean-keeps-parser clean-keeps-keywords
-	rm -f $(OBJS) $(DFILES) core \
+	rm -rf $(RUST_TARGET_DIR)
+	rm -f $(OBJS) $(COBJS) rust_modules.o rust_exports.txt $(DFILES) core \
 	  version_src.h version_make.* \
 	  bf_register.h bf_register.c bf_register.lastrun \
 	  *.gcno *.gcda
