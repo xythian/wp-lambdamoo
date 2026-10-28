@@ -469,8 +469,9 @@ associated new options
   adds text builtins that matter mostly for Unicode strings:
   `string_width()` (a string's display width in terminal columns),
   `graphemes()` (a string split into user-perceived characters),
-  `normalize()` (Unicode normalization forms) and `casefold()` (full
-  case folding).
+  `normalize()` (Unicode normalization forms), `casefold()` (full
+  case folding), and `char_category()` and `char_script()` (a
+  character's General Category and Script).
   They work without `--enable-unicode` too, treating every character as
   one ASCII character.  With Unicode they need `--with-uclib=gnu` or `icu`.
 

@@ -14,6 +14,7 @@
 #if !UNICODE_STRINGS
 #elif UNICODE_DATA == UD_GNU
 #  include <unicase.h>
+#  include <unictype.h>
 #  include <unigbrk.h>
 #  include <uninorm.h>
 #  include <uniwidth.h>
@@ -21,6 +22,7 @@
 #  include <unicode/ubrk.h>
 #  include <unicode/uchar.h>
 #  include <unicode/unorm2.h>
+#  include <unicode/uscript.h>
 #  include <unicode/ustring.h>
 #  include <unicode/utext.h>
 #else
@@ -406,10 +408,111 @@ bf_casefold(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNU
     return p;
 }
 
+/*------------------------------*
+ |   character category/script  |
+ *------------------------------*/
+
+/*  The character of a one-character string, or 0 for any other string.
+ */
+static uint32_t
+only_char(const char *s)
+{
+    uint32_t ucs = get_utf(&s);
+    return *s ? 0 : ucs;
+}
+
+#if !UNICODE_STRINGS
+/*  General categories of the ASCII punctuation and symbols, from
+ *  '!' (0x21) through '~' (0x7e); letters and digits are blank here.
+ */
+static const char *const ascii_category[] = {
+    "Po", "Po", "Po", "Sc", "Po", "Po", "Po", "Ps",	/* !"#$%&'( */
+    "Pe", "Po", "Sm", "Po", "Pd", "Po", "Po",		/* )*+,-./  */
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,			/* 0-9      */
+    "Po", "Po", "Sm", "Sm", "Sm", "Po", "Po",		/* :;<=>?@  */
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,		/* A-Z      */
+    "Ps", "Po", "Pe", "Sk", "Pc", "Sk",			/* [\]^_`   */
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,		/* a-z      */
+    "Ps", "Sm", "Pe", "Sm",				/* {|}~     */
+};
+#endif
+
+/*  The two-letter Unicode General Category of x, e.g. "Lu".
+ */
+static const char *
+char_category(uint32_t x)
+{
+#if !UNICODE_STRINGS
+    if (isupper(x))
+	return "Lu";
+    if (islower(x))
+	return "Ll";
+    if (isdigit(x))
+	return "Nd";
+    if (x == ' ')
+	return "Zs";
+    if (x > ' ' && x < 0x7f)
+	return ascii_category[x - '!'];
+    return "Cc";
+
+#elif UNICODE_DATA == UD_GNU
+    return uc_general_category_name(uc_general_category(x));
+
+#elif UNICODE_DATA == UD_ICU
+    return u_getPropertyValueName(UCHAR_GENERAL_CATEGORY, u_charType(x),
+				  U_SHORT_PROPERTY_NAME);
+
+#endif
+}
+
+/*  The Unicode Script of x, e.g. "Latin", "Common" or "Unknown".
+ */
+static const char *
+char_script(uint32_t x)
+{
+#if !UNICODE_STRINGS
+    return isalpha(x) ? "Latin" : "Common";
+
+#elif UNICODE_DATA == UD_GNU
+    const uc_script_t *script = uc_script(x);
+    return script ? script->name : "Unknown";
+
+#elif UNICODE_DATA == UD_ICU
+    UErrorCode err = U_ZERO_ERROR;
+    UScriptCode code = uscript_getScript(x, &err);
+    return U_FAILURE(err) ? "Unknown" : uscript_getName(code);
+
+#endif
+}
+
+static package
+bf_char_category(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
+{
+    uint32_t ucs = only_char(arglist.v.list[1].v.str);
+    free_var(arglist);
+    if (!ucs)
+	return make_error_pack(E_INVARG);
+    return make_string_pack(str_dup(char_category(ucs)));
+}
+
+static package
+bf_char_script(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
+{
+    uint32_t ucs = only_char(arglist.v.list[1].v.str);
+    free_var(arglist);
+    if (!ucs)
+	return make_error_pack(E_INVARG);
+    return make_string_pack(str_dup(char_script(ucs)));
+}
+
 void
 register_unitext(void)
 {
     register_function("casefold", 1, 1, bf_casefold, TYPE_STR);
+    register_function("char_category", 1, 1, bf_char_category, TYPE_STR);
+    register_function("char_script", 1, 1, bf_char_script, TYPE_STR);
     register_function("graphemes", 1, 1, bf_graphemes, TYPE_STR);
     register_function("normalize", 1, 2, bf_normalize, TYPE_STR, TYPE_STR);
     register_function("string_width", 1, 1, bf_string_width, TYPE_STR);
