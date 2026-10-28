@@ -129,6 +129,18 @@ $(expat_dir)/xmlparse/libexpat.a:
 	$(MAKE) -C $(expat_dir) xmlparse/libexpat.a
 END
 
+##==================
+%%extension unitext
+##==================
+  %disabled
+  %? Unicode text functions:
+
+  --enable- unitext
+    %?  add string_width() and other text builtins
+    %?  (also useful without --enable-unicode)
+
+  XT_CSRCS = ext-unitext.c
+
 ##================
 %%extension waifs
 ##================

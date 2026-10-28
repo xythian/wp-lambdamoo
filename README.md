@@ -465,6 +465,12 @@ associated new options
 * `--enable-xml`
   adds new builtins to parse XML.
 
+* `--enable-unitext`
+  adds text builtins that matter mostly for Unicode strings, starting
+  with `string_width()` (a string's display width in terminal columns).
+  They work without `--enable-unicode` too, treating every character as
+  one ASCII character.  With Unicode they need `--with-uclib=gnu` or `icu`.
+
 The regular expression matching facility has been repackaged as a
 mandatory extension in order to expose the library choices, currently
 
