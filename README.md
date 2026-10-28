@@ -470,8 +470,9 @@ associated new options
   `string_width()` (a string's display width in terminal columns),
   `graphemes()` (a string split into user-perceived characters),
   `normalize()` (Unicode normalization forms), `casefold()` (full
-  case folding), and `char_category()` and `char_script()` (a
-  character's General Category and Script).
+  case folding), `char_category()` and `char_script()` (a character's
+  General Category and Script), and `wrap()` (lines that fit a width
+  in columns).
   They work without `--enable-unicode` too, treating every character as
   one ASCII character.  With Unicode they need `--with-uclib=gnu` or `icu`.
 
