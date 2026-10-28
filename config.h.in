@@ -282,6 +282,12 @@
  *----------------------*/
 
 /*
+ * --enable-ast: the parser records source lines in the AST
+ * for ast_parse() and friends
+ */
+#undef AST_BUILTINS
+
+/*
  * --enable-unicode core implementation is present
  * (we are using general UTF-8 in strings)
  */

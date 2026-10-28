@@ -129,6 +129,18 @@ $(expat_dir)/xmlparse/libexpat.a:
 	$(MAKE) -C $(expat_dir) xmlparse/libexpat.a
 END
 
+##==============
+%%extension ast
+##==============
+  %disabled
+  %? Parser access:
+
+  --enable- ast
+    %?  add ast_parse(), ast_unparse() and ast_info()
+
+  XT_CSRCS = ext-ast.c
+  %cdefine AST_BUILTINS
+
 ##==================
 %%extension unitext
 ##==================

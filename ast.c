@@ -35,6 +35,10 @@ struct entry {
 static int pool_size, next_pool_slot;
 static struct entry *pool;
 
+#if AST_BUILTINS
+int ast_line;
+#endif
+
 void
 begin_code_allocation(void)
 {
@@ -150,6 +154,9 @@ alloc_stmt(enum Stmt_Kind kind)
 
     result->kind = kind;
     result->next = 0;
+#if AST_BUILTINS
+    result->line = ast_line;
+#endif
     return result;
 }
 
@@ -161,6 +168,9 @@ alloc_cond_arm(Expr * condition, Stmt * stmt)
     result->condition = condition;
     result->stmt = stmt;
     result->next = 0;
+#if AST_BUILTINS
+    result->line = ast_line;
+#endif
     return result;
 }
 
@@ -174,6 +184,9 @@ alloc_except(int id, Arg_List * codes, Stmt * stmt)
     result->stmt = stmt;
     result->label = 0;
     result->next = 0;
+#if AST_BUILTINS
+    result->line = ast_line;
+#endif
     return result;
 }
 
@@ -183,6 +196,9 @@ alloc_expr(enum Expr_Kind kind)
     Expr *result = allocate(sizeof(Expr), M_AST);
 
     result->kind = kind;
+#if AST_BUILTINS
+    result->line = ast_line;
+#endif
     return result;
 }
 
@@ -224,6 +240,9 @@ alloc_arg_list(enum Arg_Kind kind, Expr * expr)
     result->kind = kind;
     result->expr = expr;
     result->next = 0;
+#if AST_BUILTINS
+    result->line = ast_line;
+#endif
     return result;
 }
 
@@ -237,6 +256,9 @@ alloc_scatter(enum Scatter_Kind kind, int id, Expr * expr)
     sc->expr = expr;
     sc->next = 0;
     sc->label = sc->next_label = 0;
+#if AST_BUILTINS
+    sc->line = ast_line;
+#endif
 
     return sc;
 }

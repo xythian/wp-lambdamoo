@@ -31,6 +31,15 @@ extern void unparse_program(Program *, Unparser_Receiver, void *,
 			    int fully_parenthesize,
 			    int indent_lines, int f_index);
 
+struct Stmt;
+
+/* Print a tree built by the parser or the AST builtins; NAMES are the
+ * variable names its slots index.
+ */
+extern void unparse_tree(struct Stmt *, const char **names,
+			 unsigned num_names, Unparser_Receiver, void *,
+			 int fully_parenthesize, int indent_lines);
+
 extern void unparse_to_file(FILE * fp, Program *,
 			    int fully_parenthesize,
 			    int indent_lines, int f_index);
