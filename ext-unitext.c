@@ -16,6 +16,7 @@
 #  include <unicase.h>
 #  include <unictype.h>
 #  include <unigbrk.h>
+#  include <unilbrk.h>
 #  include <uninorm.h>
 #  include <uniwidth.h>
 #elif UNICODE_DATA == UD_ICU
@@ -39,6 +40,7 @@
 #include "storage.h"
 #include "streams.h"
 #include "structures.h"
+#include "utf-ctype.h"
 #include "utf.h"
 #include "utils.h"
 
@@ -219,26 +221,30 @@ char_width(uint32_t x)
  *  ZWJ sequence add nothing.  An emoji presentation selector (U+FE0F)
  *  or a pair of regional indicators (a flag) makes it two columns.
  */
-static void
-add_grapheme_width(const char *start, const char *end, void *data)
+static int
+grapheme_width(const char *start, const char *end)
 {
-    Num *width = data;
     uint32_t first = get_utf(&start);
     int w = char_width(first);
     int pair = 0;
 
     while (start < end) {
 	uint32_t ucs = get_utf(&start);
-	if (ucs == 0xFE0F) {
-	    *width += 2;
-	    return;
-	}
+	if (ucs == 0xFE0F)
+	    return 2;
 	if (is_regional_indicator(first) && is_regional_indicator(ucs))
 	    pair = 1;
 	if (!w)
 	    w = char_width(ucs);
     }
-    *width += pair ? 2 : w;
+    return pair ? 2 : w;
+}
+
+static void
+add_grapheme_width(const char *start, const char *end, void *data)
+{
+    Num *width = data;
+    *width += grapheme_width(start, end);
 }
 
 static package
@@ -249,6 +255,158 @@ bf_string_width(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr
     for_each_grapheme(arglist.v.list[1].v.str, add_grapheme_width, &width);
     free_var(arglist);
     return make_int_pack(width);
+}
+
+/*-------------------*
+ |   line wrapping   |
+ *-------------------*/
+
+/*  Set p[i] nonzero exactly where s[0..n), n > 0, may be broken
+ *  before byte i to start a new line (per UAX #14).
+ */
+static void
+line_breaks(const char *s, size_t n, char *p)
+{
+#if !UNICODE_STRINGS
+    p[0] = 0;
+    for (size_t i = 1; i < n; i++)
+	p[i] = s[i] != ' ' && (s[i - 1] == ' ' || s[i - 1] == '-');
+
+#elif UNICODE_DATA == UD_GNU
+    u8_possible_linebreaks((const uint8_t *)s, n, "UTF-8", p);
+    for (size_t i = 0; i < n; i++)
+	p[i] = p[i] == UC_BREAK_POSSIBLE;
+
+#elif UNICODE_DATA == UD_ICU
+    static UBreakIterator *bi = NULL;
+    UErrorCode err = U_ZERO_ERROR;
+    UText *ut = utext_openUTF8(NULL, s, n, &err);
+
+    if (!bi)
+	bi = ubrk_open(UBRK_LINE, NULL, NULL, 0, &err);
+    ubrk_setUText(bi, ut, &err);
+    if (U_FAILURE(err))
+	panic("ICU error in line_breaks()");
+
+    memset(p, 0, n);
+    for (int32_t b = ubrk_first(bi); b != UBRK_DONE; b = ubrk_next(bi))
+	if (b > 0 && (size_t)b < n)
+	    p[b] = 1;
+    utext_close(ut);
+
+#endif
+}
+
+static int
+is_space_grapheme(const char *start, const char *end)
+{
+    uint32_t ucs = get_utf(&start);
+    return start == end && my_isspace(ucs);
+}
+
+struct wrap_state {
+    const char *str;
+    const char *breaks;	/* from line_breaks() */
+    Num width;		/* maximum columns per line */
+    Var lines;
+    size_t line_start;	/* offset where the current line starts */
+    Num line_width;	/* columns of str[line_start..] so far */
+    size_t cut;		/* last break opportunity in the line, or 0 */
+    Num cut_width;	/* columns of str[line_start..cut] */
+};
+
+/*  Add str[start..end) to the result, without trailing spaces.
+ */
+static void
+emit_line(struct wrap_state *ws, size_t start, size_t end)
+{
+    const char *s = ws->str;
+
+    while (end > start) {
+	const char *e = s + end;
+	const char *b = e - 1;
+	while (b > s + start && is_utf8_cont_byte(*b))
+	    b--;
+	if (!is_space_grapheme(b, e))
+	    break;
+	end = b - s;
+    }
+    if (end == start)
+	return;
+
+    Stream *line = new_stream(end - start + 1);
+    Var v;
+
+    stream_add_bytes(line, s + start, end - start);
+    v.type = TYPE_STR;
+    v.v.str = str_dup_then_free_stream(line);
+    ws->lines = listappend(ws->lines, v);
+}
+
+/*  Fit the grapheme cluster str[start..end) onto the current line,
+ *  first ending the line at its last break opportunity (or right
+ *  here, if it has none) when the cluster would make it too wide.
+ *  Spaces never make a line too wide; they are dropped from the end
+ *  of a line instead.
+ */
+static void
+wrap_grapheme(const char *start, const char *end, void *data)
+{
+    struct wrap_state *ws = data;
+    size_t at = start - ws->str;
+    int w = grapheme_width(start, end);
+
+    if (ws->breaks[at] && at > ws->line_start) {
+	ws->cut = at;
+	ws->cut_width = ws->line_width;
+    }
+    if (is_space_grapheme(start, end)) {
+	ws->line_width += w;
+	return;
+    }
+    if (ws->line_width + w > ws->width && ws->cut > ws->line_start) {
+	emit_line(ws, ws->line_start, ws->cut);
+	ws->line_start = ws->cut;
+	ws->line_width -= ws->cut_width;
+    }
+    if (ws->line_width + w > ws->width && at > ws->line_start) {
+	emit_line(ws, ws->line_start, at);
+	ws->line_start = at;
+	ws->line_width = 0;
+    }
+    ws->line_width += w;
+}
+
+static package
+bf_wrap(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
+{
+    const char *str = arglist.v.list[1].v.str;
+    size_t n = memo_strlen(str);
+    struct wrap_state ws;
+
+    if (arglist.v.list[2].v.num < 1) {
+	free_var(arglist);
+	return make_error_pack(E_INVARG);
+    }
+
+    ws.str = str;
+    ws.width = arglist.v.list[2].v.num;
+    ws.lines = new_list(0);
+    ws.line_start = ws.cut = 0;
+    ws.line_width = ws.cut_width = 0;
+
+    char *p = grapheme_starts(str);
+    if (p) {
+	char *b = mymalloc(n, M_STRING);
+	line_breaks(str, n, b);
+	ws.breaks = b;
+	walk_graphemes(str, p, wrap_grapheme, &ws);
+	emit_line(&ws, ws.line_start, n);
+	myfree(b, M_STRING);
+	myfree(p, M_STRING);
+    }
+    free_var(arglist);
+    return make_var_pack(ws.lines);
 }
 
 /*--------------------------------------*
@@ -516,4 +674,5 @@ register_unitext(void)
     register_function("graphemes", 1, 1, bf_graphemes, TYPE_STR);
     register_function("normalize", 1, 2, bf_normalize, TYPE_STR, TYPE_STR);
     register_function("string_width", 1, 1, bf_string_width, TYPE_STR);
+    register_function("wrap", 2, 2, bf_wrap, TYPE_STR, TYPE_INT);
 }
