@@ -13,16 +13,22 @@
 
 #if !UNICODE_STRINGS
 #elif UNICODE_DATA == UD_GNU
+#  include <unicase.h>
 #  include <unigbrk.h>
+#  include <uninorm.h>
 #  include <uniwidth.h>
 #elif UNICODE_DATA == UD_ICU
 #  include <unicode/ubrk.h>
 #  include <unicode/uchar.h>
+#  include <unicode/unorm2.h>
+#  include <unicode/ustring.h>
 #  include <unicode/utext.h>
 #else
 #  error "the unitext extension needs --with-uclib=gnu or --with-uclib=icu"
 #endif
 
+#include "my-ctype.h"
+#include "my-stdlib.h"
 #include "my-string.h"
 
 #include "exceptions.h"
@@ -243,9 +249,168 @@ bf_string_width(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr
     return make_int_pack(width);
 }
 
+/*--------------------------------------*
+ |   normalization and case folding     |
+ *--------------------------------------*/
+
+enum transform {
+    XF_NFC, XF_NFD, XF_NFKC, XF_NFKD, XF_CASEFOLD
+};
+
+#if UNICODE_STRINGS && UNICODE_DATA == UD_ICU
+/*  Convert s[0..n) to UTF-16 in a buffer from mymalloc(, M_STRING),
+ *  setting *len to its length.
+ */
+static UChar *
+icu_from_utf8(const char *s, size_t n, int32_t *len)
+{
+    UErrorCode err = U_ZERO_ERROR;
+    u_strFromUTF8(NULL, 0, len, s, n, &err);
+    UChar *u = mymalloc((*len + 1) * sizeof(UChar), M_STRING);
+
+    err = U_ZERO_ERROR;
+    u_strFromUTF8(u, *len + 1, NULL, s, n, &err);
+    if (U_FAILURE(err))
+	panic("ICU error in icu_from_utf8()");
+    return u;
+}
+
+static int32_t
+icu_apply(enum transform xf, const UChar *src, int32_t n,
+	  UChar *dst, int32_t cap, UErrorCode *err)
+{
+    const UNormalizer2 *norm = NULL;
+
+    switch (xf) {
+    case XF_CASEFOLD:
+	return u_strFoldCase(dst, cap, src, n, U_FOLD_CASE_DEFAULT, err);
+    case XF_NFC:  norm = unorm2_getNFCInstance(err);  break;
+    case XF_NFD:  norm = unorm2_getNFDInstance(err);  break;
+    case XF_NFKC: norm = unorm2_getNFKCInstance(err); break;
+    case XF_NFKD: norm = unorm2_getNFKDInstance(err); break;
+    }
+    return unorm2_normalize(norm, src, n, dst, cap, err);
+}
+#endif
+
+/*  Append the result of applying xf to s[0..n) to out.
+ */
+static void
+stream_add_transformed(Stream *out, enum transform xf, const char *s, size_t n)
+{
+#if !UNICODE_STRINGS
+    if (xf != XF_CASEFOLD) {
+	stream_add_bytes(out, s, n);
+	return;
+    }
+    for (size_t i = 0; i < n; i++)
+	stream_add_char(out, tolower((unsigned char)s[i]));
+
+#elif UNICODE_DATA == UD_GNU
+    size_t len;
+    uint8_t *r;
+
+    if (xf == XF_CASEFOLD)
+	r = u8_casefold((const uint8_t *)s, n, NULL, NULL, NULL, &len);
+    else
+	r = u8_normalize(xf == XF_NFC  ? UNINORM_NFC  :
+			 xf == XF_NFD  ? UNINORM_NFD  :
+			 xf == XF_NFKC ? UNINORM_NFKC : UNINORM_NFKD,
+			 (const uint8_t *)s, n, NULL, &len);
+    if (!r)
+	panic("libunistring out of memory in stream_add_transformed()");
+    stream_add_bytes(out, (const char *)r, len);
+    free(r);
+
+#elif UNICODE_DATA == UD_ICU
+    int32_t ulen, rlen;
+    UChar *u = icu_from_utf8(s, n, &ulen);
+    UErrorCode err = U_ZERO_ERROR;
+
+    rlen = icu_apply(xf, u, ulen, NULL, 0, &err);
+    UChar *r = mymalloc((rlen + 1) * sizeof(UChar), M_STRING);
+    err = U_ZERO_ERROR;
+    icu_apply(xf, u, ulen, r, rlen + 1, &err);
+    if (U_FAILURE(err))
+	panic("ICU error in stream_add_transformed()");
+    myfree(u, M_STRING);
+
+    int32_t blen;
+    char *b;
+    size_t cap;
+    err = U_ZERO_ERROR;
+    u_strToUTF8(NULL, 0, &blen, r, rlen, &err);
+    stream_beginfill(out, blen, &b, &cap);
+    err = U_ZERO_ERROR;
+    u_strToUTF8(b, cap, NULL, r, rlen, &err);
+    if (U_FAILURE(err))
+	panic("ICU error in stream_add_transformed()");
+    stream_endfill(out, cap - blen);
+    myfree(r, M_STRING);
+
+#endif
+}
+
+/*  Return a package of str transformed by xf, or E_QUOTA when the
+ *  result is longer than the server allows a string to be.
+ */
+static package
+transformed_pack(enum transform xf, const char *str)
+{
+    Stream *s = new_stream(memo_strlen(str) + 1);
+
+    stream_add_transformed(s, xf, str, memo_strlen(str));
+    if (stream_length(s) >= stream_alloc_maximum) {
+	free_stream(s);
+	return make_space_pack();
+    }
+    return make_string_pack(str_dup_then_free_stream(s));
+}
+
+static package
+bf_normalize(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
+{
+    static const struct {
+	const char *name;
+	enum transform xf;
+    } forms[] = {
+	{ "NFC", XF_NFC }, { "NFD", XF_NFD },
+	{ "NFKC", XF_NFKC }, { "NFKD", XF_NFKD },
+    };
+    enum transform xf = XF_NFC;
+
+    if (arglist.v.list[0].v.num == 2) {
+	const char *form = arglist.v.list[2].v.str;
+	size_t i;
+
+	for (i = 0; i < sizeof(forms) / sizeof(*forms); i++)
+	    if (!mystrcasecmp(form, forms[i].name))
+		break;
+	if (i == sizeof(forms) / sizeof(*forms)) {
+	    free_var(arglist);
+	    return make_error_pack(E_INVARG);
+	}
+	xf = forms[i].xf;
+    }
+
+    package p = transformed_pack(xf, arglist.v.list[1].v.str);
+    free_var(arglist);
+    return p;
+}
+
+static package
+bf_casefold(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
+{
+    package p = transformed_pack(XF_CASEFOLD, arglist.v.list[1].v.str);
+    free_var(arglist);
+    return p;
+}
+
 void
 register_unitext(void)
 {
+    register_function("casefold", 1, 1, bf_casefold, TYPE_STR);
     register_function("graphemes", 1, 1, bf_graphemes, TYPE_STR);
+    register_function("normalize", 1, 2, bf_normalize, TYPE_STR, TYPE_STR);
     register_function("string_width", 1, 1, bf_string_width, TYPE_STR);
 }

@@ -467,8 +467,10 @@ associated new options
 
 * `--enable-unitext`
   adds text builtins that matter mostly for Unicode strings:
-  `string_width()` (a string's display width in terminal columns) and
-  `graphemes()` (a string split into user-perceived characters).
+  `string_width()` (a string's display width in terminal columns),
+  `graphemes()` (a string split into user-perceived characters),
+  `normalize()` (Unicode normalization forms) and `casefold()` (full
+  case folding).
   They work without `--enable-unicode` too, treating every character as
   one ASCII character.  With Unicode they need `--with-uclib=gnu` or `icu`.
 
