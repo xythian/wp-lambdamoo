@@ -71,51 +71,86 @@ grapheme_breaks(const char *s, size_t n, char *p)
 #endif
 }
 
-/*  Call each(start, end, data) for every grapheme cluster of str,
- *  in order.
+/*  Return a buffer of memo_strlen(str) flags, nonzero where a grapheme
+ *  cluster starts, or NULL for the empty string.  Free with myfree(,
+ *  M_STRING).
  */
-static void
-for_each_grapheme(const char *str,
-		  void (*each)(const char *, const char *, void *),
-		  void *data)
+static char *
+grapheme_starts(const char *str)
 {
     size_t n = memo_strlen(str);
     if (n == 0)
-	return;
+	return NULL;
 
     char *p = mymalloc(n, M_STRING);
     grapheme_breaks(str, n, p);
+    return p;
+}
 
+typedef void (*grapheme_fn)(const char *start, const char *end, void *data);
+
+/*  Call each(start, end, data) for every grapheme cluster of str, in
+ *  order, given p from grapheme_starts(str).
+ */
+static void
+walk_graphemes(const char *str, const char *p, grapheme_fn each, void *data)
+{
+    size_t n = memo_strlen(str);
     size_t start = 0;
+
     for (size_t i = 1; i <= n; i++)
 	if (i == n || p[i]) {
 	    each(str + start, str + i, data);
 	    start = i;
 	}
-    myfree(p, M_STRING);
 }
 
 static void
-append_grapheme(const char *start, const char *end, void *data)
+for_each_grapheme(const char *str, grapheme_fn each, void *data)
 {
-    Var *list = data;
+    char *p = grapheme_starts(str);
+    if (!p)
+	return;
+
+    walk_graphemes(str, p, each, data);
+    myfree(p, M_STRING);
+}
+
+struct grapheme_list {
+    Var list;
+    int next;
+};
+
+static void
+store_grapheme(const char *start, const char *end, void *data)
+{
+    struct grapheme_list *gl = data;
     Stream *s = new_stream(end - start);
-    Var v;
+    Var *v = &gl->list.v.list[++gl->next];
 
     stream_add_bytes(s, start, end - start);
-    v.type = TYPE_STR;
-    v.v.str = str_dup_then_free_stream(s);
-    *list = listappend(*list, v);
+    v->type = TYPE_STR;
+    v->v.str = str_dup_then_free_stream(s);
 }
 
 static package
 bf_graphemes(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 {
-    Var r = new_list(0);
+    const char *str = arglist.v.list[1].v.str;
+    size_t n = memo_strlen(str);
+    char *p = grapheme_starts(str);
+    int count = 0;
 
-    for_each_grapheme(arglist.v.list[1].v.str, append_grapheme, &r);
+    for (size_t i = 0; i < n; i++)
+	count += !!p[i];
+
+    struct grapheme_list gl = { new_list(count), 0 };
+    if (p) {
+	walk_graphemes(str, p, store_grapheme, &gl);
+	myfree(p, M_STRING);
+    }
     free_var(arglist);
-    return make_var_pack(r);
+    return make_var_pack(gl.list);
 }
 
 /*-------------------*
