@@ -29,6 +29,13 @@
 extern const char *server_version;
 extern Var server_version_full(Var);
 
+/* Looks up PATH ("source/commit", say) in ROOT, a tree shaped like
+ * server_version_full("").  Returns a new reference to the value found,
+ * or an E_INVARG error Var.  ROOT may come from another server, such as
+ * the one that wrote the database being loaded.
+ */
+extern Var version_tree_lookup(Var root, const char *path);
+
 
 /*****************************************************************
  * Language / Database-Format Version
@@ -56,6 +63,11 @@ typedef enum {
 				 * making it use tail-calling.  This DB_Version
 				 * change exists solely to turn off special
 				 * bug handling in read_bi_func_data().
+				 */
+    DBV_Bound,			/* Bound values with blob/reference envelopes,
+				 * and the writing server's
+				 * server_version("") tree after the
+				 * header line.
 				 */
     Num_DB_Versions		/* Special: the current version is this - 1. */
 } DB_Version;

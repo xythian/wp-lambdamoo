@@ -106,6 +106,16 @@ network_send_bytes(network_handle nh UNUSED_, const char *buffer, size_t buflen,
 }
 
 int
+network_send_bytes_line(network_handle nh UNUSED_, const char *buffer,
+                        size_t buflen, int flush_ok UNUSED_)
+{
+    fwrite((void *) buffer, sizeof(char), buflen, stdout);
+    putchar('\n');
+    fflush(stdout);
+    return 1;
+}
+
+int
 network_buffered_output_length(network_handle nh UNUSED_)
 {
     return 0;
