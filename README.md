@@ -466,8 +466,9 @@ associated new options
   adds new builtins to parse XML.
 
 * `--enable-unitext`
-  adds text builtins that matter mostly for Unicode strings, starting
-  with `string_width()` (a string's display width in terminal columns).
+  adds text builtins that matter mostly for Unicode strings:
+  `string_width()` (a string's display width in terminal columns) and
+  `graphemes()` (a string split into user-perceived characters).
   They work without `--enable-unicode` too, treating every character as
   one ASCII character.  With Unicode they need `--with-uclib=gnu` or `icu`.
 
