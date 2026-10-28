@@ -50,6 +50,11 @@ any later format must also be readable by builds without bound values. A build
 with `--disable-bound` loads a `DBV_Bound` database that holds no bound values
 and refuses, with a log message saying why, one that holds any.
 
+`DBV_Bound` also records which server wrote the database: the line after the
+header holds the writer's `server_version("")` tree (version string, features,
+build options, configure arguments and source commit). Loading logs it as
+`LOADING: Written by version VERSION (DESC)`.
+
 ## MOO interface
 
 There is intentionally no global `BOUND` constant.  Bound subtypes are found
