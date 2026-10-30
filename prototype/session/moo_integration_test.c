@@ -226,6 +226,18 @@ static void expect_text(struct tls_client *client, const char *text)
     }
 }
 
+/* The edge closes a client whose session the server refused. */
+static void expect_closed(struct tls_client *client)
+{
+    unsigned char buffer[256];
+    size_t count = 0;
+
+    if (SSL_read_ex(client->ssl, buffer, sizeof(buffer), &count) == 1)
+        fail("client still open after the session was refused");
+    SSL_free(client->ssl);
+    close(client->fd);
+}
+
 int main(int argc, char **argv)
 {
     const char *moo, *edge, *fixture, *certificate, *key, *directory;
@@ -273,9 +285,14 @@ int main(int argc, char **argv)
     wait_for_file(checkpoint1);
     stop(server, SIGKILL);
 
+    /* A checkpoint isn't the dump the session detached at, so the logged-in
+     * session can't be resumed from it.
+     */
     server = start_moo(moo, log2, checkpoint1, checkpoint2, socket_path);
-    expect_text(&client, "*** Session recovered from a server crash ***\r\n");
-    wait_for_log(log2, "SESSION RECOVERED: #3");
+    expect_closed(&client);
+    client = connect_client(context, read_port(ready));
+    expect_text(&client, "*** Connected ***\r\n");
+    wait_for_log(log2, "CONNECTED: Wizard (#3)");
     send_text(&client, "after crash\n");
     expect_text(&client, "I couldn't understand that.\r\n");
 

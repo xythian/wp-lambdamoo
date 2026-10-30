@@ -12,11 +12,13 @@ preserved one TLS connection across a forced server crash and checkpoint resume.
 
 ## Components
 
-- `protocol.c` and `protocol.h`: bounded framing and control codecs shared by
-  both C processes.
+- `../../session_protocol.c` and `../../session_protocol.h`: bounded framing
+  and control codecs shared by the server and both C processes.
 - `edge.c`: threaded C reference edge. It terminates TLS, owns globally unique
   session IDs, authenticates the local backend with peer credentials, and
-  reconnects each session independently.
+  reconnects each session independently. It keeps input until the backend
+  acknowledges it and, after a graceful or crash-mode `DETACH`, sends the
+  input the backend hadn't read to the next one.
 - `backend.c`: C harness which validates attachment generations and byte
   positions, acknowledges input ownership, emits positioned output, and can
   request graceful replacement.

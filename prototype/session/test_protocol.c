@@ -1,4 +1,4 @@
-#include "protocol.h"
+#include "session_protocol.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -252,7 +252,7 @@ test_codecs(void)
 static void
 test_listen_failed(void)
 {
-    struct sp_listen_failed failed = {8888, SP_LISTEN_FAILED_PORT, 10,
+    struct sp_listen_failed failed = {8888, SP_LISTEN_FAILED_PORT, 7, 10,
                                       (const unsigned char *) "in use 123"};
     struct sp_listen_failed decoded;
     struct sp_frame frame;
@@ -263,14 +263,18 @@ test_listen_failed(void)
     frame = (struct sp_frame) {SP_LISTEN_FAILED, 0, length, payload};
     assert(sp_decode_listen_failed(&frame, &decoded) == 0);
     assert(decoded.port == 8888 && decoded.code == SP_LISTEN_FAILED_PORT);
+    assert(decoded.serial == 7);
     assert(decoded.reason_length == 10 && !memcmp(decoded.reason, "in use 123", 10));
 
     payload[2] = 3;
     assert(sp_decode_listen_failed(&frame, &decoded) < 0);
     payload[2] = SP_LISTEN_FAILED_CERTIFICATE;
-    payload[5] = 1;
+    payload[3] = 1;
     assert(sp_decode_listen_failed(&frame, &decoded) < 0);
-    payload[5] = 0;
+    payload[3] = 0;
+    payload[7] = 0;
+    assert(sp_decode_listen_failed(&frame, &decoded) < 0);
+    payload[7] = 7;
     payload[0] = payload[1] = 0;
     assert(sp_decode_listen_failed(&frame, &decoded) < 0);
     free(payload);

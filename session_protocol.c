@@ -1,4 +1,4 @@
-#include "protocol.h"
+#include "session_protocol.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -124,7 +124,7 @@ valid_type_and_length(uint8_t type, uint32_t length)
     case SP_BIND:
         return length == SP_BIND_SIZE;
     case SP_LISTENERS:
-        return length <= SP_MAX_CONTROL;
+        return length >= SP_LISTENERS_FIXED_SIZE && length <= SP_MAX_CONTROL;
     case SP_CONNECT:
         return length > SP_CONNECT_FIXED_SIZE && length <= SP_MAX_CONTROL;
     case SP_CONNECT_FAILED:
@@ -521,10 +521,10 @@ sp_decode_bind(const struct sp_frame *frame, struct sp_bind *bind)
 }
 
 int
-sp_encode_listeners(const struct sp_listen *listens, unsigned count,
-                    unsigned char **payload, uint32_t *length)
+sp_encode_listeners(uint32_t serial, const struct sp_listen *listens,
+                    unsigned count, unsigned char **payload, uint32_t *length)
 {
-    uint32_t total = 0;
+    uint32_t total = SP_LISTENERS_FIXED_SIZE;
     unsigned char *p, *q;
     unsigned i;
 
@@ -542,10 +542,10 @@ sp_encode_listeners(const struct sp_listen *listens, unsigned count,
         if (total > SP_MAX_CONTROL)
             return -1;
     }
-    p = malloc(total ? total : 1);
-    if (!p)
+    if (serial == 0 || !(p = malloc(total)))
         return -1;
-    for (i = 0, q = p; i < count; i++) {
+    put_u32(p, serial);
+    for (i = 0, q = p + SP_LISTENERS_FIXED_SIZE; i < count; i++) {
         uint16_t certificate = (uint16_t) (listens[i].certificate
             ? strlen(listens[i].certificate) : 0);
         uint16_t key = (uint16_t) (listens[i].key
@@ -672,6 +672,7 @@ sp_encode_listen_failed(const struct sp_listen_failed *failed,
         return -1;
     put_u16(p, failed->port);
     p[2] = failed->code;
+    put_u32(p + 4, failed->serial);
     if (failed->reason_length)
         memcpy(p + SP_LISTEN_FAILED_FIXED_SIZE, failed->reason,
                failed->reason_length);
@@ -686,12 +687,14 @@ sp_decode_listen_failed(const struct sp_frame *frame,
 {
     if (frame->type != SP_LISTEN_FAILED
         || frame->length < SP_LISTEN_FAILED_FIXED_SIZE
-        || !all_zero(frame->payload + 3, 5))
+        || frame->payload[3] != 0)
         return -1;
     memset(failed, 0, sizeof(*failed));
     failed->port = get_u16(frame->payload);
     failed->code = frame->payload[2];
-    if (failed->port == 0 || failed->code < SP_LISTEN_FAILED_PORT
+    failed->serial = get_u32(frame->payload + 4);
+    if (failed->port == 0 || failed->serial == 0
+        || failed->code < SP_LISTEN_FAILED_PORT
         || failed->code > SP_LISTEN_FAILED_CERTIFICATE)
         return -1;
     failed->reason_length = frame->length - SP_LISTEN_FAILED_FIXED_SIZE;

@@ -4,9 +4,10 @@ Status: protocol 1.0, experimental. The server side is the `session` network
 backend (`net_session.c`), selected at configure time and off by default.
 
 This document is the specification. [`Connection_Session_Protocol.md`](Connection_Session_Protocol.md)
-explains why the protocol is shaped this way, and
-[`prototype/session/`](prototype/session/README.md) holds a C reference edge and
-its tests.
+explains why the protocol is shaped this way. `session_protocol.c` and
+`session_protocol.h` are the frame codecs the server uses, and
+[`prototype/session/`](prototype/session/README.md) holds a C reference edge
+built on them, with its tests.
 
 [`session_protocol.ksy`](session_protocol.ksy) describes every frame's byte
 layout in [Kaitai Struct](https://kaitai.io/), from which parsers can be
@@ -65,7 +66,10 @@ the network goes through the edge:
 - **`open_network_connection(host, port [, listener] [, options])`** asks the
   edge to make the connection ([Outbound connections](#outbound-connections)).
   The calling task is suspended while the edge connects, and other tasks run
-  in the meantime. With the `tls` option the edge connects with TLS, verifying
+  in the meantime; like any suspended task, it resumes in the background with
+  a fresh tick and seconds budget, even when the edge answers at once, so a
+  caller that relied on the TCP backend connecting within its own time slice
+  may behave differently. With the `tls` option the edge connects with TLS, verifying
   the host's certificate against the name given. Failures raise what the TCP
   backend raises: `E_INVARG` for a host or port that can't be reached
   (including a failed TLS handshake), `E_QUOTA` for the edge running out of
@@ -76,7 +80,9 @@ the network goes through the edge:
 
 *Options* is a list of `{name, value}` pairs, and is the same for every
 network backend, so a database written for one runs on another. Names are
-case-insensitive.
+case-insensitive. `listen()` takes a third argument that is a list of lists
+as options; any other third argument, `{1}` included, is print-messages and is
+read for truth, as it was before options existed.
 
 | Builtin | Name | Value |
 |---|---|---|
@@ -117,8 +123,10 @@ Limits of this backend, compared to the TCP backend:
 - **No connection options specific to the carrier.** The options that don't
   depend on the network, such as `binary`, `hold-input` and
   `flush-command`, behave as usual.
-- **A task waiting in `open_network_connection()` is not checkpointed** with
-  that wait; if the server is replaced while the edge is connecting, the task
+- **A task waiting in `open_network_connection()` belongs to its request.**
+  `queued_tasks()` lists it with the status `"connecting"` and `kill_task()`
+  can kill it, but `resume()` can't wake it, and it isn't written to the
+  database: if the server is replaced while the edge is connecting, the task
   is gone and the edge's connection is refused and closed.
 
 ## Concepts
@@ -181,10 +189,10 @@ unsigned and big-endian unless a field says otherwise.
 | 10 | 4 | length | payload length in bytes |
 
 A receiver rejects a frame and ends the attachment if the magic is wrong, the
-major version is not 1, the minor version is greater than the receiver's own,
-the reserved byte or flags are not zero, the type is unknown, or the length is
-not allowed for the type. Readers must accept a frame split across any number
-of reads.
+major version is not 1, the reserved byte or flags are not zero, the type is
+unknown, or the length is not allowed for the type. Readers must accept a
+frame split across any number of reads. A sender puts its own minor version
+in every frame ([Versioning](#versioning)).
 
 | Type | Name | Sent by | Payload length |
 | ---: | --- | --- | --- |
@@ -197,7 +205,7 @@ of reads.
 | 7 | `CLOSE` | both | 0 to 65536 |
 | 8 | `ERROR` | either | 0 to 65536 |
 | 9 | `BIND` | server | 16 |
-| 10 | `LISTENERS` | server, control only | 0 to 65536 |
+| 10 | `LISTENERS` | server, control only | 4 to 65536 |
 | 11 | `CONNECT` | server, control only | 17 to 65536 |
 | 12 | `CONNECT_FAILED` | edge, control only | 8 to 65536 |
 | 13 | `LISTEN_FAILED` | edge, control only | 8 to 65536 |
@@ -281,7 +289,8 @@ Name lookups belong to the edge. A session server does no DNS of its own: the
 edge resolves the host in a `CONNECT`, and an edge that does reverse lookups
 for clients finishes them, within a bounded time, before it sends the `HELLO`.
 
-The kind constrains the other fields:
+The mode and the kind constrain the other fields. An initial `HELLO` has
+positions 0, no binding and the database zeros. Beyond that:
 
 - **client**: request is 0.
 - **outbound**: listen port is 0. In initial mode the request names the
@@ -290,7 +299,7 @@ The kind constrains the other fields:
 - **control**: initial mode, positions 0, no binding, listen port and request
   0. Only one control attachment is accepted at a time.
 
-A server refuses a `HELLO` whose fields don't fit its kind.
+A server refuses a `HELLO` whose fields don't fit its mode or kind.
 
 Recovery mode tells the server why this attachment exists:
 
@@ -340,10 +349,13 @@ like.
 | 1 | 7 | reserved |
 | 8 | 8 | next position accepted |
 
-The server acknowledges `INPUT` with direction 1, and the edge acknowledges
-`OUTPUT` with direction 2. An acknowledged position never moves backwards and
-never passes the last position sent. An acknowledgement lets the sender free
-its buffer. It says nothing about whether a MOO task ran.
+The server acknowledges `INPUT` with direction 1 as it reads it, and the edge
+acknowledges `OUTPUT` with direction 2. An acknowledged position never moves
+backwards and never passes the last position sent. An acknowledgement lets the
+sender free its buffer: the edge keeps input it has written to the carrier
+until the server acknowledges it, because a `DETACH` can hand input the server
+never read on to the next server. An acknowledgement says nothing about
+whether a MOO task ran.
 
 ### BIND
 
@@ -363,28 +375,33 @@ server checks it against its own database when the session is resumed.
 | ---: | ---: | --- |
 | 0 | 1 | mode: 2 graceful, 3 crash |
 | 1 | 7 | reserved |
-| 8 | 8 | next input position |
+| 8 | 8 | next input position: the first byte the server didn't read |
 | 16 | 8 | next output position |
 | 24 | 16 | database: MD5 digest of the database file just written |
 
 Sent by the server after it has written its shutdown dump (graceful) or its
-PANIC dump (crash), and flushed all output for the session. The digest
-identifies that file exactly; it is not a security measure. The server then
-shuts down its side of the carrier. A server that couldn't write a dump sends
-no `DETACH`.
+PANIC dump (crash), and flushed all output for the session. The dump records
+everything the server had read of the session's input, so the input position
+is the server's last acknowledgement; input the server hadn't read, because
+the database held input or the edge sent it during the shutdown, is still in
+the carrier or the edge. The digest identifies that file exactly; it is not a
+security measure. The server then shuts down its side of the carrier. A
+server that couldn't write a dump sends no `DETACH`.
 
-The edge accepts a graceful detach only if both positions match its own, and
-a crash detach only if the output position matches its own and the input
-position is at most its own (input the server never read is lost, as in any
-crash). It then attaches to the next server in that mode, at its own
-positions, naming the digest. Any other detach is treated as a crash without
-one.
+The edge accepts a detach of either mode if its output position matches the
+edge's own and its input position is at least the last one the server
+acknowledged and at most the edge's own. It then attaches to the next server
+in that mode at the detach's input position, naming the digest, and after
+`WELCOME` sends the input it holds from that position on again. Any other
+detach is treated as a crash without one.
 
 ### LISTENERS
 
 Sent by the server on the control attachment, right after `WELCOME` and
-whenever the set changes. The payload is the complete set of TCP ports the
-server listens on through the edge, at most 1024 of them, each as one entry:
+whenever the set changes. The payload is a 4-byte serial, not 0, which
+increases with each `LISTENERS` the server sends, followed by the complete set
+of TCP ports the server listens on through the edge, at most 1024 of them,
+each as one entry:
 
 | Offset | Size | Field |
 |---|---|---|
@@ -439,15 +456,21 @@ latest `LISTENERS` names.
 | ---: | ---: | --- |
 | 0 | 2 | port |
 | 2 | 1 | reason: 1 the port can't be opened, 2 there's no certificate to accept TLS with |
-| 3 | 5 | reserved |
+| 3 | 1 | reserved |
+| 4 | 4 | serial of the `LISTENERS` that named the port |
 | 8 | rest | UTF-8 diagnostic, which the server logs |
 
 ### CLOSE and ERROR
 
 `CLOSE` ends the session permanently. The server sends it when the database
-disconnects the player (`@quit`, `boot_player()`, and so on), and the edge then
-closes the client. The edge sends it when the client goes away, and the server
-then runs its usual disconnection handling.
+disconnects the player (`@quit`, `boot_player()`, and so on), after any output
+still queued for the session, and the edge then closes the client and the
+carrier. The server writes out the `CLOSE`, shuts down its side of the
+carrier, and reads and discards what arrives until the edge closes its side,
+giving up after ten seconds. Closing a carrier with frames left unread can
+reset it and discard the `CLOSE`, and an edge that sees the carrier end
+without one takes it for a crash. The edge sends `CLOSE` when the client goes
+away, and the server then runs its usual disconnection handling.
 
 `ERROR` rejects a frame or an attachment. The payload of either may be a UTF-8
 diagnostic, which is not trusted application data.
@@ -510,9 +533,8 @@ per handshake instead, and the edge only logs that.
 The server gives up on a request it hasn't heard back about within its timeout
 plus ten seconds, resuming the task with `E_INVARG`, and it fails every
 request it has sent when the control attachment ends. It refuses an outbound
-`HELLO` for a request it is no longer waiting for, and if the task that asked
-has gone by the time the connection arrives, it accepts the attachment and
-immediately sends `CLOSE`.
+`HELLO` for a request it is no longer waiting for, or whose task was killed,
+and the edge then closes the connection.
 
 From then on an outbound session is like any other. If the database logs it
 in as a player, the server sends `BIND`, and the session is resumed when the
@@ -577,8 +599,17 @@ it as a crash. Each edge keeps its clients
 connected and retries the socket until a replacement server is listening, then
 attaches each session in graceful mode with the binding it holds.
 
-The edge does not read client input while a session is unattached, so nothing
-is lost and nothing is replayed.
+For each logged-in connection the dump records, besides the player and
+listener, everything the session would otherwise lose: its connection options
+(`hold-input`, `binary`, `flush-command`, `disable-oob`,
+`intrinsic-commands`), the input lines the server had read that no task had
+taken yet, the start of a line not yet ended, a task waiting in `read()`, the
+output delimiters set with `PREFIX` and `SUFFIX`, and a `.program` in
+progress. The replacement gives them back when it resumes the session, and
+the edge sends it the input the old server hadn't read, from the position the
+`DETACH` names. The edge does not read client input while a session is
+unattached. So the session goes on exactly where it stopped: nothing is lost
+and nothing runs twice.
 
 ### Crash recovery
 
@@ -608,13 +639,15 @@ the session only if:
 - the player is a valid object that isn't already connected, and
 - the player and listener pair is in the list of formerly active connections
   recorded in the database the server loaded, and
-- the listener still exists.
+- the listener still listens, unless the session is outbound, since
+  `open_network_connection()` may name any object as the listener.
 
 If those hold, the server takes that pair out of the list, creates the
-connection already logged in as the player, logs `SESSION REATTACHED` or
-`SESSION RECOVERED`, and sends `WELCOME`. It does not call
-`$do_login_command`, `user_connected` or `user_reconnected`, and it doesn't
-send a welcome message. After a panic it sends the player the line
+connection already logged in as the player, gives it back the state the
+database recorded for it ([Graceful replacement](#graceful-replacement)),
+logs `SESSION REATTACHED` or `SESSION RECOVERED`, and sends `WELCOME`. It
+does not call `$do_login_command`, `user_connected` or `user_reconnected`,
+and it doesn't send a welcome message. After a panic it sends the player the line
 `*** Session recovered from a server crash ***`. If any check fails, the
 server closes the carrier without `WELCOME`.
 
@@ -634,8 +667,12 @@ in the loaded database has disconnected. The session backend waits instead,
 since those players are expected to resume: for `$server_options.session_resume_timeout`
 seconds from startup (60 if unset), and then calls
 `#0:user_disconnected` for every recorded connection no edge has resumed,
-logging `SESSION NOT RESUMED`. A session that arrives after that is refused
-like any other that the database doesn't record.
+logging `SESSION NOT RESUMED`, and drops what the database recorded for it,
+a task in `read()` included. A session that arrives after that is refused
+like any other that the database doesn't record. A recorded player who logs
+in afresh before then can no longer be resumed: the server calls
+`#0:user_disconnected` for the recorded connection at once, before the new
+login's `user_connected`, and takes it out of the list.
 
 ### Panics
 
@@ -643,8 +680,9 @@ When the server panics, it writes a PANIC database (`output.db.PANIC`), which
 includes the formerly active connections. If that succeeds, it sends each
 session a crash-mode `DETACH` naming the PANIC database, without a shutdown
 message, and exits. Restarting the server from the PANIC database resumes the
-sessions in crash mode with all state up to the panic, except the task that
-was running. Restarting it from anything else, such as the last checkpoint,
+sessions in crash mode with all state up to the panic, the state the dump
+records for each connection and the input the old server hadn't read
+included, except the task that was running. Restarting it from anything else, such as the last checkpoint,
 resumes nobody, as after a crash without `DETACH`.
 
 ## Edge obligations
@@ -659,13 +697,21 @@ An edge implementing this protocol must:
   last `WELCOME`, and otherwise zeros;
 - keep its input and output positions, and the binding from the most recent
   `BIND`;
+- keep input written to the carrier until the server acknowledges it, and
+  after a `DETACH` it accepts, attach at the `DETACH`'s input position and
+  send the input from there again;
 - stop reading client input while a session is unattached;
-- never replay input after a crash;
-- send `CLOSE` when the client goes away, and close the client on `CLOSE`;
+- never replay input after a crash without a `DETACH`;
+- send `CLOSE` when the client goes away, and on `CLOSE` close the client and
+  the carrier;
+- close the client when the server refuses its session; an edge may first
+  retry a few times, since a server that is exiting can drop a carrier it
+  never accepted;
 - keep a control attachment open while it can reach a server, listen on the
   ports the latest `LISTENERS` names, keep listening on them while no server
   is attached, answer every `CONNECT` with a connection or with
-  `CONNECT_FAILED`, and send `LISTEN_FAILED` for a port it can't serve;
+  `CONNECT_FAILED`, and send `LISTEN_FAILED` for a port it can't serve,
+  naming the serial of the `LISTENERS` it is answering;
 - verify the certificate of a TLS outbound connection against the host name
   in `CONNECT`;
 - terminate TLS on ports `LISTENERS` flags as TLS, with the paths it names, a
@@ -673,7 +719,9 @@ An edge implementing this protocol must:
   own certificate;
 - bound every buffer: hold at most one read (64 KiB is a good size) of a
   client's input that hasn't been written to the carrier, and stop reading the
-  client while the carrier won't take more; hold at most a bounded amount of a
+  client while the carrier won't take more, so the input it keeps unacknowledged
+  is bounded by what the carrier holds; never block on the carrier while the
+  server may be waiting for the edge to read; hold at most a bounded amount of a
   session's output (1 MiB is a good size) that hasn't been written to the
   client, and stop reading the carrier while it is full. An edge never drops
   input, and drops output only by closing the session.
@@ -683,18 +731,25 @@ the gap, and when it gives up are edge policy, not protocol.
 
 ## Versioning
 
-The major version changes only for incompatible changes. A minor version adds
-compatible behavior; a receiver accepts frames whose minor version is at most
-its own. Flags are reserved for capabilities negotiated in a future minor
-version and must be zero in 1.0.
+The major version changes only for incompatible changes. A minor version only
+adds: frame types, flags, or meanings for reserved bytes, never a new layout
+for an existing frame. Each side puts its own minor version in every frame it
+sends and accepts frames of any minor version of its major version. A side
+uses something a minor version added only after the other side's frames have
+shown it speaks that version: the server learns the edge's from its `HELLO`,
+and the edge learns the server's from its `WELCOME`. Until then each sends
+only what 1.0 defines, which every 1.x receiver accepts. Flags are reserved
+for capabilities a future minor version defines and must be zero in 1.0.
 
 ## Implementations
 
 - `net_session.c`: the server.
+- `session_protocol.c` and `session_protocol.h`: the frame codecs, shared by
+  the server and the C reference edge.
 - `prototype/session/edge.c`: a C reference edge that terminates TLS, with a
   standalone backend harness, codec tests and a full-server integration test.
   It carries client sessions on its own port only, without a control
-  attachment.
+  attachment, and accepts both graceful and crash-mode `DETACH`.
 - The lambdamoo-tests suite contains a Python implementation of the edge side,
   including the control attachment, listening ports, and TLS both ways, used
   to test the server.

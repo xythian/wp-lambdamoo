@@ -28,6 +28,7 @@
 #endif
 
 #include "list.h"
+#include "my-string.h"
 #include "storage.h"
 
 Var
@@ -39,6 +40,26 @@ network_info_add(Var info, const char *name, Var value)
     pair.v.list[1].v.str = str_dup(name);
     pair.v.list[2] = value;
     return listappend(info, pair);
+}
+
+int
+network_info_find(Var info, const char *name, Var *value)
+{
+    int i;
+
+    if (info.type != TYPE_LIST)
+	return 0;
+    for (i = 1; i <= info.v.list[0].v.num; i++) {
+	Var pair = info.v.list[i];
+
+	if (pair.type == TYPE_LIST && pair.v.list[0].v.num == 2
+	    && pair.v.list[1].type == TYPE_STR
+	    && !strcmp(pair.v.list[1].v.str, name)) {
+	    *value = pair.v.list[2];
+	    return 1;
+	}
+    }
+    return 0;
 }
 
 Var

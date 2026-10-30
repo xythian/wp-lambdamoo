@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "protocol.h"
+#include "session_protocol.h"
 
 #include <errno.h>
 #include <fcntl.h>

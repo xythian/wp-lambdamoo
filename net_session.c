@@ -20,6 +20,7 @@
 #include "my-unistd.h"
 
 #include "db.h"
+#include "eval_vm.h"
 #include "list.h"
 #include "log.h"
 #include "net_mplex.h"
@@ -27,11 +28,12 @@
 #include "server.h"
 #include "streams.h"
 #include "structures.h"
+#include "tasks.h"
 #include "utf.h"
 #include "utf-ctype.h"
 #include "utils.h"
 
-#include "prototype/session/protocol.c"
+#include "session_protocol.c"
 
 #include <errno.h>
 #include <poll.h>
@@ -61,6 +63,12 @@ typedef struct session_output {
     int stamped;
 } session_output;
 
+enum closing_state {
+    OPEN,
+    CLOSE_WRITING,		/* CLOSE queued, writing out what's left */
+    CLOSE_DRAINING		/* half-closed, waiting for the edge's EOF */
+};
+
 enum settle_state {
     SETTLE_DONE,
     SETTLE_WRITING,		/* writing out queued frames */
@@ -72,6 +80,8 @@ typedef struct session_handle {
     int fd;
     server_handle shandle;
     int attached;
+    enum closing_state closing;	/* see network_close() */
+    time_t close_deadline;
     int input_suspended;
     int binary;
     int last_input_was_CR;
@@ -111,6 +121,7 @@ typedef struct session_listener {
     char *certificate;		/* null for the edge's own or ACME */
     char *key;
     char *acme;			/* comma-separated ACME names, or null */
+    uint32_t serial;		/* first LISTENERS naming it, or 0 */
     server_listener slistener;
     char *path;
     char *name;
@@ -120,7 +131,7 @@ typedef struct session_listener {
 typedef struct connect_request {
     struct connect_request *next;
     uint32_t id;
-    TaskID task;
+    vm task;			/* waiting in open_network_connection() */
     Objid listener;
     char *host;
     uint16_t port;
@@ -131,6 +142,7 @@ typedef struct connect_request {
 } connect_request;
 
 #define CONNECT_GRACE 10	/* seconds the edge gets beyond the timeout */
+#define CLOSE_DEADLINE 10	/* seconds to write out a closed session */
 
 static session_listener *the_listener;
 static session_listener *port_listeners;
@@ -138,6 +150,7 @@ static session_handle *all_handles;
 static session_handle *control;
 static connect_request *requests;
 static uint32_t last_request_id;
+static uint32_t listeners_serial;	/* of the last LISTENERS sent */
 static uint16_t tls_port;	/* -t: the edge's TLS port for #0 */
 #ifdef OUTBOUND_NETWORK
 static int outbound_enabled = OUTBOUND_NETWORK;
@@ -146,6 +159,9 @@ static int outbound_enabled = OUTBOUND_NETWORK;
 static void send_listeners(void);
 static void send_requests(void);
 static void fail_request(connect_request *r, enum error e);
+#ifdef OUTBOUND_NETWORK
+static task_enum_action enumerate_requests(task_closure closure, void *data);
+#endif
 
 static int
 set_nonblocking(int fd)
@@ -421,7 +437,7 @@ remove_handle(session_handle *h, int notify_server)
             if (r->sent)
                 fail_request(r, E_QUOTA);
         }
-    } else if (notify_server && h->attached)
+    } else if (notify_server && h->attached && !h->closing)
         server_close(h->shandle);
     *h->prev = h->next;
     if (h->next)
@@ -556,7 +572,7 @@ fail_request(connect_request *r, enum error e)
     v.type = TYPE_ERR;
     v.v.err = e;
     if (r->task)
-        (void) server_resume_connecting_task(r->task, v);
+        resume_task(r->task, v);
     free_request(r);
 }
 
@@ -581,7 +597,14 @@ attach_outbound(session_handle *h, const struct sp_hello *hello)
     Objid connection;
     Var v;
 
-    if (!r || !r->sent || !r->task || !queue_welcome(h, hello))
+    if (!r || !r->sent)
+        return 0;
+    if (!r->task) {
+        /* The task that asked for this connection was killed. */
+        free_request(r);
+        return 0;
+    }
+    if (!queue_welcome(h, hello))
         return 0;
     nh.ptr = h;
     h->shandle = server_open_connection(r->listener, nh, &connection);
@@ -591,13 +614,7 @@ attach_outbound(session_handle *h, const struct sp_hello *hello)
 
     v.type = TYPE_OBJ;
     v.v.obj = connection;
-    if (!server_resume_connecting_task(r->task, v)) {
-        /* The task that asked for this connection is gone. */
-        free_request(r);
-        (void) queue_frame(h, SP_CLOSE, NULL, 0, 0);
-        (void) push_output(h);
-        return 0;
-    }
+    resume_task(r->task, v);
     free_request(r);
     return 1;
 }
@@ -724,6 +741,10 @@ handle_hello(session_handle *h, struct sp_frame *frame)
 
     if (h->attached || sp_decode_hello(frame, &hello) < 0)
         return 0;
+    if (hello.mode == SP_MODE_INITIAL
+        && (hello.input_position != 0 || hello.output_position != 0
+            || !all_zero(hello.database, SP_DATABASE_ID_SIZE)))
+        return 0;
     bound = hello.player != INT64_MIN;
     if (bound && hello.mode == SP_MODE_INITIAL)
         return 0;
@@ -795,10 +816,13 @@ handle_control_frame(session_handle *h)
                (unsigned) listen_failed.port,
                (int) listen_failed.reason_length, listen_failed.reason);
         /* As if listen() had failed, so listeners() tells the truth.  The
-         * -t port belongs to the command line, not to a listen() call.
+         * -t port belongs to the command line, not to a listen() call.  A
+         * failure answering a LISTENERS sent before this listener was
+         * first named is about one unlisten() has already closed.
          */
         l = find_port_listener(listen_failed.port);
-        if (l && l->port != tls_port)
+        if (l && l->port != tls_port && l->serial
+            && l->serial <= listen_failed.serial)
             server_listener_failed(l->slistener);
         return 1;
     case SP_CONNECT_FAILED:
@@ -880,9 +904,30 @@ parse_header(session_handle *h)
     return 1;
 }
 
+/* A closed session's carrier is read only to see the edge close it.
+ * Leaving the edge's acknowledgements unread would make closing the
+ * descriptor reset the connection, which can discard the CLOSE.
+ */
+static int
+drain_input(session_handle *h)
+{
+    unsigned char discard[4096];
+    ssize_t count;
+
+    while ((count = read(h->fd, discard, sizeof(discard))) > 0)
+        continue;
+    if (count == 0)
+        return 0;
+    return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR;
+}
+
+static int finish_close(session_handle *h);
+
 static int
 pull_input(session_handle *h)
 {
+    if (h->closing)
+        return drain_input(h);
     for (;;) {
         unsigned char *target;
         size_t wanted;
@@ -1017,6 +1062,9 @@ network_initialize(int argc, char **argv, Var *desc)
     desc->type = TYPE_STR;
     desc->v.str = str_dup(path);
     signal(SIGPIPE, SIG_IGN);
+#ifdef OUTBOUND_NETWORK
+    register_task_queue(enumerate_requests);
+#endif
     return 1;
 }
 
@@ -1172,8 +1220,12 @@ send_listeners(void)
 
     if (!control)
         return;
+    if (++listeners_serial == 0)
+        listeners_serial = 1;
     for (l = port_listeners; l && count < SP_MAX_LISTENERS; l = l->next)
         if (l->active) {
+            if (!l->serial)
+                l->serial = listeners_serial;
             listens[count].port = l->port;
             listens[count].flags = (l->tls ? SP_LISTEN_TLS : 0)
                 | (l->acme ? SP_LISTEN_ACME : 0);
@@ -1182,7 +1234,8 @@ send_listeners(void)
             listens[count].acme = l->acme;
             count++;
         }
-    if (sp_encode_listeners(listens, count, &payload, &length) < 0) {
+    if (sp_encode_listeners(listeners_serial, listens, count,
+                            &payload, &length) < 0) {
         errlog("SESSION: Can't tell the edge which ports to listen on\n");
         return;
     }
@@ -1257,12 +1310,35 @@ network_request_connection(Var arglist, Objid listener, int tls,
 }
 
 void
-network_request_task(uint32_t id, TaskID task)
+network_request_task(uint32_t id, vm task)
 {
     connect_request *r = find_request(id);
 
     if (r)
         r->task = task;
+}
+
+/* Tasks waiting for the edge are an external task queue, as tasks in
+ * read() are part of their connection's queue: queued_tasks() lists them
+ * and kill_task() can kill them, but they aren't written to the database
+ * and resume() can't wake them.
+ */
+static task_enum_action
+enumerate_requests(task_closure closure, void *data)
+{
+    connect_request *r;
+
+    for (r = requests; r; r = r->next)
+        if (r->task) {
+            task_enum_action action = (*closure) (r->task, "connecting",
+                                                  data);
+
+            if (action == TEA_KILL)
+                r->task = NULL;
+            if (action != TEA_CONTINUE)
+                return action;
+        }
+    return TEA_CONTINUE;
 }
 
 #endif /* OUTBOUND_NETWORK */
@@ -1392,6 +1468,55 @@ network_set_connection_binary(network_handle nh, int binary)
     ((session_handle *) nh.ptr)->binary = binary;
 }
 
+/* A line of input not yet ended, with the CR and the start of a UTF-8
+ * sequence consume_input() may be carrying, so a session that resumes
+ * from the database recording it goes on where it stopped.
+ */
+Var
+network_connection_state(network_handle nh, Var state)
+{
+    session_handle *h = nh.ptr;
+    Var partial = new_list(3), bytes = new_list(h->excess_utf_count);
+    int i;
+
+    for (i = 0; i < h->excess_utf_count; i++) {
+        bytes.v.list[i + 1].type = TYPE_INT;
+        bytes.v.list[i + 1].v.num = h->excess_utf[i];
+    }
+    partial.v.list[1].type = TYPE_STR;
+    partial.v.list[1].v.str = str_dup(stream_contents(h->input));
+    partial.v.list[2].type = TYPE_INT;
+    partial.v.list[2].v.num = h->last_input_was_CR;
+    partial.v.list[3] = bytes;
+    return network_info_add(state, "partial-input", partial);
+}
+
+void
+network_restore_connection_state(network_handle nh, Var state)
+{
+    session_handle *h = nh.ptr;
+    Var partial, bytes;
+    int i;
+
+    if (!network_info_find(state, "partial-input", &partial)
+        || partial.type != TYPE_LIST || partial.v.list[0].v.num != 3
+        || partial.v.list[1].type != TYPE_STR
+        || partial.v.list[3].type != TYPE_LIST
+        || partial.v.list[3].v.list[0].v.num > 3)
+        return;
+    bytes = partial.v.list[3];
+    for (i = 1; i <= bytes.v.list[0].v.num; i++)
+        if (bytes.v.list[i].type != TYPE_INT
+            || bytes.v.list[i].v.num < 0x80 || bytes.v.list[i].v.num > 0xff)
+            return;
+    reset_stream(h->input);
+    stream_add_string(h->input, partial.v.list[1].v.str);
+    h->last_input_was_CR = is_true(partial.v.list[2]);
+    h->excess_utf_count = (int) bytes.v.list[0].v.num;
+    for (i = 0; i < h->excess_utf_count; i++)
+        h->excess_utf[i] = (unsigned char) bytes.v.list[i + 1].v.num;
+}
+
 void
 network_set_connection_player(network_handle nh, Objid player, Objid listener)
 {
@@ -1492,7 +1617,7 @@ network_process_io(int timeout)
     if (the_listener && the_listener->fd >= 0)
         mplex_add_reader(the_listener->fd);
     for (h = all_handles; h; h = h->next) {
-        if (!h->input_suspended)
+        if (!h->input_suspended || h->closing)
             mplex_add_reader(h->fd);
         if (h->output_head)
             mplex_add_writer(h->fd);
@@ -1525,7 +1650,9 @@ network_process_io(int timeout)
         }
         if (mplex_is_writable(h->fd))
             okay = push_output(h);
-        if (!okay)
+        if (okay && h->closing == CLOSE_WRITING && !h->output_head)
+            okay = finish_close(h);
+        if (!okay || (h->closing && time(0) >= h->close_deadline))
             remove_handle(h, 1);
     }
     return 1;
@@ -1543,13 +1670,32 @@ network_connection_info(network_handle nh)
     return var_ref(((session_handle *) nh.ptr)->info);
 }
 
+static int
+finish_close(session_handle *h)
+{
+    h->closing = CLOSE_DRAINING;
+    return shutdown(h->fd, SHUT_WR) == 0;
+}
+
+/* The server is done with the session, but its last output and the CLOSE
+ * still have to reach the edge, which would otherwise see the carrier end
+ * without a CLOSE, take it for a crash and attach the session again.  So
+ * the handle stays until they're written and the edge has closed its end,
+ * or CLOSE_DEADLINE passes.
+ */
 void
 network_close(network_handle nh)
 {
     session_handle *h = nh.ptr;
-    (void) queue_frame(h, SP_CLOSE, NULL, 0, 0);
-    (void) push_output(h);
-    remove_handle(h, 0);
+
+    if (!queue_frame(h, SP_CLOSE, NULL, 0, 0) || !push_output(h)) {
+        remove_handle(h, 0);
+        return;
+    }
+    h->closing = CLOSE_WRITING;
+    h->close_deadline = time(0) + CLOSE_DEADLINE;
+    if (!h->output_head && !finish_close(h))
+        remove_handle(h, 0);
 }
 
 void
@@ -1603,6 +1749,8 @@ detach_sessions(uint8_t mode)
 
         if (h == control)
             continue;	/* the edge keeps its ports open for the next server */
+        if (h->closing)
+            continue;	/* already ended with CLOSE */
         detach.input_position = h->input_position;
         sp_encode_detach(&detach, payload);
         if (!queue_frame(h, SP_DETACH, payload, sizeof(payload), 0))

@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "protocol.h"
+#include "session_protocol.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -20,6 +20,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#define MAX_REFUSALS 3		/* refused HELLOs before a session ends */
+
 struct edge_config {
     SSL_CTX *tls;
     char backend_path[sizeof(((struct sockaddr_un *) 0)->sun_path)];
@@ -36,6 +38,8 @@ struct client {
     uint64_t generation;
     uint64_t input_position;
     uint64_t input_acked;
+    unsigned char *unacked;	/* input from input_acked to input_position */
+    size_t unread;		/* input a DETACH said wasn't read */
     uint64_t output_position;
     uint8_t next_mode;
     unsigned char database[SP_DATABASE_ID_SIZE];	/* from the last DETACH */
@@ -182,9 +186,16 @@ send_hello(struct client *client, int backend)
     return result;
 }
 
+/* Attach the session to the backend, waiting for one to listen.  Returns -1
+ * if the backend refuses the session, which then ends.  A server that is
+ * exiting can drop a carrier it never accepted, so only refusals that persist
+ * count.
+ */
 static int
 attach_backend(struct client *client)
 {
+    int refusals = 0;
+
     for (;;) {
         int fd = connect_backend(client->config->backend_path);
         if (fd >= 0) {
@@ -192,28 +203,86 @@ attach_backend(struct client *client)
             if (send_hello(client, fd) == 0)
                 return fd;
             close(fd);
+            if (++refusals == MAX_REFUSALS)
+                return -1;
         }
         delay_reconnect();
     }
 }
 
+/* Input is kept until the server acknowledges it, so that a server that
+ * detaches the session without having read it all can have the rest again.
+ */
 static int
 send_input(int backend, struct client *client,
            const unsigned char *data, size_t length)
 {
+    size_t kept = (size_t) (client->input_position - client->input_acked);
     unsigned char *payload = malloc(length + 8);
+    unsigned char *unacked = realloc(client->unacked, kept + length);
     int result;
 
-    if (!payload)
+    if (unacked)
+        client->unacked = unacked;
+    if (!payload || !unacked) {
+        free(payload);
         return -1;
+    }
     sp_put_u64(payload, client->input_position);
     memcpy(payload + 8, data, length);
     result = sp_frame_write(backend, SP_INPUT, 0, payload,
                             (uint32_t) length + 8);
     free(payload);
-    if (result == 1)
+    if (result == 1) {
+        memcpy(client->unacked + kept, data, length);
         client->input_position += length;
+    }
     return result;
+}
+
+/* Free the input before POSITION, which the server has read. */
+static void
+drop_input(struct client *client, uint64_t position)
+{
+    size_t dropped = (size_t) (position - client->input_acked);
+
+    memmove(client->unacked, client->unacked + dropped,
+            (size_t) (client->input_position - position));
+    client->input_acked = position;
+}
+
+/* After a crash, input already sent is never sent again. */
+static void
+forget_input(struct client *client)
+{
+    client->input_acked = client->input_position;
+    client->unread = 0;
+}
+
+/* Send a new attachment the input its predecessor's DETACH said it hadn't
+ * read.  DETACH left input_position there.
+ */
+static int
+resend_input(int backend, struct client *client, size_t length)
+{
+    unsigned char *data = malloc(length ? length : 1);
+    size_t offset = 0;
+
+    if (!data)
+        return -1;
+    memcpy(data, client->unacked, length);
+    while (offset < length) {
+        size_t chunk = length - offset > SP_MAX_DATA
+            ? SP_MAX_DATA : length - offset;
+
+        if (send_input(backend, client, data + offset, chunk) < 0) {
+            free(data);
+            return -1;
+        }
+        offset += chunk;
+    }
+    free(data);
+    return 0;
 }
 
 static int
@@ -253,7 +322,7 @@ handle_backend(struct client *client, int backend)
                 || ack.position > client->input_position)
                 result = -1;
             else
-                client->input_acked = ack.position;
+                drop_input(client, ack.position);
             if (result == 0)
                 result = 1;
         }
@@ -268,10 +337,16 @@ handle_backend(struct client *client, int backend)
     } else if (frame.type == SP_DETACH) {
         struct sp_detach detach;
         result = sp_decode_detach(&frame, &detach);
-        if (result == 0 && detach.mode == SP_MODE_GRACEFUL
-            && detach.input_position == client->input_position
-            && detach.output_position == client->output_position) {
-            client->next_mode = SP_MODE_GRACEFUL;
+        if (result == 0
+            && detach.output_position == client->output_position
+            && detach.input_position >= client->input_acked
+            && detach.input_position <= client->input_position) {
+            /* Input the server didn't read goes to the next one. */
+            drop_input(client, detach.input_position);
+            client->unread = (size_t) (client->input_position
+                                       - detach.input_position);
+            client->input_position = detach.input_position;
+            client->next_mode = detach.mode;
             memcpy(client->database, detach.database, SP_DATABASE_ID_SIZE);
             result = 2;
         } else {
@@ -299,7 +374,7 @@ serve_client(void *argument)
     unsigned char input[65536];
     int backend = attach_backend(client);
 
-    for (;;) {
+    while (backend >= 0) {
         struct pollfd fds[2] = {
             {client->fd, POLLIN, 0}, {backend, POLLIN, 0}
         };
@@ -317,6 +392,7 @@ serve_client(void *argument)
                     break;
                 close(backend);
                 client->next_mode = SP_MODE_CRASH;
+                forget_input(client);
                 backend = attach_backend(client);
                 continue;
             }
@@ -324,6 +400,12 @@ serve_client(void *argument)
                 close(backend);
                 backend = attach_backend(client);
                 client->next_mode = SP_MODE_CRASH;
+                if (resend_input(backend, client, client->unread) < 0) {
+                    close(backend);
+                    forget_input(client);
+                    backend = attach_backend(client);
+                }
+                client->unread = 0;
                 continue;
             }
         }
@@ -337,15 +419,18 @@ serve_client(void *argument)
             if (send_input(backend, client, input, count) < 0) {
                 close(backend);
                 client->next_mode = SP_MODE_CRASH;
+                forget_input(client);
                 backend = attach_backend(client);
             }
         }
     }
 
-    close(backend);
+    if (backend >= 0)
+        close(backend);
     SSL_shutdown(client->tls);
     SSL_free(client->tls);
     close(client->fd);
+    free(client->unacked);
     free(client);
     return NULL;
 }

@@ -1,5 +1,5 @@
-#ifndef WP_SESSION_PROTOCOL_H
-#define WP_SESSION_PROTOCOL_H
+#ifndef SESSION_PROTOCOL_H
+#define SESSION_PROTOCOL_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -22,6 +22,7 @@
 #define SP_CONNECT_FAILED_FIXED_SIZE 8u
 #define SP_LISTEN_FAILED_FIXED_SIZE 8u
 #define SP_MAX_LISTENERS 1024u
+#define SP_LISTENERS_FIXED_SIZE 4u
 #define SP_LISTEN_FIXED_SIZE 10u
 #define SP_MAX_FIELDS 32u
 #define SP_MAX_FIELD_NAME 32u
@@ -142,6 +143,7 @@ struct sp_connect_failed {
 struct sp_listen_failed {
     uint16_t port;
     uint8_t code;
+    uint32_t serial;		/* of the LISTENERS that named the port */
     uint32_t reason_length;
     const unsigned char *reason;
 };
@@ -205,8 +207,9 @@ int sp_decode_detach(const struct sp_frame *frame, struct sp_detach *detach);
 void sp_encode_bind(const struct sp_bind *bind,
                     unsigned char payload[SP_BIND_SIZE]);
 int sp_decode_bind(const struct sp_frame *frame, struct sp_bind *bind);
-int sp_encode_listeners(const struct sp_listen *listens, unsigned count,
-                        unsigned char **payload, uint32_t *length);
+int sp_encode_listeners(uint32_t serial, const struct sp_listen *listens,
+                        unsigned count, unsigned char **payload,
+                        uint32_t *length);
 int sp_encode_connect(const struct sp_connect *connect,
                       unsigned char **payload, uint32_t *length);
 int sp_decode_connect(const struct sp_frame *frame, struct sp_connect *connect);

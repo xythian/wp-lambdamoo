@@ -100,12 +100,6 @@ extern server_handle server_open_connection(Objid listener,
 				 * CONNECTION to the new connection's object.
 				 */
 
-extern int server_resume_connecting_task(TaskID task, Var value);
-				/* Resume the task waiting in
-				 * open_network_connection() with VALUE (an
-				 * object or an error to raise); false if that
-				 * task no longer exists.
-				 */
 
 extern void server_refuse_connection(server_listener l,
 				     network_handle h);

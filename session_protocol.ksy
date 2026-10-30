@@ -244,6 +244,11 @@ types:
   listeners:
     doc: The complete set of ports the server listens on through the edge.
     seq:
+      - id: serial
+        type: u4
+        valid:
+          min: 1
+        doc: Increases with each LISTENERS the server sends.
       - id: entries
         type: listen_entry
         repeat: eos
@@ -338,7 +343,12 @@ types:
         valid:
           any-of: [listen_failure::port, listen_failure::certificate]
       - id: reserved
-        contents: [0, 0, 0, 0, 0]
+        contents: [0]
+      - id: serial
+        type: u4
+        valid:
+          min: 1
+        doc: The serial of the LISTENERS that named the port.
       - id: diagnostic
         type: str
         size-eos: true

@@ -43,6 +43,7 @@
 #include "db.h"
 #include "db_io.h"
 #include "disassemble.h"
+#include "eval_vm.h"
 #include "exceptions.h"
 #include "execute.h"
 #include "functions.h"
@@ -88,6 +89,20 @@ typedef struct shandle {
 } shandle;
 
 static shandle *all_shandles = 0;
+
+/* What a recorded connection had besides its player and listener, as the
+ * database recorded it: its options and the input it hadn't run yet (see
+ * connection_state()), and a task in read().  A session that resumes the
+ * connection is given them back.
+ */
+typedef struct saved_connection {
+    struct saved_connection *next;
+    Objid player, listener;
+    Var state;
+    vm reading;			/* null if no task was in read() */
+} saved_connection;
+
+static saved_connection *saved_connections = 0;
 
 typedef struct slistener {
     struct slistener *next, **prev;
@@ -441,6 +456,33 @@ send_message(Objid listener, network_handle nh, const char *msg_name,...)
     va_end(args);
 }
 
+static void
+free_saved_connection(saved_connection *s)
+{
+    free_var(s->state);
+    if (s->reading)
+	free_vm(s->reading, 1);
+    myfree(s, M_NETWORK);
+}
+
+#if NETWORK_PROTOCOL == NP_SESSION
+/* Unlink and return what was saved for PLAYER on LISTENER, if anything. */
+static saved_connection *
+take_saved_connection(Objid player, Objid listener)
+{
+    saved_connection **ss;
+
+    for (ss = &saved_connections; *ss; ss = &(*ss)->next)
+	if ((*ss)->player == player && (*ss)->listener == listener) {
+	    saved_connection *s = *ss;
+
+	    *ss = s->next;
+	    return s;
+	}
+    return 0;
+}
+#endif
+
 /* Tell the database that the connections it recorded as open are gone. */
 static void
 disconnect_recorded_connections(void)
@@ -461,6 +503,12 @@ disconnect_recorded_connections(void)
     }
     free_var(checkpointed_connections);
     checkpointed_connections = zero;
+    while (saved_connections) {
+	saved_connection *s = saved_connections;
+
+	saved_connections = s->next;
+	free_saved_connection(s);
+    }
 }
 
 #if NETWORK_PROTOCOL == NP_SESSION
@@ -477,6 +525,32 @@ disconnect_unresumed_connections(void)
     if (checkpointed_connections.type == TYPE_LIST
 	&& time(0) >= resume_deadline)
 	disconnect_recorded_connections();
+}
+
+/* PLAYER has logged in afresh, so the session the database recorded for
+ * them can no longer resume: tell the database it's gone now, rather than
+ * when the resume timeout passes, while they're connected.
+ */
+static void
+forget_recorded_connection(Objid player)
+{
+    int i;
+
+    if (checkpointed_connections.type != TYPE_LIST)
+	return;
+    for (i = checkpointed_connections.v.list[0].v.num; i > 0; i--) {
+	Var v = checkpointed_connections.v.list[i];
+	Objid listener = v.v.list[2].v.obj;
+	saved_connection *s;
+
+	if (v.v.list[1].v.obj != player)
+	    continue;
+	checkpointed_connections = listdelete(checkpointed_connections, i);
+	if ((s = take_saved_connection(player, listener)))
+	    free_saved_connection(s);
+	oklog("SESSION NOT RESUMED: #%"PRIdN" logged in again\n", player);
+	call_notifier(player, listener, "user_disconnected");
+    }
 }
 #endif
 
@@ -1097,6 +1171,39 @@ server_listener_failed(server_listener sl)
     free_slistener((slistener *) sl.ptr);
 }
 
+#if NETWORK_PROTOCOL == NP_SESSION
+/* Give a resumed connection back its options, the input it hadn't run, a
+ * line not yet ended and a task in read(), as SAVED recorded them.
+ */
+static void
+restore_connection_state(shandle *h, saved_connection *saved)
+{
+    Var options;
+    int i;
+
+    if (network_info_find(saved->state, "options", &options)
+	&& options.type == TYPE_LIST)
+	for (i = 1; i <= options.v.list[0].v.num; i++) {
+	    Var pair = options.v.list[i];
+	    const char *name;
+
+	    if (pair.type != TYPE_LIST || pair.v.list[0].v.num != 2
+		|| pair.v.list[1].type != TYPE_STR)
+		continue;
+	    name = pair.v.list[1].v.str;
+	    if (!server_set_connection_option(h, name, pair.v.list[2])
+		&& !tasks_set_connection_option(h->tasks, name,
+						pair.v.list[2]))
+		(void) network_set_connection_option(h->nhandle, name,
+						     pair.v.list[2]);
+	}
+    network_restore_connection_state(h->nhandle, saved->state);
+    tasks_restore_connection_state(h->tasks, saved->state, saved->reading);
+    saved->reading = 0;
+    free_saved_connection(saved);
+}
+#endif
+
 server_handle
 server_resume_connection(server_listener sl, network_handle nh,
                          Objid player, Objid listener, int crashed,
@@ -1105,6 +1212,9 @@ server_resume_connection(server_listener sl, network_handle nh,
     server_handle result = {0};
     slistener *l = sl.ptr;
     shandle *h;
+#if NETWORK_PROTOCOL == NP_SESSION
+    saved_connection *saved;
+#endif
     int checkpoint_index = 0;
     int i;
 
@@ -1125,7 +1235,10 @@ server_resume_connection(server_listener sl, network_handle nh,
     if (!l || l->oid != listener) {
         for (l = all_slisteners; l && l->oid != listener; l = l->next)
             ;
-        if (!l)
+        /* An outbound connection may name an object that isn't
+         * listening, as open_network_connection() allows.
+         */
+        if (!l && !outbound)
             return result;
     }
 
@@ -1147,7 +1260,11 @@ server_resume_connection(server_listener sl, network_handle nh,
     h->disconnect_me = 0;
     h->outbound = outbound;
     h->binary = 0;
-    h->print_messages = l->print_messages;
+    h->print_messages = l ? l->print_messages : 0;
+#if NETWORK_PROTOCOL == NP_SESSION
+    if ((saved = take_saved_connection(player, listener)))
+        restore_connection_state(h, saved);
+#endif
 
     oklog("SESSION %s: #%"PRIdN" on %s\n",
           crashed ? "RECOVERED" : "REATTACHED", player,
@@ -1181,12 +1298,6 @@ server_open_connection(Objid listener, network_handle nh, Objid *connection)
     result = server_new_connection(sl, nh, 1);
     *connection = ((shandle *) result.ptr)->player;
     return result;
-}
-
-int
-server_resume_connecting_task(TaskID task, Var value)
-{
-    return resume_waiting_task(task, value) == E_NONE;
 }
 #endif
 
@@ -1252,6 +1363,9 @@ player_connected(Objid old_id, Objid new_id, int is_newly_created)
     if (!new_h)
 	panic("Non-existent shandle connected");
 
+#if NETWORK_PROTOCOL == NP_SESSION
+    forget_recorded_connection(new_id);
+#endif
     new_h->player = new_id;
     new_h->connection_time = time(0);
     network_set_connection_player(new_h->nhandle, new_id, new_h->listener);
@@ -1344,6 +1458,95 @@ boot_player(Objid player)
     }
 }
 
+#if NETWORK_PROTOCOL == NP_SESSION
+/* What a logged-in connection holds beyond its player and listener, as
+ * {NAME, VALUE} pairs, so that a session resuming it from this database
+ * goes on as it was; *READING is set to its task in read(), if any.
+ */
+static Var
+connection_state(shandle *h, vm *reading)
+{
+    Var options = new_list(0), state = new_list(0);
+
+    options = server_connection_options(h, options);
+    options = tasks_connection_options(h->tasks, options);
+    options = network_connection_options(h->nhandle, options);
+    state = network_info_add(state, "options", options);
+    state = network_connection_state(h->nhandle, state);
+    return tasks_connection_state(h->tasks, state, reading);
+}
+
+static void
+write_connection_state(Objid player, Objid listener, Var state, vm reading)
+{
+    dbio_printf("%"PRIdN" %"PRIdN" %d\n", player, listener, reading != 0);
+    dbio_write_var(state);
+    if (reading) {
+	dbio_printf("%"PRIdT"\n", reading->task_id);
+	write_vm(reading);
+    }
+}
+
+/* Follows the list of active connections, which databases from servers
+ * without it simply end before.
+ */
+static void
+write_connection_states(void)
+{
+    saved_connection *s;
+    shandle *h;
+    int count = 0;
+
+    for (h = all_shandles; h; h = h->next)
+	if (h->player >= 0)
+	    count++;
+    for (s = saved_connections; s; s = s->next)
+	count++;
+    dbio_printf("%d connection states\n", count);
+    for (h = all_shandles; h; h = h->next)
+	if (h->player >= 0) {
+	    vm reading;
+	    Var state = connection_state(h, &reading);
+
+	    write_connection_state(h->player, h->listener, state, reading);
+	    free_var(state);
+	}
+    for (s = saved_connections; s; s = s->next)
+	write_connection_state(s->player, s->listener, s->state, s->reading);
+}
+#endif
+
+static int
+read_connection_state(void)
+{
+    saved_connection *s = mymalloc(sizeof(saved_connection), M_NETWORK);
+    int has_reading;
+    TaskID task_id;
+
+    s->reading = 0;
+    if (!dbio_scxnf("%"SCNdN" %"SCNdN" %d",
+		    &s->player, &s->listener, &has_reading)) {
+	errlog("READ_ACTIVE_CONNECTIONS: Bad connection state header.\n");
+	myfree(s, M_NETWORK);
+	return 0;
+    }
+    if (!dbio_read_var(&s->state)) {
+	errlog("READ_ACTIVE_CONNECTIONS: Bad connection state.\n");
+	myfree(s, M_NETWORK);
+	return 0;
+    }
+    if (has_reading
+	&& (!dbio_scxnf("%"SCNdT, &task_id)
+	    || !(s->reading = read_vm(task_id)))) {
+	errlog("READ_ACTIVE_CONNECTIONS: Bad reading task.\n");
+	free_saved_connection(s);
+	return 0;
+    }
+    s->next = saved_connections;
+    saved_connections = s;
+    return 1;
+}
+
 void
 write_active_connections(void)
 {
@@ -1378,6 +1581,9 @@ write_active_connections(void)
 
     for (h = all_shandles; h; h = h->next)
 	dbio_printf("%"PRIdN" %"PRIdN"\n", h->player, h->listener);
+#if NETWORK_PROTOCOL == NP_SESSION
+    write_connection_states();
+#endif
 }
 
 int
@@ -1419,6 +1625,17 @@ read_active_connections(void)
 	v.v.list[1].v.obj = who;
 	v.v.list[2].v.obj = listener;
     }
+
+    int states;
+    int sscn = dbio_scxnf("\v%d connection states", &states);
+
+    if (!sscn) {
+	errlog("READ_ACTIVE_CONNECTIONS: Bad connection state count.\n");
+	return 0;
+    }
+    for (i = 1; sscn > 1 && i <= states; i++)
+	if (!read_connection_state())
+	    return 0;
 
     return 1;
 }
@@ -1845,15 +2062,14 @@ connection_listener(const struct network_options *o, slistener *temporary)
 
 static uint32_t connect_request_id;
 
+/* The task waits with the request, not with suspended tasks, so it is
+ * neither written to the database nor woken by resume().
+ */
 static enum error
 wait_for_connection(vm the_vm, void *data UNUSED_)
 {
-    Num forever = -1;
-    enum error e = enqueue_suspended_task(the_vm, &forever);
-
-    if (e == E_NONE)
-	network_request_task(connect_request_id, the_vm->task_id);
-    return e;
+    network_request_task(connect_request_id, the_vm);
+    return E_NONE;
 }
 
 #endif
@@ -2170,6 +2386,23 @@ find_slistener(Var desc)
     return 0;
 }
 
+/* Whether listen()'s third argument is options rather than
+ * print-messages: a list of lists.  Any other value, such as {1}, is
+ * print-messages, read for truth as it always was.
+ */
+static int
+is_options_list(Var v)
+{
+    int i;
+
+    if (v.type != TYPE_LIST)
+	return 0;
+    for (i = 1; i <= v.v.list[0].v.num; i++)
+	if (v.v.list[i].type != TYPE_LIST)
+	    return 0;
+    return 1;
+}
+
 /* listen(OBJECT, POINT [, PRINT-MESSAGES] [, OPTIONS]) */
 static package
 bf_listen(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
@@ -2186,7 +2419,7 @@ bf_listen(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
 #endif
 
     default_network_options(&o);
-    if (nargs == 3 && arglist.v.list[3].type == TYPE_LIST)
+    if (nargs == 3 && is_options_list(arglist.v.list[3]))
 	e = parse_network_options(arglist.v.list[3], 1, &o);
     else {
 	print_messages = nargs >= 3 && is_true(arglist.v.list[3]);

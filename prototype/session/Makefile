@@ -2,20 +2,23 @@
 	test-sanitize benchmark clean
 
 CC ?= cc
+PROTOCOL = ../../session_protocol.c
+PROTOCOL_H = ../../session_protocol.h
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -pedantic -O2
+CFLAGS += -I../..
 SANITIZE_FLAGS ?= -fsanitize=address,undefined -fno-omit-frame-pointer
 OPENSSL ?= openssl
 
 all: test_protocol edge backend integration_test moo_integration_test session_benchmark
 
-test_protocol: protocol.c protocol.h test_protocol.c
-	$(CC) $(CFLAGS) -o $@ protocol.c test_protocol.c
+test_protocol: $(PROTOCOL) $(PROTOCOL_H) test_protocol.c
+	$(CC) $(CFLAGS) -o $@ $(PROTOCOL) test_protocol.c
 
-edge: protocol.c protocol.h edge.c
-	$(CC) $(CFLAGS) -pthread -o $@ protocol.c edge.c -lssl -lcrypto
+edge: $(PROTOCOL) $(PROTOCOL_H) edge.c
+	$(CC) $(CFLAGS) -pthread -o $@ $(PROTOCOL) edge.c -lssl -lcrypto
 
-backend: protocol.c protocol.h backend.c
-	$(CC) $(CFLAGS) -pthread -o $@ protocol.c backend.c
+backend: $(PROTOCOL) $(PROTOCOL_H) backend.c
+	$(CC) $(CFLAGS) -pthread -o $@ $(PROTOCOL) backend.c
 
 integration_test: integration_test.c
 	$(CC) $(CFLAGS) -o $@ integration_test.c -lssl -lcrypto
@@ -48,7 +51,7 @@ benchmark: edge backend session_benchmark test-tmp/cert.pem test-tmp/key.pem
 	./session_benchmark ./edge ./backend test-tmp/cert.pem test-tmp/key.pem test-tmp
 
 test-sanitize:
-	$(CC) $(CFLAGS) $(SANITIZE_FLAGS) -o test_protocol protocol.c test_protocol.c
+	$(CC) $(CFLAGS) $(SANITIZE_FLAGS) -o test_protocol $(PROTOCOL) test_protocol.c
 	ASAN_OPTIONS=detect_leaks=1 ./test_protocol
 
 clean:

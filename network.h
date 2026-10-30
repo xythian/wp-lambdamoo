@@ -116,6 +116,18 @@ extern int network_set_listener_tls(network_listener nl,
 				 * before network_listen(); false on failure.
 				 */
 
+extern Var network_connection_state(network_handle nh, Var state);
+				/* Add what the connection holds of a line
+				 * of input not yet ended to STATE as {NAME,
+				 * VALUE} pairs, for a resumed session.
+				 */
+
+extern void network_restore_connection_state(network_handle nh,
+					     Var state);
+				/* Restore what network_connection_state()
+				 * recorded.
+				 */
+
 extern void network_detach_after_panic(void);
 				/* Detach every session in crash mode, naming
 				 * the panic dump just written so that a server
@@ -219,6 +231,13 @@ extern Var network_info_add_str(Var info, const char *name,
 extern Var network_info_add_int(Var info, const char *name, Num value);
 				/* Convenience forms of network_info_add(). */
 
+extern int network_info_find(Var info, const char *name, Var *value);
+				/* Set *VALUE (not a new reference) to the
+				 * value paired with NAME in the {NAME, VALUE}
+				 * list INFO, returning false if there is
+				 * none.
+				 */
+
 extern Var network_connection_options(network_handle nh,
 				      Var list);
 				/* Add the current option settings for the
@@ -247,18 +266,21 @@ extern int network_set_connection_option(network_handle nh,
 #include "structures.h"
 
 #if NETWORK_PROTOCOL == NP_SESSION
+#include "execute.h"
+
 extern enum error network_request_connection(Var arglist, Objid listener,
 					     int tls, int timeout,
 					     uint32_t *id);
 				/* Ask the edge to connect to the host and
 				 * port in ARGLIST, setting ID.  The server
-				 * suspends the calling task and passes its ID
-				 * to network_request_task(); the network later
-				 * calls server_open_connection() and
-				 * server_resume_connecting_task().
+				 * suspends the calling task and passes it to
+				 * network_request_task(); the network later
+				 * calls server_open_connection() and resumes
+				 * the task.
 				 */
 
-extern void network_request_task(uint32_t id, TaskID task);
+extern void network_request_task(uint32_t id, vm task);
+				/* TASK, suspended, waits for request ID. */
 #else
 extern enum error network_open_connection(Var arglist, server_listener sl);
 #endif
