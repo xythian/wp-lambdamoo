@@ -167,11 +167,15 @@ set_rw_able(int fd)
 
 enum proto_accept_error
 proto_accept_connection(int listener_fd, server_listener sl,
-			int *read_fd, int *write_fd, const char **name)
+			int *read_fd, int *write_fd, const char **name,
+			Var *info)
 {
     int timeout = address_lookup_timeout(sl);
     int fd;
+    const char *host;
     struct sockaddr_in *addr = (struct sockaddr_in *) call->addr.buf;
+    struct sockaddr_in local;
+    struct netbuf local_buf;
     static Stream *s = 0;
 
     if (!s)
@@ -206,10 +210,15 @@ proto_accept_connection(int listener_fd, server_listener sl,
 	return PA_OTHER;
     }
     *read_fd = *write_fd = fd;
-    stream_printf(s, "%s, port %d",
-		  lookup_name_from_addr(addr, timeout),
-		  (int) ntohs(addr->sin_port));
+    host = lookup_name_from_addr(addr, timeout);
+    stream_printf(s, "%s, port %d", host, (int) ntohs(addr->sin_port));
     *name = reset_stream(s);
+    memset(&local, 0, sizeof(local));
+    local_buf.maxlen = sizeof(local);
+    local_buf.len = 0;
+    local_buf.buf = (void *) &local;
+    (void) t_getname(listener_fd, &local_buf, LOCALNAME);
+    *info = tcp_connection_info(&local, addr, host);
     return PA_OKAY;
 }
 
@@ -241,7 +250,8 @@ timeout_proc(Timer_ID id UNUSED_, Timer_Data data UNUSED_)
 enum error
 proto_open_connection(Var arglist, server_listener sl,
 		      int *read_fd, int *write_fd,
-		      const char **local_name, const char **remote_name)
+		      const char **local_name, const char **remote_name,
+		      Var *info)
 {
     /* These are `static' rather than `volatile' because I can't cope with
      * getting all those nasty little parameter-passing rules right.  This
@@ -337,6 +347,8 @@ proto_open_connection(Var arglist, server_listener sl,
 
     stream_printf(st2, "%s, port %d", host_name, port);
     *remote_name = reset_stream(st2);
+
+    *info = tcp_connection_info(&rec_addr, &addr, host_name);
 
     return E_NONE;
 }

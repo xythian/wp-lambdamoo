@@ -37,6 +37,7 @@
 #include "exceptions.h"
 #include "list.h"
 #include "log.h"
+#include "md5.h"
 #include "server.h"
 #include "storage.h"
 #include "streams.h"
@@ -47,6 +48,10 @@
 
 static char *input_db_name, *dump_db_name;
 static int dump_generation = 0;
+static unsigned char input_digest[DB_DIGEST_SIZE];
+static int have_input_digest;
+static unsigned char dump_digest[DB_DIGEST_SIZE];
+static int have_dump_digest;
 static const char *header_format_string
 = "** LambdaMOO Database, Format Version %u **";
 
@@ -706,6 +711,46 @@ write_db_file(const char *reason)
     return success;
 }
 
+/* The digest identifies a database file exactly, so that a session
+ * server resumes connections only from the dump that recorded them.
+ */
+static int
+digest_file(const char *name, unsigned char digest[DB_DIGEST_SIZE])
+{
+    FILE *f = fopen(name, "r");
+    uint8_t buffer[65536];
+    size_t count;
+    md5ctx_t context;
+    int ok;
+
+    if (!f)
+	return 0;
+    md5_Init(&context);
+    while ((count = fread(buffer, 1, sizeof(buffer), f)) > 0)
+	md5_Update(&context, buffer, (unsigned) count);
+    ok = !ferror(f);
+    fclose(f);
+    if (ok)
+	md5_Final(&context, digest);
+    return ok;
+}
+
+int
+db_input_digest(unsigned char digest[DB_DIGEST_SIZE])
+{
+    if (have_input_digest)
+	memcpy(digest, input_digest, DB_DIGEST_SIZE);
+    return have_input_digest;
+}
+
+int
+db_dump_digest(unsigned char digest[DB_DIGEST_SIZE])
+{
+    if (have_dump_digest)
+	memcpy(digest, dump_digest, DB_DIGEST_SIZE);
+    return have_dump_digest;
+}
+
 typedef enum {
     DUMP_SHUTDOWN, DUMP_CHECKPOINT, DUMP_PANIC
 } Dump_Reason;
@@ -791,6 +836,10 @@ dump_database(Dump_Reason reason)
 	goto dumpingFinished;
     }
     success = 1;
+    if (reason != DUMP_CHECKPOINT)
+	have_dump_digest = digest_file(reason == DUMP_PANIC
+				       ? temp_name : dump_db_name,
+				       dump_digest);
 
   dumpingFinished:
     free_stream(s);
@@ -834,6 +883,7 @@ db_initialize(int *pargc, char ***pargv)
 	return 0;
     }
     input_db = f;
+    have_input_digest = digest_file(input_db_name, input_digest);
     dbpriv_build_prep_table();
 
     return 1;

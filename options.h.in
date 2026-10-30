@@ -412,7 +412,8 @@ useful for anything other than quick experiments.)
  *  OBN_OFF     disabled by default, +O enables
  *  OBN_ON      enabled by default,  -O disables
  *
- * OUTBOUND_NETWORK is only relevant when NETWORK_PROTOCOL == NP_TCP;
+ * OUTBOUND_NETWORK is only relevant when NETWORK_PROTOCOL is NP_TCP or
+ * NP_SESSION (where the edge makes the connection);
  * open_network_connection() is not available otherwise.
  *
  * (note: prior server versions used explicit numerical values

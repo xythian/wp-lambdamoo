@@ -213,7 +213,8 @@ proto_listen(int fd)
 
 enum proto_accept_error
 proto_accept_connection(int listener_fd, server_listener sl UNUSED_,
-			int *read_fd, int *write_fd, const char **name)
+			int *read_fd, int *write_fd, const char **name,
+			Var *info)
 {
     /* There is input available on listener_fd; read up to 1K of it and try
      * to parse a line like this from it:
@@ -328,6 +329,9 @@ proto_accept_connection(int listener_fd, server_listener sl UNUSED_,
 	sprintf(buffer, "User #%d", (int) st1.st_uid);
 	*name = buffer;
     }
+    *info = network_info_add_str(new_list(0), "transport", "local");
+    *info = network_info_add_str(*info, "path", l->filename);
+    *info = network_info_add_str(*info, "user", *name);
 
     return PA_OKAY;
 }

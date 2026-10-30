@@ -54,6 +54,10 @@ jobs:
       working-directory: lambdamoo-tests
       run: uv sync
 
+    - name: Copy source for the session build
+      # lmt builds in the source tree, so each configuration needs its own copy
+      run: cp -a wp-lambdamoo wp-lambdamoo-session
+
     - name: Build (lmt waterpoint config)
       working-directory: lambdamoo-tests
       run: uv run lmt build --no-cache --source ../wp-lambdamoo --config waterpoint --output ../dist
@@ -64,6 +68,17 @@ jobs:
         MOO_MINIMAL_DB: ${{ github.workspace }}/wp-lambdamoo/Minimal.db
       # Upgrade tests need prior server builds, which CI doesn't set up
       run: uv run lmt test --candidate ../dist/moo -m "not upgrade"
+
+    - name: Build (lmt waterpoint_session config)
+      working-directory: lambdamoo-tests
+      run: uv run lmt build --no-cache --source ../wp-lambdamoo-session --config waterpoint_session --output ../dist-session
+
+    - name: Run lmt tests on the session build
+      working-directory: lambdamoo-tests
+      env:
+        MOO_MINIMAL_DB: ${{ github.workspace }}/wp-lambdamoo/Minimal.db
+      # Clients reach this build through the reference edge in lambdamoo-tests
+      run: uv run lmt test --candidate ../dist-session/moo -m "not upgrade"
 
     - name: Check server_version()
       id: version

@@ -22,6 +22,7 @@
 #include "my-stdio.h"
 #include "my-unistd.h"
 
+#include "list.h"
 #include "log.h"
 #include "network.h"
 #include "server.h"
@@ -105,6 +106,13 @@ network_send_bytes(network_handle nh UNUSED_, const char *buffer, size_t buflen,
     return 1;
 }
 
+void
+network_set_connection_player(network_handle nh UNUSED_, Objid player UNUSED_,
+			      Objid listener UNUSED_)
+{
+    /* The single-user transport has no replaceable edge. */
+}
+
 int
 network_buffered_output_length(network_handle nh UNUSED_)
 {
@@ -115,6 +123,15 @@ const char *
 network_connection_name(network_handle nh UNUSED_)
 {
     return "standard input";
+}
+
+Var
+network_connection_info(network_handle nh UNUSED_)
+{
+    Var info = new_list(0);
+
+    info = network_info_add_str(info, "direction", "inbound");
+    return network_info_add_str(info, "transport", "console");
 }
 
 void

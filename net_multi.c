@@ -76,6 +76,7 @@ typedef struct nhandle {
     server_handle shandle;
     int rfd, wfd;
     const char *name;
+    Var info;
     Stream *input;
     int last_input_was_CR;
     int input_suspended;
@@ -312,9 +313,10 @@ pull_input(nhandle * h)
 
 static nhandle *
 new_nhandle(int rfd, int wfd, const char *local_name, const char *remote_name,
-	    int outbound)
+	    Var info, int outbound)
 {
     nhandle *h;
+    Var direction = new_list(0);
 
     if (!network_set_nonblocking(rfd)
 	|| (rfd != wfd && !network_set_nonblocking(wfd)))
@@ -349,6 +351,10 @@ new_nhandle(int rfd, int wfd, const char *local_name, const char *remote_name,
 		  local_name, outbound ? "to" : "from", remote_name);
     h->name = str_dup_then_free_stream(s);
 
+    direction = network_info_add_str(direction, "direction",
+				     outbound ? "outbound" : "inbound");
+    h->info = listconcat(direction, info);
+
     return h;
 }
 
@@ -371,6 +377,7 @@ close_nhandle(nhandle * h)
     if (h->rfd >= 0 || h->wfd >= 0)
 	proto_close_connection(h->rfd, h->wfd);
     free_str(h->name);
+    free_var(h->info);
     myfree(h, M_NETWORK);
 }
 
@@ -389,12 +396,13 @@ close_nlistener(nlistener * l)
 static void
 make_new_connection(server_listener sl, int rfd, int wfd,
 		    const char *local_name, const char *remote_name,
-		    int outbound)
+		    Var info, int outbound)
 {
     nhandle *h;
     network_handle nh;
 
-    nh.ptr = h = new_nhandle(rfd, wfd, local_name, remote_name, outbound);
+    nh.ptr = h = new_nhandle(rfd, wfd, local_name, remote_name, info,
+			     outbound);
     h->shandle = server_new_connection(sl, nh, outbound);
 }
 
@@ -424,21 +432,23 @@ accept_new_connection(nlistener * l)
     int rfd, wfd;
     unsigned i;
     const char *host_name;
+    Var info;
 
     switch (proto_accept_connection(l->fd, l->slistener,
-				    &rfd, &wfd, &host_name)) {
+				    &rfd, &wfd, &host_name, &info)) {
     case PA_OKAY:
-	make_new_connection(l->slistener, rfd, wfd, l->name, host_name, 0);
+	make_new_connection(l->slistener, rfd, wfd, l->name, host_name, info,
+			    0);
 	break;
 
     case PA_FULL:
 	for (i = 0; i < proto.pocket_size; i++)
 	    close(pocket_descriptors[i]);
 	if (proto_accept_connection(l->fd, l->slistener,
-				    &rfd, &wfd, &host_name) != PA_OKAY)
+				    &rfd, &wfd, &host_name, &info) != PA_OKAY)
 	    errlog("Can't accept connection even by emptying pockets!\n");
 	else {
-	    nh.ptr = h = new_nhandle(rfd, wfd, l->name, host_name, 0);
+	    nh.ptr = h = new_nhandle(rfd, wfd, l->name, host_name, info, 0);
 	    server_refuse_connection(l->slistener, nh);
 	    close_nhandle(h);
 	}
@@ -736,6 +746,14 @@ network_connection_name(network_handle nh)
     return h->name;
 }
 
+Var
+network_connection_info(network_handle nh)
+{
+    nhandle *h = (nhandle *) nh.ptr;
+
+    return var_ref(h->info);
+}
+
 void
 network_set_connection_binary(network_handle nh, int do_binary)
 {
@@ -744,7 +762,15 @@ network_set_connection_binary(network_handle nh, int do_binary)
     h->binary = do_binary;
 }
 
+void
+network_set_connection_player(network_handle nh UNUSED_, Objid player UNUSED_,
+			      Objid listener UNUSED_)
+{
+    /* Ordinary transports do not retain sessions across server processes. */
+}
+
 #if NETWORK_PROTOCOL == NP_LOCAL
+
 #  define NETWORK_CO_TABLE(DEFINE, nh, value, _)
        /* No network-specific connection options */
 
@@ -790,16 +816,17 @@ network_open_connection(Var arglist, server_listener sl)
 {
     int rfd, wfd;
     const char *local_name, *remote_name;
+    Var info;
     enum error e;
 
     if (!proto.can_connect_outbound)
 	return E_PERM;
 
     e = proto_open_connection(arglist, sl,
-			      &rfd, &wfd, &local_name, &remote_name);
+			      &rfd, &wfd, &local_name, &remote_name, &info);
     if (e == E_NONE)
 	make_new_connection(sl, rfd, wfd,
-			    local_name, remote_name, 1);
+			    local_name, remote_name, info, 1);
 
     return e;
 }

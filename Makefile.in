@@ -50,7 +50,7 @@ COMMON_CSRCS = \
 XT_CSRCS = @XT_CSRCS@
 ALL_XT_CSRCS = @ALL_XT_CSRCS@
 
-OPT_NET_SRCS = net_single.c net_multi.c \
+OPT_NET_SRCS = net_single.c net_multi.c net_session.c session_protocol.c \
 	net_mp_selct.c net_mp_poll.c net_mp_fake.c \
 	net_tcp.c \
 	net_bsd_tcp.c net_bsd_lcl.c net_sysv_tcp.c net_sysv_lcl.c
@@ -63,7 +63,7 @@ COMMON_HDRS = ast.h code_gen.h config_epilog.h \
 	execute.h experiments.h functions.h \
 	getpagesize.h keywords.h list.h log.h match.h \
 	md5.h name_lookup.h network.h net_mplex.h net_multi.h \
-	net_proto.h numbers.h opcode.h options_epilog.h \
+	net_proto.h numbers.h opcode.h options_epilog.h session_protocol.h \
 	parse_cmd.h parser.h pattern.h program.h quota.h random.h \
 	ref_count.h server.h storage.h streams.h structures.h \
 	str_intern.h sym_table.h tasks.h timers.h tokens.h \

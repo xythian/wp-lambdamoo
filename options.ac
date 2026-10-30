@@ -99,8 +99,8 @@ m4_if(#
 #
 #  Network options
 #
-)[[NETWORK_PROTOCOL],    [NP_TCP NP_LOCAL NP_SINGLE], [[NP_TCP]],
-  [NP_TCP vs NP_LOCAL vs NP_SINGLE]],
+)[[NETWORK_PROTOCOL],    [NP_TCP NP_LOCAL NP_SINGLE NP_SESSION], [[NP_TCP]],
+  [NP_TCP vs NP_LOCAL vs NP_SINGLE vs NP_SESSION]],
  [[NETWORK_STYLE],       [NS_BSD NS_SYSV],            [[NS_BSD]],
   [NS_BSD vs NS_SYSV]],
  [[MPLEX_STYLE],         [MP_SELECT MP_POLL MP_FAKE], no,

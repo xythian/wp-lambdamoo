@@ -121,11 +121,13 @@ proto_listen(int fd)
 
 enum proto_accept_error
 proto_accept_connection(int listener_fd, server_listener sl,
-			int *read_fd, int *write_fd, const char **name)
+			int *read_fd, int *write_fd, const char **name,
+			Var *info)
 {
     int timeout = address_lookup_timeout(sl);
     int fd;
-    struct sockaddr_in address;
+    const char *host;
+    struct sockaddr_in address, local;
     socklen_t addr_length = sizeof(address);
     static Stream *s = 0;
 
@@ -142,10 +144,13 @@ proto_accept_connection(int listener_fd, server_listener sl,
 	}
     }
     *read_fd = *write_fd = fd;
-    stream_printf(s, "%s, port %d",
-		  lookup_name_from_addr(&address, timeout),
-		  (int) ntohs(address.sin_port));
+    host = lookup_name_from_addr(&address, timeout);
+    stream_printf(s, "%s, port %d", host, (int) ntohs(address.sin_port));
     *name = reset_stream(s);
+    addr_length = sizeof(local);
+    if (getsockname(fd, (struct sockaddr *) &local, &addr_length) < 0)
+	memset(&local, 0, sizeof(local));
+    *info = tcp_connection_info(&local, &address, host);
     return PA_OKAY;
 }
 
@@ -178,7 +183,8 @@ timeout_proc(Timer_ID id UNUSED_, Timer_Data data UNUSED_)
 enum error
 proto_open_connection(Var arglist, server_listener sl,
 		      int *read_fd, int *write_fd,
-		      const char **local_name, const char **remote_name)
+		      const char **local_name, const char **remote_name,
+		      Var *info)
 {
     /* These are `static' rather than `volatile' because I can't cope with
      * getting all those nasty little parameter-passing rules right.  This
@@ -190,7 +196,8 @@ proto_open_connection(Var arglist, server_listener sl,
     socklen_t length;
     int s, result;
     int timeout = server_listener_int_option(sl, "name_lookup_timeout", 5);
-    static struct sockaddr_in addr;
+    static struct sockaddr_in addr, remote;
+    static in_addr_t remote_ip;
     static Stream *st1 = 0, *st2 = 0;
     enum error e = open_connection_arguments(arglist, &host_name, &port);
 
@@ -207,6 +214,7 @@ proto_open_connection(Var arglist, server_listener sl,
     addr.sin_addr.s_addr = lookup_addr_from_name(host_name, timeout);
     if (addr.sin_addr.s_addr == 0)
 	return E_INVARG;
+    remote_ip = addr.sin_addr.s_addr;
 
     s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) {
@@ -269,6 +277,11 @@ proto_open_connection(Var arglist, server_listener sl,
 
     stream_printf(st2, "%s, port %d", host_name, port);
     *remote_name = reset_stream(st2);
+
+    remote.sin_family = AF_INET;
+    remote.sin_port = htons(port);
+    remote.sin_addr.s_addr = remote_ip;
+    *info = tcp_connection_info(&addr, &remote, host_name);
 
     return E_NONE;
 }

@@ -35,6 +35,19 @@ extern int tasks_connection_option(task_queue, const char *,
 extern Var tasks_connection_options(task_queue, Var);
 extern int tasks_set_connection_option(task_queue, const char *,
 				       Var);
+extern Var tasks_connection_state(task_queue q, Var state, vm *reading);
+				/* Add the queue's pending input, output
+				 * delimiters and .program in progress to
+				 * STATE as {NAME, VALUE} pairs, and set
+				 * *READING to the task in read(), or null,
+				 * so a resumed session can be given them
+				 * back.
+				 */
+extern void tasks_restore_connection_state(task_queue q, Var state,
+					   vm reading);
+				/* Restore what tasks_connection_state()
+				 * recorded, taking over READING.
+				 */
 
 extern void new_input_task(task_queue, const char *, int);
 extern void task_suspend_input(task_queue);

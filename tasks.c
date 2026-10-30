@@ -897,6 +897,90 @@ tasks_connection_options(task_queue q, Var list)
 
 #undef TASK_CO_TABLE
 
+static void enqueue_input_task(tqueue * tq, const char *input, int at_front,
+			       int binary);
+
+/* What a connection's queue holds besides its options, as {NAME, VALUE}
+ * pairs added to STATE: input lines no task has taken yet, the output
+ * delimiters and a .program in progress.  *READING is set to the task in
+ * read(), if any, which stays with the queue.
+ */
+Var
+tasks_connection_state(task_queue q, Var state, vm *reading)
+{
+    tqueue *tq = q.ptr;
+    Var lines = new_list(0), v;
+    task *t;
+
+    for (t = tq->first_input; t; t = t->next) {
+	Var line = new_list(2);
+
+	line.v.list[1].type = TYPE_STR;
+	line.v.list[1].v.str = str_ref(t->t.input.string);
+	line.v.list[2].type = TYPE_INT;
+	line.v.list[2].v.num = t->kind == TASK_BINARY;
+	lines = listappend(lines, line);
+    }
+    state = network_info_add(state, "input", lines);
+    if (tq->output_prefix)
+	state = network_info_add_str(state, "output-prefix",
+				     tq->output_prefix);
+    if (tq->output_suffix)
+	state = network_info_add_str(state, "output-suffix",
+				     tq->output_suffix);
+    if (tq->program_stream) {
+	v = new_list(3);
+	v.v.list[1].type = TYPE_OBJ;
+	v.v.list[1].v.obj = tq->program_object;
+	v.v.list[2].type = TYPE_STR;
+	v.v.list[2].v.str = str_ref(tq->program_verb);
+	v.v.list[3].type = TYPE_STR;
+	v.v.list[3].v.str = str_dup(stream_contents(tq->program_stream));
+	state = network_info_add(state, "program", v);
+    }
+    *reading = tq->reading ? tq->reading_vm : 0;
+    return state;
+}
+
+/* Give a resumed connection's queue back what tasks_connection_state()
+ * recorded, taking over READING (a task in read(), or null).
+ */
+void
+tasks_restore_connection_state(task_queue q, Var state, vm reading)
+{
+    tqueue *tq = q.ptr;
+    Var v;
+    int i;
+
+    if (reading) {
+	tq->reading = 1;
+	tq->reading_vm = reading;
+	ensure_usage(tq);
+    }
+    if (network_info_find(state, "output-prefix", &v) && v.type == TYPE_STR)
+	set_delimiter(&(tq->output_prefix), v.v.str);
+    if (network_info_find(state, "output-suffix", &v) && v.type == TYPE_STR)
+	set_delimiter(&(tq->output_suffix), v.v.str);
+    if (network_info_find(state, "program", &v) && v.type == TYPE_LIST
+	&& v.v.list[0].v.num == 3 && v.v.list[1].type == TYPE_OBJ
+	&& v.v.list[2].type == TYPE_STR && v.v.list[3].type == TYPE_STR
+	&& !tq->program_stream) {
+	tq->program_stream = new_stream(100);
+	tq->program_object = v.v.list[1].v.obj;
+	tq->program_verb = str_ref(v.v.list[2].v.str);
+	stream_add_string(tq->program_stream, v.v.list[3].v.str);
+    }
+    if (network_info_find(state, "input", &v) && v.type == TYPE_LIST)
+	for (i = 1; i <= v.v.list[0].v.num; i++) {
+	    Var line = v.v.list[i];
+
+	    if (line.type == TYPE_LIST && line.v.list[0].v.num == 2
+		&& line.v.list[1].type == TYPE_STR)
+		enqueue_input_task(tq, line.v.list[1].v.str, 0,
+				   is_true(line.v.list[2]));
+	}
+}
+
 static void
 enqueue_input_task(tqueue * tq, const char *input, int at_front, int binary)
 {

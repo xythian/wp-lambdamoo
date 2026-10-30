@@ -70,6 +70,20 @@ extern int64_t db_disk_size(void);
 				 * representation is currently available.
 				 */
 
+#define DB_DIGEST_SIZE 16
+
+extern int db_input_digest(unsigned char digest[DB_DIGEST_SIZE]);
+				/* Store the MD5 digest of the database file
+				 * that was loaded.  Returns false if it
+				 * couldn't be read.
+				 */
+
+extern int db_dump_digest(unsigned char digest[DB_DIGEST_SIZE]);
+				/* Store the MD5 digest of the file most
+				 * recently written by the shutdown or panic
+				 * dump.  Returns false if there is none.
+				 */
+
 extern void db_shutdown(void);
 				/* Shut down the database module, flushing all
 				 * pending database changes to disk and only
