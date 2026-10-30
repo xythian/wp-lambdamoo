@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuse a commit authored as a tool or bot (scripts/check-attribution).
+exec python3 "$(git rev-parse --show-toplevel)/scripts/check-attribution" author

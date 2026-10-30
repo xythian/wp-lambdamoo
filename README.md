@@ -1,3 +1,14 @@
+> [!NOTE]
+> **This is Waterpoint's fork of LambdaMOO.**  The `waterpoint` branch
+> is an upstream [wrog/lambdamoo](https://github.com/wrog/lambdamoo)
+> release tag (currently `v1.9.0alpha`) with Waterpoint's changes on
+> top as a series of commits, one per change: code changes, `wp-N` release versioning,
+> and the CI and release workflows in `.github/`.
+>
+> The rest of this README is upstream's.  When upstream
+> makes a new release, we rebuild that series on it; see
+> [Upstream_Releases.md](./Upstream_Releases.md).
+
 # LambdaMOO Server
 
 This is the source for the latest version of the LambdaMOO server.
@@ -402,6 +413,25 @@ particular `OPTION_DEFAULT` value was resolved, you can invoke
 `server_version("options")` from MOO code to see all compiled-in
 options or, say, `server_version("options/MPLEX_STYLE")` for just one.
 
+#### measuring test coverage
+
+`--enable-coverage` builds the server at `-O0` with gcov
+instrumentation (it needs gcc or clang).  Each object file gets a
+`.gcno` file next to it, and the server adds its counts to the
+`.gcda` files when it exits normally (a crash or `kill -9` loses
+them).  Run the test suite against that binary, then report with
+`gcov` or [gcovr](https://gcovr.com/):
+
+```
+   ./configure --enable-coverage ...your usual arguments...
+   make
+   ...run tests against ./moo...
+   gcovr -r . -e 'parser\.c' -e 'keywords\.c' --html-details coverage.html
+```
+
+The test suite's `lmt coverage` command does all of this for you.
+`make clean` removes the coverage data.
+
 #### how **NOT** to do options.h or config.h settings
 
 As a matter of general principle, if you ever find yourself trying to
@@ -439,6 +469,11 @@ on the `./configure` command line.
 The 1.9.0 release includes the following optional extensions and
 associated new options
 
+* `--enable-ast`
+  adds `ast_parse()`, `ast_unparse()` and `ast_info()`, which expose the
+  server's parser and unparser with programs as nested lists; the tree
+  format is specified in [AST.md](./AST.md).
+
 * `--enable-unicode`
   adds Unicode support (below) with new options
   `UNICODE_IDENTIFIERS` and `UNICODE_NUMBERS`.
@@ -450,6 +485,17 @@ associated new options
 
 * `--enable-xml`
   adds new builtins to parse XML.
+
+* `--enable-unitext`
+  adds text builtins that matter mostly for Unicode strings:
+  `string_width()` (a string's display width in terminal columns),
+  `graphemes()` (a string split into user-perceived characters),
+  `normalize()` (Unicode normalization forms), `casefold()` (full
+  case folding), `char_category()` and `char_script()` (a character's
+  General Category and Script), and `wrap()` (lines that fit a width
+  in columns).
+  They work without `--enable-unicode` too, treating every character as
+  one ASCII character.  With Unicode they need `--with-uclib=gnu` or `icu`.
 
 The regular expression matching facility has been repackaged as a
 mandatory extension in order to expose the library choices, currently

@@ -86,7 +86,14 @@ dnl MOO_ADD_CFLAGS([-Wundef])
 dnl MOO_ADD_CFLAGS([-Wshadow])
 dnl MOO_ADD_CFLAGS([-Wsign-compare])
 MOO_ADD_CFLAGS([-pipe])
-MOO_ADD_CFLAGS([-O3])
+AC_ARG_ENABLE([coverage],
+  [AS_HELP_STRING([--enable-coverage],
+    [build with gcov instrumentation at -O0 to measure test coverage])],
+  [],[enable_coverage=no])
+AS_IF([test "x$enable_coverage" = xno],
+  [MOO_ADD_CFLAGS([-O3])],
+  [CFLAGS="$CFLAGS -g -O0 --coverage"
+   LDFLAGS="$LDFLAGS --coverage"])
 AC_C_CONST
 AC_C_INLINE
 AC_C_RESTRICT

@@ -41,7 +41,7 @@
 #include "utils.h"
 
 
-inline int
+static inline int
 inrange_for_float_to_int(FlNum d)
 {
     return (((FlNum)NUM_MIN) <= FLOAT_FN(ceil)(d)
@@ -51,8 +51,8 @@ inrange_for_float_to_int(FlNum d)
 
 Var
 parse_number(unsigned flags, int32_t c_first,
-	     int32_t (*getch)(void),
-	     void (*ungetch)(int32_t))
+	     int32_t (*getch) (void),
+	     void (*ungetch) (int32_t))
 {
     int32_t c = c_first;
     Stream *ns = new_stream(30);
@@ -231,9 +231,9 @@ parse_number(unsigned flags, int32_t c_first,
 	goto parse_error;
 
     if (state & F_DOT)
-	(*ungetch)('.');
+	(*ungetch) ('.');
     if (state & F_MINUS)
-	(*ungetch)('-');
+	(*ungetch) ('-');
 
     /* "Dr. Corby ... was never here." */
     ret.v.err = E_NONE;
@@ -265,7 +265,7 @@ parse_number(unsigned flags, int32_t c_first,
 	    goto range_error;
 	if (p != p0)
 	    goto parse_error;
-	ret.v.num = ((flags & PN_NONNEG) ? (Num)-(uintmax_t)i : i);
+	ret.v.num = ((flags & PN_NONNEG) ? num_negate((Num)i) : (Num)i);
     }
     else {
 	FlNum d = strtoflnum(stream_contents(ns)
@@ -330,8 +330,8 @@ parse_number(unsigned flags, int32_t c_first,
  *
  * (**)... the one weirdness being that if we're on a platform whose
  * INTMAX_MAX == NUM_MAX, then strtoimax() will produce NUM_MIN
- * directly and the two subsequent negations will actually be
- * no-ops,... but this will be completely invisible.
+ * directly and the two subsequent negations preserve NUM_MIN using
+ * explicitly wrapping arithmetic, without overflowing signed C integers.
  *
  * The one downside to all of this is if someone tries to write a
  * *positive* (NUM_MAX+1) into verbcode (i.e., without any leading
@@ -601,8 +601,8 @@ numeric_lt_or_eq(int not, Var a, Var b)
  * coercions between integer and floating-point operands.
  *
  * Integer results wrap around on overflow.  The arithmetic is done in
- * UNum so that wrapping is defined rather than signed-overflow UB the
- * compiler may assume never happens.
+ * uintmax_t so that wrapping is defined rather than signed-overflow UB the
+ * compiler may assume never happens, even when UNum is narrower than int.
  */
 
 #define SIMPLE_BINARY(name, op)					\
@@ -616,8 +616,8 @@ numeric_lt_or_eq(int not, Var a, Var b)
 			ans.v.err = E_TYPE;			\
 		    } else if (a.type == TYPE_INT) {		\
 			ans.type = TYPE_INT;			\
-			ans.v.num = (Num)((UNum)a.v.num		\
-					  op (UNum)b.v.num);	\
+			ans.v.num = num_from_unsigned((UNum)	\
+			    ((uintmax_t)a.v.num op (uintmax_t)b.v.num)); \
 		    } else {					\
 			FlNum d =				\
 			    fl_unbox(a.v.fnum)			\
@@ -679,6 +679,20 @@ SIMPLE_BINARY(multiply, *)
 
 DIVISION_OP(divide, /, fl_unbox(a.v.fnum) / fl_unbox(b.v.fnum))
 DIVISION_OP(modulus, %, fmod(fl_unbox(a.v.fnum), fl_unbox(b.v.fnum)))
+/* The C library sets errno to ERANGE on underflow as well as overflow.
+ * The Programmer's Manual says 0.0 is always returned on underflow, so
+ * a finite result with ERANGE becomes 0.0 and errno is cleared; an
+ * overflow (an infinite result) still reaches the E_FLOAT check.
+ */
+static void
+clear_underflow(FlNum *d)
+{
+    if (errno == ERANGE && IS_REAL(*d) && FLOAT_FN(fabs)(*d) < 1.0) {
+	errno = 0;
+	*d = 0.0;
+    }
+}
+
 Var
 do_power(Var lhs, Var rhs)
 {				/* LHS ^ RHS */
@@ -709,14 +723,16 @@ do_power(Var lhs, Var rhs)
 		break;
 	    }
 	} else {
-	    UNum ua = a, ur = 1;
+	    uintmax_t base = (uintmax_t)a, r = 1;
+
 	    while (b != 0) {
 		if (b & 1)
-		    ur *= ua;
-		ua *= ua;
+		    r *= base;
 		b >>= 1;
+		if (b != 0)
+		    base *= base;
 	    }
-	    ans.v.num = (Num)ur;
+	    ans.v.num = num_from_unsigned((UNum)r);
 	}
     } else if (lhs.type == TYPE_FLOAT) {	/* floating-point exponentiation */
 	FlNum d;
@@ -733,6 +749,7 @@ do_power(Var lhs, Var rhs)
 	}
 	errno = 0;
 	d = FLOAT_FN(pow)(fl_unbox(lhs.v.fnum), d);
+	clear_underflow(&d);
 	if (errno != 0 || !IS_REAL(d)) {
 	    ans.type = TYPE_ERR;
 	    ans.v.err = E_FLOAT;
@@ -779,67 +796,48 @@ bf_tofloat(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUS
     return make_float_pack(d);
 }
 
-static package
-bf_min(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
-{
-    Var r;
-    int i, nargs = arglist.v.list[0].v.num;
-    int bad_types = 0;
 
-    r = arglist.v.list[1];
-    if (r.type == TYPE_INT) {	/* integers */
-	for (i = 2; i <= nargs; i++)
-	    if (arglist.v.list[i].type != TYPE_INT)
-		bad_types = 1;
-	    else if (arglist.v.list[i].v.num < r.v.num)
-		r = arglist.v.list[i];
-    } else {			/* floats */
-	for (i = 2; i <= nargs; i++)
-	    if (arglist.v.list[i].type != TYPE_FLOAT)
-		bad_types = 1;
-	    else if (fl_unbox(arglist.v.list[i].v.fnum)
-		     < fl_unbox(r.v.fnum))
-		r = arglist.v.list[i];
-    }
+#define _GET_INT(v)     ((v).num)
+#define _GET_FLOAT(v)   (fl_unbox((v).fnum))
+#define _MINMAX_LOOP(WHICH,CMP)				\
+  do {							\
+      int i;						\
+      for (i = 2; i <= nargs; i++)			\
+	  if (arglist.v.list[i].type != TYPE_##WHICH)	\
+	      goto type_error;				\
+	  else if (_GET_##WHICH(arglist.v.list[i].v)	\
+		   CMP _GET_##WHICH(r.v))		\
+	      r = arglist.v.list[i];			\
+  } while(0)
 
-    r = var_ref(r);
-    free_var(arglist);
-    if (bad_types)
-	return make_error_pack(E_TYPE);
-    else
-	return make_var_pack(r);
-}
+#define DEFINE_BF_MINMAX(bf_mnmx,CMP)			\
+  static package					\
+  bf_mnmx(Var arglist, Byte next UNUSED_,		\
+	  void *vdata UNUSED_, Objid progr UNUSED_)	\
+  {							\
+      int nargs = arglist.v.list[0].v.num;		\
+      package p = make_error_pack(E_TYPE);		\
+							\
+      Var r = arglist.v.list[1];			\
+      if (r.type == TYPE_INT)				\
+	  _MINMAX_LOOP(INT,CMP);			\
+      else						\
+	  _MINMAX_LOOP(FLOAT,CMP);			\
+							\
+      p = make_var_pack(var_ref(r));			\
+    type_error:						\
+      free_var(arglist);				\
+      return p;						\
+  }
 
-static package
-bf_max(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
-{
-    Var r;
-    int i, nargs = arglist.v.list[0].v.num;
-    int bad_types = 0;
+DEFINE_BF_MINMAX(bf_min,<)
+DEFINE_BF_MINMAX(bf_max,>)
 
-    r = arglist.v.list[1];
-    if (r.type == TYPE_INT) {	/* integers */
-	for (i = 2; i <= nargs; i++)
-	    if (arglist.v.list[i].type != TYPE_INT)
-		bad_types = 1;
-	    else if (arglist.v.list[i].v.num > r.v.num)
-		r = arglist.v.list[i];
-    } else {			/* floats */
-	for (i = 2; i <= nargs; i++)
-	    if (arglist.v.list[i].type != TYPE_FLOAT)
-		bad_types = 1;
-	    else if (fl_unbox(arglist.v.list[i].v.fnum)
-		     > fl_unbox(r.v.fnum))
-		r = arglist.v.list[i];
-    }
+#undef _GET_INT
+#undef _GET_FLOAT
+#undef _MINMAX_LOOP
+#undef DEFINE_BF_MINMAX
 
-    r = var_ref(r);
-    free_var(arglist);
-    if (bad_types)
-	return make_error_pack(E_TYPE);
-    else
-	return make_var_pack(r);
-}
 
 static package
 bf_abs(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
@@ -849,7 +847,7 @@ bf_abs(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 
     if (r.type == TYPE_INT)
 	/* abs(NUM_MIN) wraps to NUM_MIN, as negating it does */
-	p = make_int_pack(r.v.num < 0 ? (Num)-(UNum)r.v.num : r.v.num);
+	p = make_int_pack(r.v.num < 0 ? num_negate(r.v.num) : r.v.num);
     else
 	p = make_float_pack(FLOAT_FN(fabs)(fl_unbox(r.v.fnum)));
 
@@ -866,6 +864,7 @@ bf_abs(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 								\
 	errno = 0;						\
 	d = FLOAT_FN(name)(fl_unbox(arglist.v.list[1].v.fnum));	\
+	clear_underflow(&d);					\
 	free_var(arglist);					\
 	if (errno == EDOM)					\
 	    return make_error_pack(E_INVARG);			\
@@ -927,6 +926,7 @@ bf_atan(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_
 	d = FLOAT_FN(atan2)(d, fl_unbox(arglist.v.list[2].v.fnum));
     else
 	d = FLOAT_FN(atan)(d);
+    clear_underflow(&d);
     free_var(arglist);
     if (errno == EDOM)
 	return make_error_pack(E_INVARG);
@@ -964,6 +964,7 @@ bf_j(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 	d = FLOAT_FN(jn)(n, d);
 	break;
     }
+    clear_underflow(&d);
     free_var(arglist);
     if (errno == EDOM)
 	return make_error_pack(E_INVARG);
@@ -994,6 +995,7 @@ bf_y(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 	d = FLOAT_FN(yn)(n, d);
 	break;
     }
+    clear_underflow(&d);
     free_var(arglist);
     if (errno == EDOM)
 	return make_error_pack(E_INVARG);

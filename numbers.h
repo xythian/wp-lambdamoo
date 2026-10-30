@@ -20,6 +20,22 @@
 
 #include "structures.h"
 
+/* MOO integer arithmetic wraps at the configured width.  Convert the unsigned
+ * result without signed overflow or an out-of-range unsigned-to-signed cast.
+ */
+static inline Num
+num_from_unsigned(UNum n)
+{
+    return n <= NUM_MAX ? (Num)n
+	: NUM_MIN + (Num)(n - (UNum)NUM_MIN);
+}
+
+static inline Num
+num_negate(Num n)
+{
+    return num_from_unsigned((UNum)(0 - (uintmax_t)n));
+}
+
 extern enum error become_integer(Var, Num *, int);
 
 extern int do_equals(Var, Var);

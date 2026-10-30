@@ -626,7 +626,7 @@ free_activation(activation * ap, char data_too)
     free_program(ap->prog);
 
     if (data_too && ap->bi_func_pc && ap->bi_func_data)
-	free_data(ap->bi_func_data);
+	free_bi_func_data(ap->bi_func_id, ap->bi_func_data);
     /* else bi_func_state will be later freed by bi_function */
 }
 
@@ -1419,7 +1419,7 @@ do {								\
 		arg = POP();
 		if (arg.type == TYPE_INT) {
 		    ans.type = TYPE_INT;
-		    ans.v.num = (Num)-(UNum)arg.v.num;	/* -NUM_MIN wraps */
+		    ans.v.num = num_negate(arg.v.num);	/* -NUM_MIN wraps */
 		} else if (arg.type == TYPE_FLOAT) {
 		    ans.type = TYPE_FLOAT;
 		    ans.v.fnum = box_fl(-fl_unbox(arg.v.fnum));
@@ -2829,7 +2829,7 @@ bf_call_function(Var arglist, Byte next, void *vdata, Objid progr)
 	free_data(s);
     }
 
-    if (p.kind == BI_CALL) {
+    if (p.kind == BI_CALL && p.u.call.pc != 0) {
 	s = alloc_data(sizeof(struct cf_state));
 	s->fnum = fnum;
 	s->data = p.u.call.data;
@@ -2839,13 +2839,21 @@ bf_call_function(Var arglist, Byte next, void *vdata, Objid progr)
 }
 
 static void
-bf_call_function_write(void *data)
+bf_call_function_free(void *vdata)
 {
-    struct cf_state *s = data;
+    struct cf_state *s = vdata;
+    if (s->data)
+	free_bi_func_data(s->fnum, s->data);
+}
+
+static void
+bf_call_function_write(void *vdata)
+{
+    struct cf_state *s = vdata;
 
     dbio_printf("bf_call_function data: fname = %s\n",
 		name_func_by_num(s->fnum));
-    write_bi_func_data(s->data, s->fnum);
+    write_bi_func_data(s->fnum, s->data);
 }
 
 static void *
@@ -3046,10 +3054,10 @@ bf_task_stack(Var arglist, Byte next UNUSED_, void *vdata UNUSED_, Objid progr)
 void
 register_execute(void)
 {
-    register_function_with_read_write("call_function", 1, -1, bf_call_function,
-				      bf_call_function_read,
-				      bf_call_function_write,
-				      TYPE_STR);
+    register_function("call_function", 1, -1, bf_call_function, TYPE_STR),
+	register_function_dbio(bf_call_function_read, bf_call_function_write),
+	register_function_free(bf_call_function_free);
+
     register_function("raise", 1, 3, bf_raise, TYPE_ANY, TYPE_STR, TYPE_ANY);
     register_function("suspend", 0, 1, bf_suspend, TYPE_INT);
     register_function("read", 0, 2, bf_read, TYPE_OBJ, TYPE_ANY);
@@ -3216,7 +3224,7 @@ write_activ(activation a)
     dbio_printf("%u %u %u\n", a.pc, a.bi_func_pc, a.error_pc);
     if (a.bi_func_pc != 0) {
 	dbio_write_string(name_func_by_num(a.bi_func_id));
-	write_bi_func_data(a.bi_func_data, a.bi_func_id);
+	write_bi_func_data(a.bi_func_id, a.bi_func_data);
     }
 }
 

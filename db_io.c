@@ -218,7 +218,7 @@ dbio_read_integer(enum dbio_intrange range_id, intmax_t *ip)
 	return 0;
 
     *ip = dbio_string_to_integer(range_id, s, &p2);
-    if (!dbio_last_error && (isspace(*s) || p1 != p2))
+    if (!dbio_last_error && (isspace((unsigned char)*s) || p1 != p2))
 	dbio_last_error = "Did not read entire line";
 
     if (dbio_last_error) {
@@ -239,7 +239,7 @@ dbio_read_float(FlBox *fbp)
 
     FlNum d = strtoflnum(s, (char **)&p2);
     dbio_last_error =
-	((isspace(*s) || p1 != p2)
+	((isspace((unsigned char)*s) || p1 != p2)
 	 ? "Did not read entire line"
 	 : (!IS_REAL(d)
 	    ? "Magnitude too large or NaN"
@@ -374,7 +374,8 @@ read_list(Var *vp)
 	    *slot = new_list(len);
 	    f->i++;
 	    walk_push(&ws, *slot, zero, 0);
-	} else if (dbio_read_var_value(vtype, slot))
+	}
+	else if (dbio_read_var_value(vtype, slot))
 	    f->i++;
 	else {
 	    ok = 0;
@@ -480,7 +481,7 @@ dbio_scxnf(const char *format,...)
 	goto fail;
     }
     if (*fc == ' ') {
-	while (isspace(*lc) && ++lc < lend);
+	while (isspace((unsigned char)*lc) && ++lc < lend);
 	++fc;
 	goto state1;
     }
@@ -535,11 +536,11 @@ dbio_scxnf(const char *format,...)
 	if (*fc++ != 'd')
 	    panic("DBIO_SCXNF: %* can only be followed by s or d");
 	if (*lc == '-') ++lc;
-	if (!isdigit(*lc)) {
+	if (!isdigit((unsigned char)*lc)) {
 	    dbio_last_error = "expected an integer to skip";
 	    goto fail;
 	}
-	while (isdigit(*++lc));
+	while (isdigit((unsigned char)*++lc));
 	goto state1;
     }
     if (*fc == 'c') {		/* %c */
@@ -652,6 +653,7 @@ dbio_read_program(DB_Version version, const char *(*fmtr) (void *), void *data)
 /*********** Output ***********/
 
 Exception dbpriv_dbio_failed;
+int dbpriv_dbio_errno = 0;
 
 static FILE *output;
 
@@ -660,6 +662,7 @@ static Stream *dbio_float_stream = NULL;
 void
 dbpriv_set_dbio_output(FILE * f)
 {
+    dbpriv_dbio_errno = 0;
     output = f;
 }
 
@@ -672,6 +675,13 @@ dbpriv_dbio_output_finished(void)
     }
 }
 
+static inline void
+dbio_raise_error(void)
+{
+    dbpriv_dbio_errno = errno;
+    RAISE(dbpriv_dbio_failed, 0);
+}
+
 void
 dbio_printf(const char *format,...)
 {
@@ -679,7 +689,7 @@ dbio_printf(const char *format,...)
 
     va_start(args, format);
     if (vfprintf(output, format, args) < 0)
-	RAISE(dbpriv_dbio_failed, 0);
+	dbio_raise_error();
     va_end(args);
 }
 
@@ -778,7 +788,8 @@ dbio_write_var(Var v)
 	if (c.type == TYPE_LIST) {
 	    write_list_header(c);
 	    walk_push(&ws, c, zero, 0);
-	} else
+	}
+	else
 	    write_scalar(c);
     }
     walk_free(&ws);

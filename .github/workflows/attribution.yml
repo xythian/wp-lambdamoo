@@ -1,0 +1,43 @@
+# A person is the author of every change: no commit pushed to waterpoint or
+# proposed in a pull request may be authored or committed by an AI tool or
+# bot, or carry tool trailers, and the PR body carries no "Generated with"
+# footer (scripts/check-attribution). Only the new commits are checked,
+# never older history. Runs on PR body edits too, which CI does not.
+name: attribution
+
+on:
+  push:
+    branches: [ waterpoint ]
+  pull_request:
+    types: [ opened, edited, synchronize, reopened ]
+
+permissions:
+  contents: read
+
+jobs:
+  attribution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Commits
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.after }}
+        run: |
+          # A new branch or a force push has no usable base; check the tip alone.
+          if git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            RANGE="$BASE..$HEAD"
+          else
+            RANGE="$HEAD^!"
+          fi
+          python3 scripts/check-attribution commits "$RANGE"
+
+      - name: Pull request body
+        if: github.event_name == 'pull_request'
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s\n' "$BODY" | python3 scripts/check-attribution body

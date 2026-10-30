@@ -16,6 +16,8 @@
 #include "server.h"
 #include "storage.h"
 #include "streams.h"
+#include "utf-ctype.h"
+#include "utf.h"
 #include "utils.h"
 
 /*
@@ -142,6 +144,29 @@ collect_kids(XMLclient *client, size_t first)
     return klist;
 }
 
+/*
+ * Add text from the parser, which is always UTF-8, to a MOO string.
+ * Non-ASCII characters in the MOO character set (only possible in
+ * Unicode builds) are added as themselves.  Everything else keeps the
+ * binary-string encoding: printable ASCII as is, and control
+ * characters, DEL and '~' as ~XX escapes.
+ */
+static void
+stream_add_xml_text(Stream *s, const char *text, size_t len)
+{
+    const char *p = text, *end = text + len;
+
+    while (p < end) {
+	const char *start = p;
+	uint32_t c = get_utf(&p);
+
+	if (c >= 0x80 && my_is_printable(c))
+	    stream_add_utf(s, c);
+	else
+	    stream_add_moobinary_from_raw_bytes(s, start, p - start);
+    }
+}
+
 static void
 make_text_node(XMLclient *client, Stream *s)
 {
@@ -167,8 +192,7 @@ do_attributes(XMLclient *client, const char **atts)
 
     UNum first = KIDSTACK_TOP(client) + 1;
     for (patts = atts, i = 1; *patts; ++patts, ++i) {
-	stream_add_moobinary_from_raw_bytes(
-	    client->sa, *patts, strlen(*patts));
+	stream_add_xml_text(client->sa, *patts, strlen(*patts));
 	make_text_node(client, client->sa);
 	if (i&1)
 	    continue;
@@ -243,8 +267,7 @@ make_element(XMLclient *client)
 	  XMLnode *node = client->current;			\
 	  if (!node->text)					\
 	      node->text = new_stream(0);			\
-	  stream_add_moobinary_from_raw_bytes(			\
-	      node->text, s, len);				\
+	  stream_add_xml_text(node->text, s, len);		\
       }))							\
 								\
   DEFINE(xml_TendElement, client, ARGS##END(name),		\

@@ -22,21 +22,21 @@
 
 /* Is this a UTF-8 continuation byte?
  */
-inline int is_utf8_cont_byte(uint8_t c UNUSED_)
+static inline int is_utf8_cont_byte(uint8_t c UNUSED_)
 { return 0; }
 
 /* Return the character starting at position *ppc,
  * advancing *ppc to the start of the next character.
  */
-inline uint32_t get_utf(const char **ppc)
-{ return *(*ppc)++; }
+static inline uint32_t get_utf(const char **ppc)
+{ return (unsigned char)*(*ppc)++; }
 
 /* Write c to **ppc and advance *ppc as necessary
  * unless c is outside of the legal range for (Unicode|ASCII)
  * in which case do not and return nonzero
  * (We *do* allow in-range non-MOO-character-set characters here).
  */
-inline int
+static inline int
 put_utf(char **ppc, uint32_t c)
 {
     if (c <= 0x7f) {
@@ -60,7 +60,7 @@ put_utf(char **ppc, uint32_t c)
  *    for all ci > (# of chars in s)
  *       byte index is ci - (# of chars in s) + strlen(s)
  */
-inline Num
+static inline Num
 utf_byte_index(const char *s UNUSED_, Num ci) {
     return ci;
 }
@@ -81,7 +81,7 @@ utf_byte_index(const char *s UNUSED_, Num ci) {
  * and bi will similarly be 'start' and 'after' byte positions,
  * not 'start' and 'end'.
  */
-inline void
+static inline void
 utf_byte_range(const char *s UNUSED_, Num cis[2] UNUSED_)
 { }
 
@@ -93,7 +93,7 @@ utf_byte_range(const char *s UNUSED_, Num cis[2] UNUSED_)
  *  (For bi < 1, we pretend s is preceded by arbitrarily many 1-byte
  *  chars so that the (fake) character index will be the same.)
  */
-inline Num
+static inline Num
 utf_char_index(const char *s UNUSED_, Num bi) {
     return bi;
 }
@@ -106,7 +106,7 @@ utf_char_index(const char *s UNUSED_, Num bi) {
  *  *middle* of a string).  (... and who knows?  Maybe some day
  *  it *will* turn out to be worth caching character lengths...)
  */
-inline size_t
+static inline size_t
 memo_strlen_utf(const char *s) {
     return memo_strlen(s);
 }
@@ -114,7 +114,7 @@ memo_strlen_utf(const char *s) {
 /* Given the first byte of a character, how many bytes long is the
  * full character?  (will be 1-4 in general)
  */
-inline size_t
+static inline size_t
 clearance_utf(const uint8_t c UNUSED_) {
     return 1;
 }
@@ -122,7 +122,7 @@ clearance_utf(const uint8_t c UNUSED_) {
 /* Assuming this is a legal character, how many bytes long is it?
  * (will be 1-4 in general)
  */
-inline size_t
+static inline size_t
 char_size(const uint32_t c UNUSED_) {
     return 1;
 }
@@ -135,7 +135,7 @@ char_size(const uint32_t c UNUSED_) {
 
 #define INVALID_RUNE	0xfffd
 
-inline int is_utf8_cont_byte(uint8_t c)
+static inline int is_utf8_cont_byte(uint8_t c)
 { return (c & 0xc0) == 0x80; }
 
 extern uint32_t get_utf(const char **);
@@ -147,7 +147,7 @@ extern Num  utf_char_index(const char *, Num);
 extern size_t memo_strlen_utf(const char *);
 extern size_t clearance_utf(const uint8_t);
 
-inline size_t
+static inline size_t
 char_size(const uint32_t c) {
     return 1 + (c > 0x7f) + (c > 0x7ff) + (c > 0xffff);
 }

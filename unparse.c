@@ -34,8 +34,6 @@
 #include "utf-ctype.h"
 #include "utils.h"
 
-static Program *prog;
-
 const char *
 unparse_error(enum error e)
 {
@@ -179,6 +177,18 @@ init_expr_tables(void)
 static Unparser_Receiver receiver;
 static void *receiver_data;
 static int fully_parenthesize, indent_code;
+static const char **var_names;
+static unsigned num_var_names;
+
+static const char *
+var_name(int id)
+{
+    if (id < 0 || (unsigned) id >= num_var_names) {
+	errlog("UNPARSE: variable slot out of range: %d\n", id);
+	return "?!?!?!?";
+    }
+    return var_names[id];
+}
 
 /********** AST to receiver procedures **************/
 
@@ -244,6 +254,12 @@ unparse_stmt_cond(Stream * str, struct Stmt_Cond cond, int indent)
 {
     Cond_Arm *elseifs;
 
+    if (!cond.arms) {
+	errlog("UNPARSE_STMT: STMT_COND with no arms\n");
+	stream_add_string(str, "?!?!?!?;");
+	output(str);
+	return;
+    }
     stream_add_string(str, "if (");
     unparse_expr(str, cond.arms->condition);
     stream_add_char(str, ')');
@@ -271,7 +287,7 @@ unparse_stmt_cond(Stream * str, struct Stmt_Cond cond, int indent)
 static void
 unparse_stmt_list(Stream * str, struct Stmt_List list, int indent)
 {
-    stream_printf(str, "for %s in (", prog->var_names[list.id]);
+    stream_printf(str, "for %s in (", var_name(list.id));
     unparse_expr(str, list.expr);
     stream_add_char(str, ')');
     output(str);
@@ -284,7 +300,7 @@ unparse_stmt_list(Stream * str, struct Stmt_List list, int indent)
 static void
 unparse_stmt_range(Stream * str, struct Stmt_Range range, int indent)
 {
-    stream_printf(str, "for %s in [", prog->var_names[range.id]);
+    stream_printf(str, "for %s in [", var_name(range.id));
     unparse_expr(str, range.from);
     stream_add_string(str, "..");
     unparse_expr(str, range.to);
@@ -300,7 +316,7 @@ static void
 unparse_stmt_fork(Stream * str, struct Stmt_Fork fork_stmt, int indent)
 {
     if (fork_stmt.id >= 0)
-	stream_printf(str, "fork %s (", prog->var_names[fork_stmt.id]);
+	stream_printf(str, "fork %s (", var_name(fork_stmt.id));
     else
 	stream_add_string(str, "fork (");
     unparse_expr(str, fork_stmt.time);
@@ -324,7 +340,7 @@ unparse_stmt_catch(Stream * str, struct Stmt_Catch catch, int indent)
 	indent_stmt(str, indent);
 	stream_add_string(str, "except ");
 	if (ex->id >= 0)
-	    stream_printf(str, "%s ", prog->var_names[ex->id]);
+	    stream_printf(str, "%s ", var_name(ex->id));
 	stream_add_char(str, '(');
 	if (ex->codes)
 	    unparse_arglist(str, ex->codes);
@@ -369,7 +385,7 @@ unparse_stmt(Stmt * stmt, int indent)
 		stream_add_string(str, "while (");
 	    else
 		stream_printf(str, "while %s (",
-			      prog->var_names[stmt->s.loop.id]);
+			      var_name(stmt->s.loop.id));
 	    unparse_expr(str, stmt->s.loop.condition);
 	    stream_add_char(str, ')');
 	    output(str);
@@ -412,7 +428,7 @@ unparse_stmt(Stmt * stmt, int indent)
 		    stream_printf(str, "%s;", kwd);
 		else
 		    stream_printf(str, "%s %s;", kwd,
-				  prog->var_names[stmt->s.exit]);
+				  var_name(stmt->s.exit));
 		output(str);
 	    }
 	    break;
@@ -465,6 +481,11 @@ unparse_name_expr(Stream * str, Expr * expr)
 static void
 unparse_expr(Stream * str, Expr * expr)
 {
+    if (!expr) {
+	errlog("UNPARSE_EXPR: missing expression\n");
+	stream_add_string(str, "(?!?!?!?!?)");
+	return;
+    }
     switch (expr->kind) {
     case EXPR_PROP:
 	if (expr->e.bin.lhs->kind == EXPR_VAR
@@ -588,14 +609,27 @@ unparse_expr(Stream * str, Expr * expr)
 	break;
 
     case EXPR_CALL:
-	stream_add_string(str, name_func_by_num(expr->e.call.func));
-	stream_add_char(str, '(');
-	unparse_arglist(str, expr->e.call.args);
-	stream_add_char(str, ')');
+	{
+	    Arg_List *args = expr->e.call.args;
+
+	    if (expr->e.call.func == FUNC_NOT_FOUND) {
+		/* a builtin this server lacks, named by the first argument */
+		if (args && args->expr && args->expr->kind == EXPR_VAR
+		    && args->expr->e.var.type == TYPE_STR) {
+		    stream_add_string(str, args->expr->e.var.v.str);
+		    args = args->next;
+		} else
+		    stream_add_string(str, "?!?!?!?");
+	    } else
+		stream_add_string(str, name_func_by_num(expr->e.call.func));
+	    stream_add_char(str, '(');
+	    unparse_arglist(str, args);
+	    stream_add_char(str, ')');
+	}
 	break;
 
     case EXPR_ID:
-	stream_add_string(str, prog->var_names[expr->e.id]);
+	stream_add_string(str, var_name(expr->e.id));
 	break;
 
     case EXPR_LIST:
@@ -658,10 +692,10 @@ unparse_scatter(Stream * str, Scatter * sc)
 	    stream_add_char(str, '@');
 	    /* FALLS THROUGH */
 	case SCAT_REQUIRED:
-	    stream_add_string(str, prog->var_names[sc->id]);
+	    stream_add_string(str, var_name(sc->id));
 	    break;
 	case SCAT_OPTIONAL:
-	    stream_printf(str, "?%s", prog->var_names[sc->id]);
+	    stream_printf(str, "?%s", var_name(sc->id));
 	    if (sc->expr) {
 		stream_add_string(str, " = ");
 		unparse_expr(str, sc->expr);
@@ -679,11 +713,24 @@ unparse_program(Program * p, Unparser_Receiver r, void *data,
 {
     Stmt *stmt = decompile_program(p, f_index);
 
-    prog = p;
+    var_names = p->var_names;
+    num_var_names = p->num_var_names;
     receiver = r;
     receiver_data = data;
     list_prg(stmt, fully_parenthesize, indent_lines);
     free_stmt(stmt);
+}
+
+void
+unparse_tree(Stmt * stmt, const char **names, unsigned num_names,
+	     Unparser_Receiver r, void *data,
+	     int fully_parenthesize, int indent_lines)
+{
+    var_names = names;
+    num_var_names = num_names;
+    receiver = r;
+    receiver_data = data;
+    list_prg(stmt, fully_parenthesize, indent_lines);
 }
 
 static void

@@ -30,3 +30,5 @@ moo
 *.bak
 *.d
 *~
+*.gcno
+*.gcda

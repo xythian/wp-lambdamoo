@@ -43,6 +43,9 @@ struct Arg_List {
     Arg_List *next;
     enum Arg_Kind kind;
     Expr *expr;
+#if AST_BUILTINS
+    int line;
+#endif
 };
 
 enum Scatter_Kind {
@@ -56,6 +59,9 @@ struct Scatter {
     Expr *expr;
     /* These fields for convenience during code generation and decompiling */
     int label, next_label;
+#if AST_BUILTINS
+    int line;
+#endif
 };
 
 struct Expr_Call {
@@ -115,12 +121,18 @@ union Expr_Data {
 struct Expr {
     enum Expr_Kind kind;
     union Expr_Data e;
+#if AST_BUILTINS
+    int line;
+#endif
 };
 
 struct Cond_Arm {
     Cond_Arm *next;
     Expr *condition;
     Stmt *stmt;
+#if AST_BUILTINS
+    int line;
+#endif
 };
 
 struct Except_Arm {
@@ -130,6 +142,9 @@ struct Except_Arm {
     Stmt *stmt;
     /* This field is for convenience during code generation and decompiling */
     int label;
+#if AST_BUILTINS
+    int line;
+#endif
 };
 
 struct Stmt_Cond {
@@ -192,6 +207,9 @@ struct Stmt {
     Stmt *next;
     enum Stmt_Kind kind;
     union Stmt_Data s;
+#if AST_BUILTINS
+    int line;
+#endif
 };
 
 
@@ -209,6 +227,21 @@ extern Except_Arm *alloc_except(int, Arg_List *, Stmt *);
 extern Scatter *alloc_scatter(enum Scatter_Kind, int, Expr *);
 extern char *alloc_string(const char *);
 
+#if AST_BUILTINS
+/* Source line given to each node as it is allocated; the parser sets it. */
+extern int ast_line;
+
+/* Parse CODE, a list of lines, into a tree for the AST builtins instead of
+ * a program.  DIAGS gets {severity, line, message} for each error and
+ * warning.  Returns true when there were no errors; the caller then owns
+ * TREE (free_stmt()) and NAMES (free_names()).  LENIENT makes an unknown
+ * builtin a warning, kept as an EXPR_CALL to FUNC_NOT_FOUND whose first
+ * argument is the name.
+ */
+extern int parse_list_as_tree(Var code, int lenient, Var *diags,
+			      Stmt **tree, Names **names);
+#endif
+
 extern void dealloc_node(void *);
 extern void dealloc_string(char *);
 extern void free_stmt(Stmt *);
@@ -222,12 +255,12 @@ extern void free_stmt(Stmt *);
 extern FlBox astpool_recv_float(FlBox);
 
 /* Shortcut negation constant-folding. */
-inline void flbox_negate_in_place(FlBox *fp) { **fp = -**fp; }
+static inline void flbox_negate_in_place(FlBox *fp) { **fp = -**fp; }
 
 #else /* !FLOATS_ARE_BOXED */
 
-inline FlBox astpool_recv_float(FlBox fp)    { return fp;  }
-inline void flbox_negate_in_place(FlBox *fp) { *fp = -*fp; }
+static inline FlBox astpool_recv_float(FlBox fp)    { return fp;  }
+static inline void flbox_negate_in_place(FlBox *fp) { *fp = -*fp; }
 
 #endif
 

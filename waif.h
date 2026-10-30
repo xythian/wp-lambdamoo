@@ -203,6 +203,13 @@ extern void free_waif(Waif *);
 extern Waif *dup_waif(Waif *);
 extern enum error waif_get_prop(Waif *, const char *, Var *, Objid progr);
 extern enum error waif_put_prop(Waif *, const char *, Var, Objid progr);
+
+/* clear_property() and is_clear_property() on a waif.  The name is
+ * given without its WAIF_PROP_PREFIX, as in waif_get_prop().
+ */
+extern enum error waif_is_clear_prop(Waif *, const char *, int *clear,
+				     Objid progr);
+extern enum error waif_clear_prop(Waif *, const char *, Objid progr);
 extern  size_t waif_bytes(Waif *);
 extern  Var *waif_propvals(Waif *, int *);
 extern void dbio_write_waif(Var);

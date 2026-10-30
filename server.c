@@ -363,7 +363,8 @@ set_checkpoint_timer(int first_time)
     if (v.type != TYPE_INT || v.v.num < 60) {
 	free_var(v);
 	interval = 3600;	/* Once per hour */
-    } else if (v.v.num > INT_MAX)
+    }
+    else if (v.v.num > INT_MAX)
 	interval = INT_MAX;	/* don't truncate to a short interval */
     else
 	interval = v.v.num;
@@ -750,6 +751,7 @@ emergency_mode(void)
 	    if (!is_wizard(wizard)) {
 		if (first_valid < 0) {
 		    first_valid = db_create_object();
+		    db_set_object_owner(first_valid, first_valid);
 		    printf("** No objects in database; created #%"PRIdN".\n",
 			   first_valid);
 		}
@@ -965,6 +967,7 @@ emergency_mode(void)
     return start_ok;
  abort:
     printf("Bye.  (%s)\n\n", "NOT saving database");
+    network_shutdown();
     exit(1);
 }
 
@@ -1506,16 +1509,15 @@ main(int argc, char **argv)
 	    exit(1);
 
 	main_loop();
+    }
 #if NETWORK_PROTOCOL == NP_SESSION
-	/* Sessions are detached naming the final dump, so it comes first. */
-	db_shutdown();
-	network_shutdown();
+    /* Sessions are detached naming the final dump, so it comes first. */
+    db_shutdown();
+    network_shutdown();
 #else
-	network_shutdown();
-	db_shutdown();
+    network_shutdown();
+    db_shutdown();
 #endif
-    } else
-	db_shutdown();
     free_str(this_program);
 
     return 0;

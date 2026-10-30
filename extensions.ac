@@ -72,8 +72,10 @@ END_UCD_MAKE
     --with- relib = LIB,..
       %?  choose RE engine (ylo,pcre)
 
-    # yes, this is a hack:
-    %ac_yes AS_IF([[$moo_xt_do_unicode]], [%LIBS%[=pcre]], [%LIBS%[=ylo]])
+    # PCRE2 by default for every build, so match() and rmatch() behave
+    # the same with or without Unicode; --with-relib=ylo selects the old
+    # engine
+    %ac_yes pcre
 
     %lib ylo
       XT_CSRCS = regexpr.c pattern_ylo.c
@@ -126,6 +128,30 @@ END
 $(expat_dir)/xmlparse/libexpat.a:
 	$(MAKE) -C $(expat_dir) xmlparse/libexpat.a
 END
+
+##==============
+%%extension ast
+##==============
+  %disabled
+  %? Parser access:
+
+  --enable- ast
+    %?  add ast_parse(), ast_unparse() and ast_info()
+
+  XT_CSRCS = ext-ast.c
+  %cdefine AST_BUILTINS
+
+##==================
+%%extension unitext
+##==================
+  %disabled
+  %? Unicode text functions:
+
+  --enable- unitext
+    %?  add string_width() and other text builtins
+    %?  (also useful without --enable-unicode)
+
+  XT_CSRCS = ext-unitext.c
 
 ##================
 %%extension waifs
