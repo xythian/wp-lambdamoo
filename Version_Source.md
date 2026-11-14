@@ -102,6 +102,36 @@ To match a running server back to a release, use `server_version()`
 (the `+wp.`N part) or `server_version("source")` (`commit`, `wp_desc`).
 A trailing `?`N in `ext` means the server was built from modified sources.
 
+## Staging releases
+
+The long-lived `staging` branch carries `waterpoint` plus the features
+baking on Waterpoint's staging server before they are proposed for
+`waterpoint` (today the session network backend and bound values).
+It merges `waterpoint` and each feature branch rather than rebasing,
+so the feature branches stay reviewable on their own.
+
+Staging releases are tagged `wps-`N on `staging`:
+
+    git tag wps-1 <commit>
+    git push origin wps-1
+
+A build that reaches a `wps-`N tag reports `+wps.`N instead of `+wp.`N,
+counting commits from the `wps-` tag, and `source/wp_desc` describes that
+tag, unless the `wps-` tag is already in the history of the `wp-` tag it
+reaches (which happens only if staging is merged into `waterpoint`).
+
+CI (`.github/workflows/staging.yml`) builds each `staging` commit with
+the `waterpoint` flags plus `--enable-bound=struct`, twice: with the TCP
+backend and with the session backend (`--enable-net=session,poll,outoff,require`).
+It runs lambdamoo-tests against both. A `wps-`N tag publishes a GitHub
+prerelease with `moo-wps-`N`-ubuntu-26.04-x86_64.tar.gz` (TCP) and
+`moo-wps-`N`-session-ubuntu-26.04-x86_64.tar.gz`, each with `moo`,
+`Minimal.db` and `BUILDINFO`. Being a prerelease, it never becomes
+GitHub's latest release, which stays a `wp-`N.
+
+A staging build may write a database that the current `wp-`N cannot
+read (bound values use format 5).
+
 ## Options for ./configure
 
 Note that as per convention for all `--enable` and `--with` options,
