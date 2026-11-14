@@ -286,9 +286,10 @@ m4_define([_MOO_SVF_SOURCE_GIT],
 #    extract version number from moo_gdesc
 #    set and write out
 #      moo_{MAJOR, MINOR, RELEASE}
-#    if a Waterpoint release tag (wp-N) is reachable, save its
-#      'git describe' in moo_wpdesc and append +wp.N to moo_EXT,
-#      counting commits since wp-N rather than since the v* tag
+#    if a Waterpoint release tag (wp-N) or staging release tag (wps-N)
+#      is reachable, save the nearer one's 'git describe' in moo_wpdesc
+#      and append +wp.N or +wps.N to moo_EXT, counting commits since
+#      that tag rather than since the v* tag
 #    if current commit is not the version-tagged one
 #      appends +n to moo_EXT if moo_EXT is not already set
 #    does *not* write out moo_EXT
@@ -314,9 +315,24 @@ m4_define([_MOO_SVF_VN_FROM_GIT],
   # tags with anything but digits after wp- are not releases
   moo_wpdesc=`git describe --tags --match "wp-[0-9]*" --exclude "wp-*[!0-9]*" 2>/dev/null`
   moo_wprel=`expr "X$moo_wpdesc" : 'Xwp-\([0-9][0-9]*\)'`
+  moo_wpkind=wp
+  # Staging releases are tagged wps-N on the staging branch, which
+  # carries waterpoint and so reaches wp-N tags too.  A build that
+  # reaches a wps-N tag is a staging build, unless that tag is already
+  # in the history of the wp-N tag it reaches.
+  moo_wpsdesc=`git describe --tags --match "wps-[0-9]*" --exclude "wps-*[!0-9]*" 2>/dev/null`
+  moo_wpsrel=`expr "X$moo_wpsdesc" : 'Xwps-\([0-9][0-9]*\)'`
+  if test "x$moo_wpsrel" != x; then
+      if test "x$moo_wprel" = x ||
+         ! git merge-base --is-ancestor "wps-$moo_wpsrel" "wp-$moo_wprel" 2>/dev/null; then
+          moo_wpdesc=$moo_wpsdesc
+          moo_wprel=$moo_wpsrel
+          moo_wpkind=wps
+      fi
+  fi
   if test "x$moo_wprel" != x; then
-      moo_EXT=$moo_EXT+wp.$moo_wprel
-      moo_ccount=`expr "X$moo_wpdesc" : 'Xwp-[0-9][0-9]*-\([0-9][0-9]*\)-g'`
+      moo_EXT=$moo_EXT+$moo_wpkind.$moo_wprel
+      moo_ccount=`expr "X$moo_wpdesc" : 'X'$moo_wpkind'-[0-9][0-9]*-\([0-9][0-9]*\)-g'`
   else
       moo_wpdesc=
   fi
