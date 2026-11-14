@@ -43,6 +43,7 @@
 #include "str_intern.h"
 #include "tasks.h"
 #include "timers.h"
+#include "utils.h"
 #include "version.h"
 
 static char *input_db_name, *dump_db_name;
@@ -542,6 +543,41 @@ fmt_verb_name(void *data)
     return reset_stream(s);
 }
 
+/*
+ *  From DBV_Bound on, the header line is followed by the writing server's
+ *  server_version("") tree, so a database records which server, build
+ *  options and source commit last wrote it.  Loading only logs it.
+ */
+static int
+read_writer(void)
+{
+    Var writer, version, desc;
+
+    if (!dbio_read_var(&writer) || writer.type != TYPE_LIST) {
+	errlog("READ_DB_FILE: Bad DB header (no writing server record)\n");
+	free_var(writer);
+	return 0;
+    }
+    version = version_tree_lookup(writer, "string");
+    desc = version_tree_lookup(writer, "source/desc");
+    oklog("LOADING: Written by version %s (%s)\n",
+	  version.type == TYPE_STR ? version.v.str : "unknown",
+	  desc.type == TYPE_STR ? desc.v.str : "unknown source");
+    free_var(version);
+    free_var(desc);
+    free_var(writer);
+    return 1;
+}
+
+static void
+write_writer(void)
+{
+    Var writer = server_version_full(zero);
+
+    dbio_write_var(writer);
+    free_var(writer);
+}
+
 static int
 read_db_file(void)
 {
@@ -569,6 +605,8 @@ read_db_file(void)
 	       dbio_input_version);
 	return 0;
     }
+    if (dbio_input_version >= DBV_Bound && !read_writer())
+	return 0;
 
     if (!dbio_scxnf("%"SCNuN"\n%"SCNuN"\n%*d\n%"SCNuN,
 		    &nobjs, &nprogs, &nusers)) {
@@ -665,7 +703,9 @@ write_db_file(const char *reason)
 
     TRY {
 	dbio_printf(header_format_string, current_db_version);
-	dbio_printf("\n%"PRIdN"\n%d\n%d\n%"PRIdN"\n",
+	dbio_printf("\n");
+	write_writer();
+	dbio_printf("%"PRIdN"\n%d\n%d\n%"PRIdN"\n",
 		    max_oid + 1, nprogs, 0, user_list.v.list[0].v.num);
 	for (i = 1; i <= user_list.v.list[0].v.num; i++)
 	    dbio_write_objid(user_list.v.list[i].v.obj);

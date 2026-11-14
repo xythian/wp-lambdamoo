@@ -19,6 +19,7 @@
 
 #include "execute.h"
 #include "bf_register.h"
+#include "bound.h"
 
 #include "config.h"
 #include "options.h"
@@ -65,6 +66,7 @@ static Num root_activ_vector;	/* root_activ_vector == MAIN_VECTOR
 static int ticks_remaining;
 int task_timed_out;
 static int interpreter_is_running = 0;
+static unsigned non_suspending_depth = 0;
 static Timer_ID task_alarm_id;
 
 static const char *handler_verb_name;	/* For in-DB traceback handling */
@@ -237,9 +239,36 @@ error_backtrace_list(const char *msg)
     return backtrace_list;
 }
 
+void
+enter_non_suspending(void)
+{
+    if (non_suspending_depth == (unsigned) -1)
+        panic("non-suspending depth overflow");
+    non_suspending_depth++;
+}
+
+void
+leave_non_suspending(void)
+{
+    if (!non_suspending_depth)
+        panic("non-suspending depth underflow");
+    non_suspending_depth--;
+}
+
+int
+task_can_suspend(void)
+{
+    return non_suspending_depth == 0;
+}
+
 static enum error
 suspend_task(package p)
 {
+    if (!task_can_suspend()) {
+        if (p.u.susp.cancel)
+            p.u.susp.cancel(p.u.susp.data);
+        return E_INVARG;
+    }
     vm the_vm = new_vm(current_task_id, top_activ_stack + 1);
     unsigned i;
     enum error e;
@@ -1582,6 +1611,15 @@ do {								\
 
 		propname = POP();	/* should be string */
 		obj = POP();	/* should be objid */
+#ifdef BOUND_CORE
+		if (obj.type == TYPE_BOUND && propname.type == TYPE_STR) {
+		    enum error err = bound_get_prop(obj.v.bound, propname.v.str, &prop,
+		                                    RUN_ACTIV.progr);
+		    free_var(propname); free_var(obj);
+		    if (err == E_NONE) PUSH(prop); else PUSH_ERROR(err);
+		}
+		else
+#endif
 #ifdef WAIF_CORE
 		if (obj.type == TYPE_WAIF && propname.type == TYPE_STR) {
 		    enum error err;
@@ -1631,6 +1669,14 @@ do {								\
 
 		propname = TOP_RT_VALUE;
 		obj = NEXT_TOP_RT_VALUE;
+#ifdef BOUND_CORE
+		if (obj.type == TYPE_BOUND && propname.type == TYPE_STR) {
+		    enum error err = bound_get_prop(obj.v.bound, propname.v.str, &prop,
+		                                    RUN_ACTIV.progr);
+		    if (err == E_NONE) PUSH(prop); else PUSH_ERROR(err);
+		}
+		else
+#endif
 #ifdef WAIF_CORE
 		if (obj.type == TYPE_WAIF && propname.type == TYPE_STR) {
 		    enum error err;
@@ -1673,6 +1719,15 @@ do {								\
 		rhs = POP();	/* any type */
 		propname = POP();	/* should be string */
 		obj = POP();	/* should be objid */
+#ifdef BOUND_CORE
+		if (obj.type == TYPE_BOUND && propname.type == TYPE_STR) {
+		    enum error err = bound_put_prop(obj.v.bound, propname.v.str, rhs,
+		                                    RUN_ACTIV.progr);
+		    free_var(propname); free_var(obj);
+		    if (err == E_NONE) PUSH(rhs); else { free_var(rhs); PUSH_ERROR(err); }
+		}
+		else
+#endif
 #ifdef WAIF_CORE
 		if (obj.type == TYPE_WAIF && propname.type == TYPE_STR) {
 		    enum error err;
@@ -1816,6 +1871,35 @@ do {								\
 
 		if (args.type != TYPE_LIST || verb.type != TYPE_STR)
 		    err = E_TYPE;
+#ifdef BOUND_CORE
+		else if (obj.type == TYPE_BOUND) {
+                    package p;
+                    STORE_STATE_VARIABLES();
+                    p = bound_call_verb(obj.v.bound, verb.v.str, args, RUN_ACTIV.progr);
+                    args.type = TYPE_NONE;
+                    free_var(obj); obj.type = TYPE_NONE;
+                    free_var(verb); verb.type = TYPE_NONE;
+                    switch (p.kind) {
+                    case BI_RETURN: LOAD_STATE_VARIABLES(); PUSH(p.u.ret); break;
+                    case BI_RAISE:
+                        if (RUN_ACTIV.debug) {
+                            if (raise_error(p, 0)) return OUTCOME_ABORTED;
+                            LOAD_STATE_VARIABLES();
+                        } else {
+                            LOAD_STATE_VARIABLES(); PUSH(p.u.raise.code);
+                            free_str(p.u.raise.msg); free_var(p.u.raise.value);
+                        }
+                        break;
+                    case BI_ABORT: abort_task(p.u.why); return OUTCOME_ABORTED;
+                    case BI_SUSPEND:
+                        err = suspend_task(p);
+                        if (err == E_NONE) return OUTCOME_BLOCKED;
+                        LOAD_STATE_VARIABLES();
+                        break;
+                    case BI_CALL: panic("bound verb returned unsupported BI_CALL");
+                    }
+                }
+#endif
 #ifdef WAIF_CORE
 		else if (obj.type == TYPE_WAIF) {
 		    if (!valid(class = obj.v.waif->class))

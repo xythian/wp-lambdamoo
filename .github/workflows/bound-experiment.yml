@@ -1,0 +1,61 @@
+name: Bound values experiment
+
+# Builds the waterpoint config plus --enable-bound=struct (the bytes, stream
+# and struct.cursor providers) and runs lambdamoo-tests against it.  The
+# main CI workflow covers the same branch with bound values disabled.
+on:
+  pull_request:
+    branches: [ waterpoint ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build and test (Ubuntu 26.04, waterpoint config + bound values)
+    runs-on: ubuntu-26.04
+
+    steps:
+    - name: Checkout wp-lambdamoo
+      uses: actions/checkout@v4
+      with:
+        path: wp-lambdamoo
+        fetch-depth: 0
+
+    - name: Checkout lambdamoo-tests
+      uses: actions/checkout@v4
+      with:
+        repository: xythian/lambdamoo-tests
+        path: lambdamoo-tests
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y autoconf make gcc gperf bison \
+          libpcre2-dev libexpat1-dev libunistring-dev libcrypt-dev
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install test suite
+      working-directory: lambdamoo-tests
+      run: uv sync
+
+    - name: Build (waterpoint flags + --enable-bound=struct)
+      working-directory: lambdamoo-tests
+      run: >-
+        uv run lmt build --no-cache --source ../wp-lambdamoo --output ../dist
+        --configure-flags="--enable-sz=i64 --enable-unicode --enable-xml
+        --enable-waifs=dict --enable-def-BITWISE_OPERATORS --enable-bound=struct"
+
+    - name: Check the build has bound values
+      run: strings dist/moo | grep -q -- '--enable-bound=struct'
+
+    - name: Run lmt tests
+      working-directory: lambdamoo-tests
+      env:
+        MOO_MINIMAL_DB: ${{ github.workspace }}/wp-lambdamoo/Minimal.db
+      run: uv run lmt test --candidate ../dist/moo -m "not upgrade"
