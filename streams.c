@@ -77,6 +77,12 @@ disable_stream_exceptions(void)
     --allow_stream_exceptions;
 }
 
+size_t
+stream_size_limit(void)
+{
+    return allow_stream_exceptions > 0 ? stream_alloc_maximum : SIZE_MAX;
+}
+
 static int
 grew(Stream * s, size_t need)
 {
@@ -236,6 +242,15 @@ stream_contents(Stream * s)
 {
     s->buffer[s->current] = '\0';
     return s->buffer;
+}
+
+char *
+stream_detach(Stream *s, size_t *length)
+{
+    char *buffer = stream_contents(s);
+    *length = s->current;
+    myfree(s, M_STREAM);
+    return buffer;
 }
 
 size_t

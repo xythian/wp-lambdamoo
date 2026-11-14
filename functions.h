@@ -141,9 +141,10 @@ typedef struct {
 	    void *data;
 	} call;
 	struct {
-	    enum error (*proc) (vm, void *);
-	    void *data;
-	} susp;
+            enum error (*proc) (vm, void *);
+            void (*cancel) (void *);
+            void *data;
+        } susp;
 	enum abort_reason why;
     } u;
 } package;
@@ -159,6 +160,8 @@ package no_var_pack(void);
 package make_call_pack(Byte pc, void *vdata);
 package tail_call_pack(void);
 package make_suspend_pack(enum error (*) (vm, void *), void *);
+package make_suspend_pack_with_cancel(enum error (*)(vm, void *), void *,
+                                      void (*)(void *));
 package make_space_pack(void);
 
 /*----------------*

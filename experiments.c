@@ -194,12 +194,18 @@ stdin_suspender(vm the_vm, void *data)
     return E_NONE;
 }
 
+static void
+free_stdin_waiter(void *data)
+{
+    myfree(data, M_TASK);
+}
+
 static package
 bf_read_stdin(Var arglist UNUSED_, Byte next UNUSED_, void *vdata UNUSED_, Objid progr UNUSED_)
 {
     stdin_waiter *w = mymalloc(sizeof(stdin_waiter), M_TASK);
 
-    return make_suspend_pack(stdin_suspender, w);
+    return make_suspend_pack_with_cancel(stdin_suspender, w, free_stdin_waiter);
 }
 
 /*\ Again, something that only *this* file does because we are

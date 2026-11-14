@@ -1419,10 +1419,10 @@ queue_data(session_handle *h, const unsigned char *data, size_t length,
 }
 
 int
-network_send_line(network_handle nh, const char *line, int flush_ok)
+network_send_bytes_line(network_handle nh, const char *line, size_t length,
+                        int flush_ok)
 {
     session_handle *h = nh.ptr;
-    size_t length = strlen(line);
     unsigned char *buffer = malloc(length + 2);
     int result;
 
@@ -1434,6 +1434,12 @@ network_send_line(network_handle nh, const char *line, int flush_ok)
     result = queue_data(h, buffer, length + 2, flush_ok);
     free(buffer);
     return result;
+}
+
+int
+network_send_line(network_handle nh, const char *line, int flush_ok)
+{
+    return network_send_bytes_line(nh, line, strlen(line), flush_ok);
 }
 
 int

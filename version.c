@@ -196,18 +196,27 @@ Var
 server_version_full(Var arg)
 {
     Var r;
-    const char *s;
-    Var *tree;
+
     if (!version_structure) {
 	init_version_structure();
     }
-    if (arg.type != TYPE_STR || arg.v.str[0] == '\0' ) {
-	r.type   = TYPE_LIST;
-	r.v.list = version_structure;
+    r.type   = TYPE_LIST;
+    r.v.list = version_structure;
+    if (arg.type != TYPE_STR || arg.v.str[0] == '\0' )
 	return var_ref(r);
-    }
-    s = arg.v.str;
-    tree = version_structure;
+    return version_tree_lookup(r, arg.v.str);
+}
+
+Var
+version_tree_lookup(Var root, const char *path)
+{
+    Var r;
+    const char *s = path;
+    Var *tree;
+
+    if (root.type != TYPE_LIST || root.v.list[0].v.num <= 0 || *s == '\0')
+	goto fail;
+    tree = root.v.list;
     for (;;) {
 	/* invariants:
 	 *   s is a nonempty string;
@@ -254,6 +263,7 @@ server_version_full(Var arg)
 	     tree[1].type != TYPE_LIST))
 	    break;
     }
+  fail:
     r.type  = TYPE_ERR;
     r.v.err = E_INVARG;
     return r;
@@ -266,5 +276,5 @@ server_version_full(Var arg)
 int
 check_db_version(DB_Version version)
 {
-    return version < Num_DB_Versions;
+    return version >= DBV_Prehistory && version <= current_db_version;
 }
